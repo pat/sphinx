@@ -301,6 +301,7 @@ static KeyDesc_t g_dKeysSearchd[] =
 	{ "collation_server",		0, NULL },
 	{ "collation_libc_locale",	0, NULL },
 	{ "watchdog",				0, NULL },
+	{ "client_key",				0, NULL },
 	{ NULL,						0, NULL }
 };
 
