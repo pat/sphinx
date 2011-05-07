@@ -1,9 +1,11 @@
 //
-// $Id: sphinxfilter.cpp 1848 2009-06-21 13:46:56Z shodan $
+// $Id: sphinxfilter.cpp 2308 2010-05-19 19:09:23Z shodan $
 //
 
 //
-// Copyright (c) 2001-2008, Andrew Aksyonoff. All rights reserved.
+// Copyright (c) 2001-2010, Andrew Aksyonoff
+// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License. You should have
@@ -45,7 +47,7 @@ struct IFilter_Values: virtual ISphFilter
 		assert ( iCount > 0 );
 		#ifndef NDEBUG // values must be sorted
 		for ( int i = 1; i < iCount; i++ )
-			assert ( pStorage[i-1] <= pStorage[i] );
+			assert ( pStorage[i-1]<=pStorage[i] );
 		#endif
 
 		m_pValues = pStorage;
@@ -54,7 +56,7 @@ struct IFilter_Values: virtual ISphFilter
 
 	inline const SphAttr_t GetValue ( int iIndex ) const
 	{
-		assert ( iIndex >= 0 && iIndex < m_iValueCount );
+		assert ( iIndex>=0 && iIndex<m_iValueCount );
 		return m_pValues[iIndex];
 	}
 
@@ -93,7 +95,7 @@ bool IFilter_Values::EvalBlockValues ( SphAttr_t uBlockMin, SphAttr_t uBlockMax 
 {
 	// is any of our values inside the block?
 	for ( int i = 0; i < m_iValueCount; i++ )
-		if ( GetValue(i) >= uBlockMin && GetValue(i) <= uBlockMax )
+		if ( GetValue(i)>=uBlockMin && GetValue(i)<=uBlockMax )
 			return true;
 	return false;
 }
@@ -130,7 +132,7 @@ struct IFilter_MVA: virtual IFilter_Attr
 		m_pMvaStorage = pMva;
 	}
 
-	inline bool LoadMVA( const CSphMatch & tMatch, const DWORD ** pMva, const DWORD ** pMvaMax ) const
+	inline bool LoadMVA ( const CSphMatch & tMatch, const DWORD ** pMva, const DWORD ** pMvaMax ) const
 	{
 		assert ( m_pMvaStorage );
 
@@ -155,13 +157,13 @@ struct Filter_Values: public IFilter_Attr, IFilter_Values
 		return EvalValues ( tMatch.GetAttr ( m_tLocator ) );
 	}
 
-	virtual bool EvalBlock ( const DWORD * pMinDocinfo, const DWORD * pMaxDocinfo, int iSchemaSize ) const
+	virtual bool EvalBlock ( const DWORD * pMinDocinfo, const DWORD * pMaxDocinfo ) const
 	{
-		if ( m_tLocator.m_iBitOffset >= iSchemaSize )
+		if ( m_tLocator.m_bDynamic )
 			return true; // ignore computed attributes
 
-		SphAttr_t uBlockMin = sphGetRowAttr ( DOCINFO2ATTRS(pMinDocinfo), m_tLocator );
-		SphAttr_t uBlockMax = sphGetRowAttr ( DOCINFO2ATTRS(pMaxDocinfo), m_tLocator );
+		SphAttr_t uBlockMin = sphGetRowAttr ( DOCINFO2ATTRS ( pMinDocinfo ), m_tLocator );
+		SphAttr_t uBlockMax = sphGetRowAttr ( DOCINFO2ATTRS ( pMaxDocinfo ), m_tLocator );
 
 		return EvalBlockValues ( uBlockMin, uBlockMax );
 	}
@@ -171,16 +173,16 @@ struct Filter_Range: public IFilter_Attr, IFilter_Range
 {
 	virtual bool Eval ( const CSphMatch & tMatch ) const
 	{
- 		return EvalRange ( tMatch.GetAttr ( m_tLocator ) );
+		return EvalRange ( tMatch.GetAttr ( m_tLocator ) );
 	}
 
-	virtual bool EvalBlock ( const DWORD * pMinDocinfo, const DWORD * pMaxDocinfo, int iSchemaSize ) const
+	virtual bool EvalBlock ( const DWORD * pMinDocinfo, const DWORD * pMaxDocinfo ) const
 	{
-		if ( m_tLocator.m_iBitOffset >= iSchemaSize )
+		if ( m_tLocator.m_bDynamic )
 			return true; // ignore computed attributes
 
-		SphAttr_t uBlockMin = sphGetRowAttr ( DOCINFO2ATTRS(pMinDocinfo), m_tLocator );
-		SphAttr_t uBlockMax = sphGetRowAttr ( DOCINFO2ATTRS(pMaxDocinfo), m_tLocator );
+		SphAttr_t uBlockMin = sphGetRowAttr ( DOCINFO2ATTRS ( pMinDocinfo ), m_tLocator );
+		SphAttr_t uBlockMax = sphGetRowAttr ( DOCINFO2ATTRS ( pMaxDocinfo ), m_tLocator );
 		return (!( m_uMaxValue<uBlockMin || m_uMinValue>uBlockMax )); // not-reject
 	}
 };
@@ -200,17 +202,17 @@ struct Filter_FloatRange: public IFilter_Attr
 
 	virtual bool Eval ( const CSphMatch & tMatch ) const
 	{
- 		const float & fValue = tMatch.GetAttrFloat ( m_tLocator );
- 		return fValue >= m_fMinValue && fValue <= m_fMaxValue;
+		const float & fValue = tMatch.GetAttrFloat ( m_tLocator );
+		return fValue>=m_fMinValue && fValue<=m_fMaxValue;
 	}
 
-	virtual bool EvalBlock ( const DWORD * pMinDocinfo, const DWORD * pMaxDocinfo, int iSchemaSize ) const
+	virtual bool EvalBlock ( const DWORD * pMinDocinfo, const DWORD * pMaxDocinfo ) const
 	{
-		if ( m_tLocator.m_iBitOffset >= iSchemaSize )
+		if ( m_tLocator.m_bDynamic )
 			return true; // ignore computed attributes
 
-		float fBlockMin = sphDW2F ( (DWORD)sphGetRowAttr ( DOCINFO2ATTRS(pMinDocinfo), m_tLocator ) );
-		float fBlockMax = sphDW2F ( (DWORD)sphGetRowAttr ( DOCINFO2ATTRS(pMaxDocinfo), m_tLocator ) );
+		float fBlockMin = sphDW2F ( (DWORD)sphGetRowAttr ( DOCINFO2ATTRS ( pMinDocinfo ), m_tLocator ) );
+		float fBlockMax = sphDW2F ( (DWORD)sphGetRowAttr ( DOCINFO2ATTRS ( pMaxDocinfo ), m_tLocator ) );
 		return (!( m_fMaxValue<fBlockMin || m_fMinValue>fBlockMax )); // not-reject
 	}
 };
@@ -224,12 +226,17 @@ struct Filter_IdValues: public IFilter_Values
 		return EvalValues ( tMatch.m_iDocID );
 	}
 
-	virtual bool EvalBlock ( const DWORD * pMinDocinfo, const DWORD * pMaxDocinfo, int ) const
+	virtual bool EvalBlock ( const DWORD * pMinDocinfo, const DWORD * pMaxDocinfo ) const
 	{
-		const SphAttr_t uBlockMin = DOCINFO2ID(pMinDocinfo);
-		const SphAttr_t uBlockMax = DOCINFO2ID(pMaxDocinfo);
+		const SphAttr_t uBlockMin = DOCINFO2ID ( pMinDocinfo );
+		const SphAttr_t uBlockMax = DOCINFO2ID ( pMaxDocinfo );
 
 		return EvalBlockValues ( uBlockMin, uBlockMax );
+	}
+
+	Filter_IdValues ()
+	{
+		m_bUsesAttrs = false;
 	}
 };
 
@@ -239,6 +246,11 @@ struct Filter_IdRange: public IFilter_Range
 	{
 		const SphDocID_t uID = tMatch.m_iDocID;
 		return uID>=(SphDocID_t)m_uMinValue && uID<=(SphDocID_t)m_uMaxValue;
+	}
+
+	Filter_IdRange ()
+	{
+		m_bUsesAttrs = false;
 	}
 };
 
@@ -250,6 +262,11 @@ struct Filter_WeightValues: public IFilter_Values
 	{
 		return EvalValues ( tMatch.m_iWeight );
 	}
+
+	Filter_WeightValues ()
+	{
+		m_bUsesAttrs = false;
+	}
 };
 
 struct Filter_WeightRange: public IFilter_Range
@@ -258,6 +275,11 @@ struct Filter_WeightRange: public IFilter_Range
 	virtual bool Eval ( const CSphMatch & tMatch ) const
 	{
 		return EvalRange ( tMatch.m_iWeight );
+	}
+
+	Filter_WeightRange ()
+	{
+		m_bUsesAttrs = false;
 	}
 };
 
@@ -281,7 +303,7 @@ bool Filter_MVAValues::Eval ( const CSphMatch & tMatch ) const
 	const DWORD * R = pMvaMax - 1;
 	for ( ; pFilter < pFilterMax; pFilter++ )
 	{
-		while ( L <= R )
+		while ( L<=R )
 		{
 			const DWORD * m = L + (R - L) / 2;
 			if ( *pFilter > *m )
@@ -310,7 +332,7 @@ bool Filter_MVARange::Eval ( const CSphMatch & tMatch ) const
 	const DWORD * L = pMva;
 	const DWORD * R = pMvaMax - 1;
 
-	while ( L <= R )
+	while ( L<=R )
 	{
 		const DWORD * m = L + (R - L) / 2;
 		if ( m_uMinValue > *m )
@@ -320,9 +342,9 @@ bool Filter_MVARange::Eval ( const CSphMatch & tMatch ) const
 		else
 			return true;
 	}
-	if ( L == pMvaMax )
+	if ( L==pMvaMax )
 		return false;
-	return *L <= m_uMaxValue;
+	return *L<=m_uMaxValue;
 }
 
 // and
@@ -340,6 +362,7 @@ struct Filter_And: public ISphFilter
 	void Add ( ISphFilter * pFilter )
 	{
 		m_dFilters.Add ( pFilter );
+		m_bUsesAttrs |= pFilter->UsesAttrs();
 	}
 
 	virtual bool Eval ( const CSphMatch & tMatch ) const
@@ -350,10 +373,10 @@ struct Filter_And: public ISphFilter
 		return true;
 	}
 
-	virtual bool EvalBlock ( const DWORD * pMinDocinfo, const DWORD * pMaxDocinfo, int iSchemaSize ) const
+	virtual bool EvalBlock ( const DWORD * pMinDocinfo, const DWORD * pMaxDocinfo ) const
 	{
 		ARRAY_FOREACH ( i, m_dFilters )
-			if ( !m_dFilters[i]->EvalBlock ( pMinDocinfo, pMaxDocinfo, iSchemaSize ) )
+			if ( !m_dFilters[i]->EvalBlock ( pMinDocinfo, pMaxDocinfo ) )
 				return false;
 		return true;
 	}
@@ -362,6 +385,11 @@ struct Filter_And: public ISphFilter
 	{
 		Add ( pFilter );
 		return this;
+	}
+
+	Filter_And ()
+	{
+		m_bUsesAttrs = false;
 	}
 };
 
@@ -372,9 +400,10 @@ struct Filter_Not: public ISphFilter
 	ISphFilter * m_pFilter;
 
 	explicit Filter_Not ( ISphFilter * pFilter )
-		: m_pFilter(pFilter)
+		: m_pFilter ( pFilter )
 	{
 		assert ( pFilter );
+		m_bUsesAttrs = pFilter->UsesAttrs();
 	}
 
 	~Filter_Not ()
@@ -387,7 +416,7 @@ struct Filter_Not: public ISphFilter
 		return !m_pFilter->Eval ( tMatch );
 	}
 
-	virtual bool EvalBlock ( const DWORD *, const DWORD *, int ) const
+	virtual bool EvalBlock ( const DWORD *, const DWORD * ) const
 	{
 		// if block passes through the filter we can't just negate the
 		// result since it's imprecise at this point
@@ -421,8 +450,7 @@ static ISphFilter * CreateSpecialFilter ( const CSphString & sName, ESphFilter e
 				assert ( 0 && "invalid filter on @id" );
 				return NULL;
 		}
-	}
-	else if ( sName=="@weight" )
+	} else if ( sName=="@weight" )
 	{
 		switch ( eFilterType )
 		{
@@ -485,7 +513,7 @@ static ISphFilter * CreateFilter ( DWORD eAttrType, ESphFilter eFilterType, CSph
 	}
 }
 
-ISphFilter * sphCreateFilter ( CSphFilterSettings & tSettings, const CSphSchema & tSchema, const DWORD * pMvaPool, CSphString & sError )
+ISphFilter * sphCreateFilter ( const CSphFilterSettings & tSettings, const CSphSchema & tSchema, const DWORD * pMvaPool, CSphString & sError )
 {
 	ISphFilter * pFilter = 0;
 
@@ -504,8 +532,7 @@ ISphFilter * sphCreateFilter ( CSphFilterSettings & tSettings, const CSphSchema 
 			sError.SetSprintf ( "no such filter attribute '%s'", sAttrName.cstr() );
 			return NULL; // no such attribute
 		}
-	}
-	else
+	} else
 	{
 		assert ( !pFilter );
 
@@ -525,8 +552,16 @@ ISphFilter * sphCreateFilter ( CSphFilterSettings & tSettings, const CSphSchema 
 
 		if ( tSettings.GetNumValues() > 0 )
 		{
-			tSettings.SortValues();
 			pFilter->SetValues ( tSettings.GetValueArray(), tSettings.GetNumValues() );
+
+#ifndef NDEBUG
+			// check that the values are actually sorted
+			const SphAttr_t * pValues = tSettings.GetValueArray();
+			int iValues = tSettings.GetNumValues ();
+
+			for ( int i=1; i<iValues; i++ )
+				assert ( pValues[i]>=pValues[i-1] );
+#endif
 		}
 
 		if ( tSettings.m_bExclude )
@@ -545,5 +580,5 @@ ISphFilter * sphJoinFilters ( ISphFilter * pA, ISphFilter * pB )
 }
 
 //
-// $Id: sphinxfilter.cpp 1848 2009-06-21 13:46:56Z shodan $
+// $Id: sphinxfilter.cpp 2308 2010-05-19 19:09:23Z shodan $
 //

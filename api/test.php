@@ -1,7 +1,7 @@
 <?php
 
 //
-// $Id: test.php 2055 2009-11-06 23:09:58Z shodan $
+// $Id: test.php 2081 2009-11-18 18:13:43Z shodan $
 //
 
 require ( "sphinxapi.php" );
@@ -90,6 +90,7 @@ for ( $i=0; $i<count($args); $i++ )
 		if ( $arg=="none" )		$ranker = SPH_RANK_NONE;
 		if ( $arg=="wordcount" )$ranker = SPH_RANK_WORDCOUNT;
 		if ( $arg=="fieldmask" )$ranker = SPH_RANK_FIELDMASK;
+		if ( $arg=="sph04" )	$ranker = SPH_RANK_SPH04;
 	}
 	else
 		$q .= $args[$i] . " ";
@@ -161,7 +162,7 @@ if ( $res===false )
 }
 
 //
-// $Id: test.php 2055 2009-11-06 23:09:58Z shodan $
+// $Id: test.php 2081 2009-11-18 18:13:43Z shodan $
 //
 
 ?>

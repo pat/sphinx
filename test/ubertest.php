@@ -1,48 +1,12 @@
 <?php
 
 //
-// $Id: ubertest.php 1624 2008-12-25 13:19:55Z shodan $
+// $Id: ubertest.php 2404 2010-07-18 14:56:56Z klirichek $
 //
 
-$sd_address 		= "localhost";
-$sd_port 			= 6712;
-$sd_log				= "searchd.log";
-$sd_query_log		= "query.log";
-$sd_read_timeout	= 5;
-$sd_max_children	= 30;
-$sd_pid_file		= "searchd.pid";
-$sd_max_matches		=  100000;
-
-$db_host			= "localhost";
-$db_user			= "root";
-$db_pwd				= "";
-$db_name			= "test";
-$db_port			= 3306;
-
-$agent_address		= "localhost";
-$agent_port			= 6713;
-
-$agents 			= array ( array ( "address" => $sd_address, "port" => $sd_port ),
-							  array ( "address" => $agent_address, "port" => $agent_port ) );
-
-$index_data_path	= "data";
-
-$g_model			= false;
-$g_id64				= false;
-$g_strict			= false;
-
-require_once ( "helpers.inc" );
-
-if ( $windows )
-{
-	$indexer_path = "..\\bin\\debug\\indexer";
-	$searchd_path = "..\\bin\\debug\\searchd";
-}
-else
-{
-	$indexer_path = "../src/indexer";
-	$searchd_path = "../src/searchd";
-}
+require_once ( "settings.inc" );
+$sd_managed_searchd	= false;
+$sd_skip_indexer = false;
 
 //////////////////////
 // parse command line
@@ -53,7 +17,7 @@ array_shift ( $args );
 
 if ( !is_array($args) || empty($args) )
 {
-	print ( "Usage: php -f ubertest.php <MODE> [OPTIONS] [TESTDIR]\n" );
+	print ( "Usage: php -f ubertest.php <MODE> [OPTIONS] [TESTDIRS ...]\n" );
 	print ( "\nModes are:\n" );
 	print ( "g, gen\t\t\tgenerate reference ('model') test results\n" );
 	print ( "t, test\t\t\trun tests and compare results to reference\n" );
@@ -63,25 +27,34 @@ if ( !is_array($args) || empty($args) )
 	print ( "-i, --indexer <PATH>\tpath to indexer\n" );
 	print ( "-s, --searchd <PATH>\tpath to searchd\n" );
 	print ( "--strict\t\tterminate on the first failure (for automatic runs)\n" );
+	print ( "--managed\t\tdon't run searchd during test (for debugging)\n" );
+	print ( "--skip-indexer\t\tskip DB creation and indexer stages and go directly to queries/custom tests\n");
+	print ( "--rt\t\t\ttest RT backend (auto-convert all local indexes)\n" );
 	print ( "\nEnvironment vriables are:\n" );
-	print ( "DBUSER\tuse 'USER' as MySQL user\n" );
-	print ( "DBPASS\tuse 'PASS' as MySQL password\n" );
+	print ( "DBUSER\t\t\tuse 'USER' as MySQL user\n" );
+	print ( "DBPASS\t\t\tuse 'PASS' as MySQL password\n" );
+	print ( "\nTests can be specified by full name, or list of IDs, or range of IDs.\n" );
 	print ( "\nUsage examples:\n" );
 	print ( "php ubertest.php gen\n" );
 	print ( "php ubertest.php t --user test --password test\n" );
-	print ( "php ubertest.php t test_15\n" );
+	print ( "php ubertest.php t test_015\n" );
+	print ( "php ubertest.php t 31 37 41 53-64\n" );
 	print ( "DBPASS=test make check\n" );
 	exit ( 0 );
 }
 
+$locals = array();
+$locals['rt_mode'] = false;
+
 if ( array_key_exists ( "DBUSER", $_ENV ) && $_ENV["DBUSER"] )
-	$db_user = $_ENV["DBUSER"];
+	$locals['db-user'] = $_ENV["DBUSER"];
 
 if ( array_key_exists ( "DBPASS", $_ENV ) && $_ENV["DBPASS"] ) 
-	$db_pwd = $_ENV["DBPASS"];
+	$locals['db-password'] = $_ENV["DBPASS"];
 
 $run = false;
 $test_dirs = array();
+$test_range = array();
 for ( $i=0; $i<count($args); $i++ )
 {
 	$arg = $args[$i];
@@ -89,14 +62,24 @@ for ( $i=0; $i<count($args); $i++ )
 	if ( false );
 	else if ( $arg=="g" || $arg=="gen" )			{ $g_model = true; $run = true; }
 	else if ( $arg=="t" || $arg=="test" )			{ $g_model = false; $run = true; }
-	else if ( $arg=="-u" || $arg=="--user" )		$db_user = $args[++$i];
-	else if ( $arg=="-p" || $arg=="--password" )	$db_pwd = $args[++$i];
-	else if ( $arg=="-i" || $arg=="--indexer" )		$indexer_path = $args[++$i];
-	else if ( $arg=="-s" || $arg=="--searchd" )		$searchd_path = $args[++$i];
-	else if ( is_dir($arg) )						$test_dirs[] = $arg;
-	else if ( is_dir("test_$arg") )					$test_dirs[] = "test_$arg";
+	else if ( $arg=="--managed" )					$sd_managed_searchd = true;
+	else if ( $arg=="--skip-indexer")				$sd_skip_indexer = true;
+	else if ( $arg=="-u" || $arg=="--user" )		$locals['db-user'] = $args[++$i];
+	else if ( $arg=="-p" || $arg=="--password" )	$locals['db-password'] = $args[++$i];
+	else if ( $arg=="-i" || $arg=="--indexer" )		$locals['indexer'] = $args[++$i];
+	else if ( $arg=="-s" || $arg=="--searchd" )		$locals['searchd'] = $args[++$i];
+	else if ( $arg=="--rt" )						$locals['rt_mode'] = true;
 	else if ( $arg=="--strict" )					$g_strict = true;
-	else
+	else if ( is_dir($arg) )						$test_dirs[] = $arg;
+	else if ( preg_match ( "/^(\\d+)-(\\d+)$/", $arg, $range ) )
+	{
+		$test_range = array ( $range[1], $range[2] ); // from, to
+
+	} else if ( is_dir(sprintf("test_%03d", $arg)))
+	{
+		$test_dirs[] = sprintf("test_%03d", $arg);
+
+	} else
 	{
 		print ( "ERROR: unknown option '$arg'; run with no arguments for help screen.\n" );
 		exit ( 1 );
@@ -108,16 +91,19 @@ if ( !$run )
 	exit ( 1 );
 }
 
-// guess the size of document IDs
+PublishLocals ( $locals, false );
+GuessIdSize();
 
-exec ( $indexer_path, $output, $result );
-if ( count($output) == 0 )
+if ( $g_locals["malloc-scribble"] )
 {
-	print "ERROR: failed to run the indexer\n";
-	exit ( 1 );
+	print ( "Malloc scribbling enabled.\n" );
+	putenv ( "MallocLogFile=/dev/null" );	
+	putenv ( "MallocScribble=1" );
+	putenv ( "MallocPreScribble=1" );
+	putenv ( "MallocGuardEdges=1" );
 }
-else
-	$g_id64 = strstr ( $output[0], 'id64' ) !== false;
+
+require_once ( "helpers.inc" );
 
 /////////////
 // run tests
@@ -128,6 +114,15 @@ if ( IsModelGenMode () )
 else
 	print ( "PERFORMING AUTOMATED TESTING\n\n" );
 
+$testconn = ConnectDB();
+if ( !$testconn )
+{
+	print ( "ERROR: failed to connect to MySQL: " . mysql_error() . "\n" );
+	exit ( 1 );
+} else
+{
+	mysql_close ( $testconn );
+}
 
 $t = MyMicrotime ();
 
@@ -136,29 +131,47 @@ $tests = array ();
 $dh = opendir ( "." );
 while ( $entry=readdir($dh) )
 {
-	if ( substr ( $entry,0,4 )!="test" )
+	if ( substr ( $entry, 0, 5 )!="test_" )
 		continue;
-	if ( !empty($test_dirs) && !in_array ( $entry, $test_dirs ) )
-		continue;
-	$tests[] = $entry;
+	$test_id = (int) substr ( $entry, 5 );
+
+	if ( ( empty($test_dirs) && empty($test_range) )
+		|| in_array ( $entry, $test_dirs )
+		|| ( $test_range && $test_id>=$test_range[0] && $test_id<=$test_range[1] ) )
+	{
+		$tests[] = $entry;
+	}
 }
 sort ( $tests );
+
+// full name to short alias
+function ShortTestName ( $full )
+{
+	if ( substr ( $full,0,5 )=="test_" )
+		return substr ( $full, 5 );
+	return $full;
+}
 
 // run tests
 $total_tests = 0;
 $total_tests_failed = 0;
 $total_subtests = 0;
 $total_subtests_failed = 0;
+$total_skipped = 0;
+$failed_tests = array();
 foreach ( $tests as $test )
 {
-	if ( $windows )
+	if ( $windows && !$sd_managed_searchd )
 	{
 		// avoid an issue with daemons stuck in exit(0) for some seconds
 		$sd_port += 10;
 		$agent_port += 10;
+		$agent_port_sql += 10;
 		$agents	= array (
-			array ( "address" => $sd_address, "port" => $sd_port ),
-			array ( "address" => $agent_address, "port" => $agent_port ) );
+			array ( "address" => $sd_address, "port" => $sd_port, "sqlport" => $sd_sphinxql_port ),
+			array ( "address" => $agent_address, "port" => $agent_port, "sqlport" => $agent_port_sql ),
+			array ( "address" => $agent_address, "port" => $agent_port+1, "sqlport" => $agent_port_sql+1 )
+		);
 	}
 
 	if ( file_exists ( $test."/test.xml" ) )
@@ -170,14 +183,17 @@ foreach ( $tests as $test )
 		{
 			// failed to run that test at all
 			$total_tests_failed++;
+			$failed_tests[] = ShortTestName ( $test );
 			continue;
 		}
 
 		$total_subtests += $res["tests_total"];
+		$total_skipped += $res["tests_skipped"];
 		if ( $res["tests_failed"] )
 		{
 			$total_tests_failed++;
 			$total_subtests_failed += $res["tests_failed"];
+			$failed_tests[] = ShortTestName ( $test );
 			if ( $g_strict )
 				break;
 		}
@@ -193,7 +209,8 @@ foreach ( $tests as $test )
 		{
 			$total_tests_failed++;
 			$total_subtests_failed++;
-    	}
+			$failed_tests[] = ShortTestName ( $test );
+		}
 	}
 }
 
@@ -218,21 +235,22 @@ while ( file_exists ( "error_$nfile.txt" ) )
 // summarize
 if ( $total_tests_failed )
 {
-	printf ( "\n%d of %d tests and %d of %d subtests failed, %.2f sec elapsed\nTHERE WERE FAILURES!\n",
+	printf ( "\nTo re-run failed tests only:\nphp ubertest.php t %s\n", join ( " ", $failed_tests ) );
+	printf ( "\n%d of %d tests and %d of %d subtests failed, %d tests skipped, %.2f sec elapsed\nTHERE WERE FAILURES!\n",
 		$total_tests_failed, $total_tests,
-		$total_subtests_failed, $total_subtests,
+		$total_subtests_failed, $total_subtests,$total_skipped,
 		MyMicrotime()-$t );
 	exit ( 1 );
 } else
 {
-	printf ( "\n%d tests and %d subtests succesful, %.2f sec elapsed\nALL OK\n",
-		$total_tests, $total_subtests,
+	printf ( "\n%d tests and %d subtests succesful, %d tests skipped, %.2f sec elapsed\nALL OK\n",
+		$total_tests, $total_subtests, $total_skipped,
 		MyMicrotime()-$t );
 	exit ( 0 );
 }
 
 //
-// $Id: ubertest.php 1624 2008-12-25 13:19:55Z shodan $
+// $Id: ubertest.php 2404 2010-07-18 14:56:56Z klirichek $
 //
 
 ?>

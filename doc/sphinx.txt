@@ -1,10 +1,12 @@
-Sphinx 0.9.9-rc2 reference manual
+Sphinx 1.10-beta reference manual
 =================================
 
 Free open-source SQL full-text search engine
---------------------------------------------
+============================================
 
-Copyright (c) 2001-2009 Andrew Aksyonoff, <shodan(at)shodan.ru>
+Copyright (c) 2001-2010 Andrew Aksyonoff
+
+Copyright (c) 2008-2010 Sphinx Technologies Inc, http://sphinxsearch.com
 
 ----------------------------------------------------------------------------
 
@@ -15,7 +17,7 @@ Table of Contents
    1.2. Sphinx features
    1.3. Where to get Sphinx
    1.4. License
-   1.5. Author and contributors
+   1.5. Credits
    1.6. History
 
 2. Installation
@@ -37,265 +39,388 @@ Table of Contents
    3.8. xmlpipe data source
    3.9. xmlpipe2 data source
    3.10. Live index updates
-   3.11. Index merging
+   3.11. Delta index updates
+   3.12. Index merging
 
-4. Searching
-   4.1. Matching modes
-   4.2. Boolean query syntax
-   4.3. Extended query syntax
-   4.4. Weighting
-   4.5. Sorting modes
-   4.6. Grouping (clustering) search results
-   4.7. Distributed searching
-   4.8. searchd query log format
-   4.9. MySQL protocol support and SphinxQL
+4. Real-time indexes
+   4.1. RT indexes overview
+   4.2. Known caveats with RT indexes
+   4.3. RT index internals
+   4.4. Binary logging
 
-5. Command line tools reference
-   5.1. indexer command reference
-   5.2. searchd command reference
-   5.3. search command reference
-   5.4. spelldump command reference
-   5.5. indextool command reference
+5. Searching
+   5.1. Matching modes
+   5.2. Boolean query syntax
+   5.3. Extended query syntax
+   5.4. Weighting
+   5.5. Sorting modes
+   5.6. Grouping (clustering) search results
+   5.7. Distributed searching
+   5.8. searchd query log format
+   5.9. MySQL protocol support and SphinxQL
+   5.10. Multi-queries
 
-6. API reference
-   6.1. General API functions
-      6.1.1. GetLastError
-      6.1.2. GetLastWarning
-      6.1.3. SetServer
-      6.1.4. SetRetries
-      6.1.5. SetConnectTimeout
-      6.1.6. SetArrayResult
-      6.1.7. IsConnectError
+6. Command line tools reference
+   6.1. indexer command reference
+   6.2. searchd command reference
+   6.3. search command reference
+   6.4. spelldump command reference
+   6.5. indextool command reference
 
-   6.2. General query settings
-      6.2.1. SetLimits
-      6.2.2. SetMaxQueryTime
-      6.2.3. SetOverride
-      6.2.4. SetSelect
+7. SphinxQL reference
+   7.1. SELECT syntax
+   7.2. SHOW META syntax
+   7.3. SHOW WARNINGS syntax
+   7.4. SHOW STATUS syntax
+   7.5. INSERT and REPLACE syntax
+   7.6. DELETE syntax
+   7.7. SET syntax
+   7.8. BEGIN, COMMIT, and ROLLBACK syntax
+   7.9. CALL SNIPPETS syntax
+   7.10. CALL KEYWORDS syntax
 
-   6.3. Full-text search query settings
-      6.3.1. SetMatchMode
-      6.3.2. SetRankingMode
-      6.3.3. SetSortMode
-      6.3.4. SetWeights
-      6.3.5. SetFieldWeights
-      6.3.6. SetIndexWeights
+8. API reference
+   8.1. General API functions
+      8.1.1. GetLastError
+      8.1.2. GetLastWarning
+      8.1.3. SetServer
+      8.1.4. SetRetries
+      8.1.5. SetConnectTimeout
+      8.1.6. SetArrayResult
+      8.1.7. IsConnectError
 
-   6.4. Result set filtering settings
-      6.4.1. SetIDRange
-      6.4.2. SetFilter
-      6.4.3. SetFilterRange
-      6.4.4. SetFilterFloatRange
-      6.4.5. SetGeoAnchor
+   8.2. General query settings
+      8.2.1. SetLimits
+      8.2.2. SetMaxQueryTime
+      8.2.3. SetOverride
+      8.2.4. SetSelect
 
-   6.5. GROUP BY settings
-      6.5.1. SetGroupBy
-      6.5.2. SetGroupDistinct
+   8.3. Full-text search query settings
+      8.3.1. SetMatchMode
+      8.3.2. SetRankingMode
+      8.3.3. SetSortMode
+      8.3.4. SetWeights
+      8.3.5. SetFieldWeights
+      8.3.6. SetIndexWeights
 
-   6.6. Querying
-      6.6.1. Query
-      6.6.2. AddQuery
-      6.6.3. RunQueries
-      6.6.4. ResetFilters
-      6.6.5. ResetGroupBy
+   8.4. Result set filtering settings
+      8.4.1. SetIDRange
+      8.4.2. SetFilter
+      8.4.3. SetFilterRange
+      8.4.4. SetFilterFloatRange
+      8.4.5. SetGeoAnchor
 
-   6.7. Additional functionality
-      6.7.1. BuildExcerpts
-      6.7.2. UpdateAttributes
-      6.7.3. BuildKeywords
-      6.7.4. EscapeString
-      6.7.5. Status
+   8.5. GROUP BY settings
+      8.5.1. SetGroupBy
+      8.5.2. SetGroupDistinct
 
-   6.8. Persistent connections
-      6.8.1. Open
-      6.8.2. Close
+   8.6. Querying
+      8.6.1. Query
+      8.6.2. AddQuery
+      8.6.3. RunQueries
+      8.6.4. ResetFilters
+      8.6.5. ResetGroupBy
 
-7. MySQL storage engine (SphinxSE)
-   7.1. SphinxSE overview
-   7.2. Installing SphinxSE
-      7.2.1. Compiling MySQL 5.0.x with SphinxSE
-      7.2.2. Compiling MySQL 5.1.x with SphinxSE
-      7.2.3. Checking SphinxSE installation
+   8.7. Additional functionality
+      8.7.1. BuildExcerpts
+      8.7.2. UpdateAttributes
+      8.7.3. BuildKeywords
+      8.7.4. EscapeString
+      8.7.5. Status
+      8.7.6. FlushAttributes
 
-   7.3. Using SphinxSE
-   7.4. Building snippets (excerpts) via MySQL
+   8.8. Persistent connections
+      8.8.1. Open
+      8.8.2. Close
 
-8. Reporting bugs
-9. sphinx.conf options reference
-   9.1. Data source configuration options
-      9.1.1. type
-      9.1.2. sql_host
-      9.1.3. sql_port
-      9.1.4. sql_user
-      9.1.5. sql_pass
-      9.1.6. sql_db
-      9.1.7. sql_sock
-      9.1.8. mysql_connect_flags
-      9.1.9. mysql_ssl_cert, mysql_ssl_key, mysql_ssl_ca
-      9.1.10. odbc_dsn
-      9.1.11. sql_query_pre
-      9.1.12. sql_query
-      9.1.13. sql_query_range
-      9.1.14. sql_range_step
-      9.1.15. sql_query_killlist
-      9.1.16. sql_attr_uint
-      9.1.17. sql_attr_bool
-      9.1.18. sql_attr_bigint
-      9.1.19. sql_attr_timestamp
-      9.1.20. sql_attr_str2ordinal
-      9.1.21. sql_attr_float
-      9.1.22. sql_attr_multi
-      9.1.23. sql_query_post
-      9.1.24. sql_query_post_index
-      9.1.25. sql_ranged_throttle
-      9.1.26. sql_query_info
-      9.1.27. xmlpipe_command
-      9.1.28. xmlpipe_field
-      9.1.29. xmlpipe_attr_uint
-      9.1.30. xmlpipe_attr_bool
-      9.1.31. xmlpipe_attr_timestamp
-      9.1.32. xmlpipe_attr_str2ordinal
-      9.1.33. xmlpipe_attr_float
-      9.1.34. xmlpipe_attr_multi
-      9.1.35. xmlpipe_fixup_utf8
-      9.1.36. mssql_winauth
-      9.1.37. mssql_unicode
-      9.1.38. unpack_zlib
-      9.1.39. unpack_mysqlcompress
-      9.1.40. unpack_mysqlcompress_maxsize
+9. MySQL storage engine (SphinxSE)
+   9.1. SphinxSE overview
+   9.2. Installing SphinxSE
+      9.2.1. Compiling MySQL 5.0.x with SphinxSE
+      9.2.2. Compiling MySQL 5.1.x with SphinxSE
+      9.2.3. Checking SphinxSE installation
 
-   9.2. Index configuration options
-      9.2.1. type
-      9.2.2. source
-      9.2.3. path
-      9.2.4. docinfo
-      9.2.5. mlock
-      9.2.6. morphology
-      9.2.7. min_stemming_len
-      9.2.8. stopwords
-      9.2.9. wordforms
-      9.2.10. exceptions
-      9.2.11. min_word_len
-      9.2.12. charset_type
-      9.2.13. charset_table
-      9.2.14. ignore_chars
-      9.2.15. min_prefix_len
-      9.2.16. min_infix_len
-      9.2.17. prefix_fields
-      9.2.18. infix_fields
-      9.2.19. enable_star
-      9.2.20. ngram_len
-      9.2.21. ngram_chars
-      9.2.22. phrase_boundary
-      9.2.23. phrase_boundary_step
-      9.2.24. html_strip
-      9.2.25. html_index_attrs
-      9.2.26. html_remove_elements
-      9.2.27. local
-      9.2.28. agent
-      9.2.29. agent_blackhole
-      9.2.30. agent_connect_timeout
-      9.2.31. agent_query_timeout
-      9.2.32. preopen
-      9.2.33. ondisk_dict
-      9.2.34. inplace_enable
-      9.2.35. inplace_hit_gap
-      9.2.36. inplace_docinfo_gap
-      9.2.37. inplace_reloc_factor
-      9.2.38. inplace_write_factor
-      9.2.39. index_exact_words
-      9.2.40. overshort_step
-      9.2.41. stopword_step
+   9.3. Using SphinxSE
+   9.4. Building snippets (excerpts) via MySQL
 
-   9.3. indexer program configuration options
-      9.3.1. mem_limit
-      9.3.2. max_iops
-      9.3.3. max_iosize
-      9.3.4. max_xmlpipe2_field
-      9.3.5. write_buffer
+10. Reporting bugs
+11. sphinx.conf options reference
+   11.1. Data source configuration options
+      11.1.1. type
+      11.1.2. sql_host
+      11.1.3. sql_port
+      11.1.4. sql_user
+      11.1.5. sql_pass
+      11.1.6. sql_db
+      11.1.7. sql_sock
+      11.1.8. mysql_connect_flags
+      11.1.9. mysql_ssl_cert, mysql_ssl_key, mysql_ssl_ca
+      11.1.10. odbc_dsn
+      11.1.11. sql_query_pre
+      11.1.12. sql_query
+      11.1.13. sql_joined_field
+      11.1.14. sql_query_range
+      11.1.15. sql_range_step
+      11.1.16. sql_query_killlist
+      11.1.17. sql_attr_uint
+      11.1.18. sql_attr_bool
+      11.1.19. sql_attr_bigint
+      11.1.20. sql_attr_timestamp
+      11.1.21. sql_attr_str2ordinal
+      11.1.22. sql_attr_float
+      11.1.23. sql_attr_multi
+      11.1.24. sql_attr_string
+      11.1.25. sql_attr_str2wordcount
+      11.1.26. sql_field_string
+      11.1.27. sql_field_str2wordcount
+      11.1.28. sql_file_field
+      11.1.29. sql_query_post
+      11.1.30. sql_query_post_index
+      11.1.31. sql_ranged_throttle
+      11.1.32. sql_query_info
+      11.1.33. xmlpipe_command
+      11.1.34. xmlpipe_field
+      11.1.35. xmlpipe_field_string
+      11.1.36. xmlpipe_field_wordcount
+      11.1.37. xmlpipe_attr_uint
+      11.1.38. xmlpipe_attr_bool
+      11.1.39. xmlpipe_attr_timestamp
+      11.1.40. xmlpipe_attr_str2ordinal
+      11.1.41. xmlpipe_attr_float
+      11.1.42. xmlpipe_attr_multi
+      11.1.43. xmlpipe_attr_string
+      11.1.44. xmlpipe_fixup_utf8
+      11.1.45. mssql_winauth
+      11.1.46. mssql_unicode
+      11.1.47. unpack_zlib
+      11.1.48. unpack_mysqlcompress
+      11.1.49. unpack_mysqlcompress_maxsize
 
-   9.4. searchd program configuration options
-      9.4.1. listen
-      9.4.2. address
-      9.4.3. port
-      9.4.4. log
-      9.4.5. query_log
-      9.4.6. read_timeout
-      9.4.7. client_timeout
-      9.4.8. max_children
-      9.4.9. pid_file
-      9.4.10. max_matches
-      9.4.11. seamless_rotate
-      9.4.12. preopen_indexes
-      9.4.13. unlink_old
-      9.4.14. attr_flush_period
-      9.4.15. ondisk_dict_default
-      9.4.16. max_packet_size
-      9.4.17. mva_updates_pool
-      9.4.18. crash_log_path
-      9.4.19. max_filters
-      9.4.20. max_filter_values
-      9.4.21. listen_backlog
-      9.4.22. read_buffer
-      9.4.23. read_unhinted
+   11.2. Index configuration options
+      11.2.1. type
+      11.2.2. source
+      11.2.3. path
+      11.2.4. docinfo
+      11.2.5. mlock
+      11.2.6. morphology
+      11.2.7. min_stemming_len
+      11.2.8. stopwords
+      11.2.9. wordforms
+      11.2.10. exceptions
+      11.2.11. min_word_len
+      11.2.12. charset_type
+      11.2.13. charset_table
+      11.2.14. ignore_chars
+      11.2.15. min_prefix_len
+      11.2.16. min_infix_len
+      11.2.17. prefix_fields
+      11.2.18. infix_fields
+      11.2.19. enable_star
+      11.2.20. ngram_len
+      11.2.21. ngram_chars
+      11.2.22. phrase_boundary
+      11.2.23. phrase_boundary_step
+      11.2.24. html_strip
+      11.2.25. html_index_attrs
+      11.2.26. html_remove_elements
+      11.2.27. local
+      11.2.28. agent
+      11.2.29. agent_blackhole
+      11.2.30. agent_connect_timeout
+      11.2.31. agent_query_timeout
+      11.2.32. preopen
+      11.2.33. ondisk_dict
+      11.2.34. inplace_enable
+      11.2.35. inplace_hit_gap
+      11.2.36. inplace_docinfo_gap
+      11.2.37. inplace_reloc_factor
+      11.2.38. inplace_write_factor
+      11.2.39. index_exact_words
+      11.2.40. overshort_step
+      11.2.41. stopword_step
+      11.2.42. hitless_words
+      11.2.43. expand_keywords
+      11.2.44. blend_chars
+      11.2.45. rt_mem_limit
+      11.2.46. rt_field
+      11.2.47. rt_attr_uint
+      11.2.48. rt_attr_bigint
+      11.2.49. rt_attr_float
+      11.2.50. rt_attr_timestamp
+      11.2.51. rt_attr_string
+
+   11.3. indexer program configuration options
+      11.3.1. mem_limit
+      11.3.2. max_iops
+      11.3.3. max_iosize
+      11.3.4. max_xmlpipe2_field
+      11.3.5. write_buffer
+      11.3.6. max_file_field_buffer
+
+   11.4. searchd program configuration options
+      11.4.1. listen
+      11.4.2. address
+      11.4.3. port
+      11.4.4. log
+      11.4.5. query_log
+      11.4.6. read_timeout
+      11.4.7. client_timeout
+      11.4.8. max_children
+      11.4.9. pid_file
+      11.4.10. max_matches
+      11.4.11. seamless_rotate
+      11.4.12. preopen_indexes
+      11.4.13. unlink_old
+      11.4.14. attr_flush_period
+      11.4.15. ondisk_dict_default
+      11.4.16. max_packet_size
+      11.4.17. mva_updates_pool
+      11.4.18. crash_log_path
+      11.4.19. max_filters
+      11.4.20. max_filter_values
+      11.4.21. listen_backlog
+      11.4.22. read_buffer
+      11.4.23. read_unhinted
+      11.4.24. max_batch_queries
+      11.4.25. subtree_docs_cache
+      11.4.26. subtree_hits_cache
+      11.4.27. workers
+      11.4.28. dist_threads
+      11.4.29. binlog_path
+      11.4.30. binlog_flush
+      11.4.31. binlog_max_log_size
 
 A. Sphinx revision history
+   A.1. Version 1.10-beta, 19 jul 2010
+   A.2. Version 0.9.9-release, 02 dec 2009
+   A.3. Version 0.9.9-rc2, 08 apr 2009
+   A.4. Version 0.9.9-rc1, 17 nov 2008
+   A.5. Version 0.9.8.1, 30 oct 2008
+   A.6. Version 0.9.8, 14 jul 2008
+   A.7. Version 0.9.7, 02 apr 2007
+   A.8. Version 0.9.7-rc2, 15 dec 2006
+   A.9. Version 0.9.7-rc1, 26 oct 2006
+   A.10. Version 0.9.6, 24 jul 2006
+   A.11. Version 0.9.6-rc1, 26 jun 2006
 
-1. Introduction
-===============
+List of Examples
+
+3.1. Ranged query usage example
+3.2. XMLpipe document stream
+3.3. xmlpipe2 document stream
+3.4. Fully automated live updates
+4.1. RT index declaration
+5.1. Boolean query example
+5.2. Extended matching mode: query example
+
+Chapter 1. Introduction
+=======================
+
+Table of Contents
 
 1.1. About
-----------
+1.2. Sphinx features
+1.3. Where to get Sphinx
+1.4. License
+1.5. Credits
+1.6. History
 
-Sphinx is a full-text search engine, distributed under GPL version 2.
-Commercial licensing (eg. for embedded use) is also available upon request.
+1.1. About
+==========
 
-Generally, it's a standalone search engine, meant to provide fast,
-size-efficient and relevant full-text search functions to other
-applications. Sphinx was specially designed to integrate well with SQL
-databases and scripting languages.
+Sphinx is a full-text search engine, publicly distributed under GPL version
+2. Commercial licensing (eg. for embedded use) is available upon request.
 
-Currently built-in data source drivers support fetching data either via
-direct connection to MySQL, or PostgreSQL, or from a pipe in a custom XML
-format. Adding new drivers (eg. to natively support some other DBMSes) is
-designed to be as easy as possible.
+Technically, Sphinx is a standalone software package provides fast and
+relevant full-text search functionality to client applications. It was
+specially designed to integrate well with SQL databases storing the data,
+and to be easily accessed scripting languages. However, Sphinx does not
+depend on nor require any specific database to function.
 
-Search API is natively ported to PHP, Python, Perl, Ruby, Java, and also
-available as a pluggable MySQL storage engine. API is very lightweight so
-porting it to new language is known to take a few hours.
+Applications can access Sphinx search daemon (searchd) using any of the
+three different access methods: a) via native search API (SphinxAPI), b)
+via Sphinx own implementation of MySQL network protocol (using a small SQL
+subset called SphinxQL), or c) via MySQL server with a pluggable storage
+engine (SphinxSE).
+
+Official native SphinxAPI implementations for PHP, Perl, Ruby, and Java are
+included within the distribution package. API is very lightweight so
+porting it to a new language is known to take a few hours or days. Third
+party API ports and plugins exist for Perl, C#, Haskell, Ruby-on-Rails, and
+possibly other languages and frameworks.
+
+Starting version 1.10-beta, Sphinx supports two different indexing
+backends: "disk" index backend, and "realtime" (RT) index backend. Disk
+indexes support online full-text index rebuilds, but online updates can
+only be done on non-text (attribute) data. RT indexes additionally allow
+for online full-text index updates. Previous versions only supported disk
+indexes.
+
+Data can be loaded into disk indexes using a so-called data source.
+Built-in sources can fetch data directly from MySQL, PostgreSQL, ODBC
+compliant database (MS SQL, Oracle, etc), or a pipe in a custom XML format.
+Adding new data sources drivers (eg. to natively support other DBMSes) is
+designed to be as easy as possible. RT indexes, as of 1.10-beta, can only
+be populated using SphinxQL.
 
 As for the name, Sphinx is an acronym which is officially decoded as SQL
 Phrase Index. Yes, I know about CMU's Sphinx project.
 
 1.2. Sphinx features
---------------------
+====================
 
-   * high indexing speed (upto 10 MB/sec on modern CPUs);
-   * high search speed (avg query is under 0.1 sec on 2-4 GB text
-     collections);
-   * high scalability (upto 100 GB of text, upto 100 M documents on
-     a single CPU);
+Key Sphinx features are:
+
+   * high indexing and searching performance;
+   * advanced indexing and querying tools (flexible and feature-rich text
+     tokenizer, querying language, several different ranking modes, etc);
+   * advanced result set post-processing (SELECT with expressions, WHERE,
+     ORDER BY, GROUP BY etc over text search results);
+   * proven scalability up to billions of documents, terabytes of data, and
+     thousands of queries per second;
+   * easy integration with SQL and XML data sources, and SphinxAPI,
+     SphinxQL, or SphinxSE search interfaces;
+   * easy scaling with distributed searches.
+
+To expand a bit, Sphinx:
+
+   * has high indexing speed (upto 10-15 MB/sec per core on an internal
+     benchmark);
+   * has high search speed (upto 150-250 queries/sec per core against
+     1,000,000 documents, 1.2 GB of data on an internal benchmark);
+   * has high scalability (biggest known cluster indexes over 3,000,000,000
+     documents, and busiest one peaks over 50,000,000 queries/day);
    * provides good relevance ranking through combination of phrase
      proximity ranking and statistical (BM25) ranking;
    * provides distributed searching capabilities;
-   * provides document exceprts generation;
-   * provides searching from within MySQL through pluggable storage engine;
-   * supports boolean, phrase, and word proximity queries;
+   * provides document excerpts (snippets) generation;
+   * provides searching from within application with SphinxAPI or SphinxQL
+     interfaces, and from within MySQL with pluggable SphinxSE storage
+     engine;
+   * supports boolean, phrase, word proximity and other types of queries;
    * supports multiple full-text fields per document (upto 32 by default);
    * supports multiple additional attributes per document (ie. groups,
      timestamps, etc);
    * supports stopwords;
+   * supports morphological word forms dictionaries;
+   * supports tokenizing exceptions;
    * supports both single-byte encodings and UTF-8;
-   * supports English stemming, Russian stemming, and Soundex for
-     morphology;
-   * supports MySQL natively (MyISAM and InnoDB tables are both supported);
-   * supports PostgreSQL natively.
+   * supports stemming (stemmers for English, Russian and Czech are
+     built-in; and stemmers for French, Spanish, Portuguese, Italian,
+     Romanian, German, Dutch, Swedish, Norwegian, Danish, Finnish,
+     Hungarian, are available by building third party libstemmer library);
+   * supports MySQL natively (all types of tables, including MyISAM,
+     InnoDB, NDB, Archive, etc are supported);
+   * supports PostgreSQL natively;
+   * supports ODBC compliant databases (MS SQL, Oracle, etc) natively;
+   * ...has 50+ other features not listed here, refer to API and
+     configuration manual!
 
 1.3. Where to get Sphinx
-------------------------
+========================
 
 Sphinx is available through its official Web site at
-http://www.sphinxsearch.com/.
+http://sphinxsearch.com/.
 
 Currently, Sphinx distribution tarball includes the following software:
 
@@ -313,7 +438,7 @@ Currently, Sphinx distribution tarball includes the following software:
      the index, added in version 0.9.9-rc2.
 
 1.4. License
-------------
+============
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of the GNU General Public License as published by the Free
@@ -329,28 +454,39 @@ You should have received a copy of the GNU General Public License along
 with this program; if not, write to the Free Software Foundation, Inc., 59
 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 
-If you don't want to be bound by GNU GPL terms (for instance, if you would
-like to embed Sphinx in your software, but would not like to disclose its
-source code), please contact the author to obtain a commercial license.
+Non-GPL licensing (for OEM/ISV embedded use) can also be arranged, please
+contact us to discuss commercial licensing possibilities.
 
-1.5. Author and contributors
-----------------------------
+1.5. Credits
+============
 
 Author
 ------
 
-Sphinx initial author and current primary developer is:
+Sphinx initial author (and a benevolent dictator ever since):
 
-   * Andrew Aksyonoff, <shodan(at)shodan.ru>
+   * Andrew Aksyonoff, http://shodan.ru
+
+Team
+----
+
+Past and present employees of Sphinx Technologies Inc who should be noted
+on their work on Sphinx (in alphabetical order):
+
+   * Alexander Klimenko
+   * Alexey Dvoichenkov
+   * Alexey Vinogradov
+   * Ilya Kuznetsov
+   * Stanislav Klinov
 
 Contributors
 ------------
 
 People who contributed to Sphinx and their contributions (in no particular
-order) are:
+order):
 
    * Robert "coredev" Bengtsson (Sweden), initial version of PostgreSQL
-     data source;
+     data source
    * Len Kranendonk, Perl API
    * Dmytro Shteflyuk, Ruby API
 
@@ -358,7 +494,7 @@ Many other people have contributed ideas, bug reports, fixes, etc. Thank
 you!
 
 1.6. History
-------------
+============
 
 Sphinx development was started back in 2001, because I didn't manage to
 find an acceptable search solution (for a database driven Web site) which
@@ -388,39 +524,40 @@ Considering that and a lot of positive feedback received from Sphinx users
 during last years, the obvious decision is to continue developing Sphinx
 (and, eventually, to take over the world).
 
-2. Installation
-===============
+Chapter 2. Installation
+=======================
+
+Table of Contents
 
 2.1. Supported systems
-----------------------
+2.2. Required tools
+2.3. Installing Sphinx on Linux
+2.4. Installing Sphinx on Windows
+2.5. Known installation issues
+2.6. Quick Sphinx usage tour
+
+2.1. Supported systems
+======================
 
 Most modern UNIX systems with a C++ compiler should be able to compile and
 run Sphinx without any modifications.
 
 Currently known systems Sphinx has been successfully running on are:
 
-   * Linux 2.4.x, 2.6.x (various distributions)
+   * Linux 2.4.x, 2.6.x (many various distributions)
    * Windows 2000, XP
-   * FreeBSD 4.x, 5.x, 6.x
+   * FreeBSD 4.x, 5.x, 6.x, 7.x
    * NetBSD 1.6, 3.0
    * Solaris 9, 11
    * Mac OS X
 
-CPU architectures known to work include X86, X86-64, SPARC64.
+CPU architectures known to work include X86, X86-64, SPARC64, ARM.
 
-I hope Sphinx will work on other Unix platforms as well. If the platform
-you run Sphinx on is not in this list, please do report it.
-
-At the moment, Windows version of Sphinx is not intended to be used in
-production, but rather for testing and debugging only. Two most prominent
-issues are missing concurrent queries support (client queries are stacked
-on TCP connection level instead), and missing index data rotation support.
-There are succesful production installations which workaround these issues.
-However, running high-volume search service under Windows is still not
-recommended.
+Chance are good that Sphinx should work on other Unix platforms as well;
+please report any platforms missing from this list that worked for you!
 
 2.2. Required tools
--------------------
+===================
 
 On UNIX, you will need the following tools to build and install Sphinx:
 
@@ -433,7 +570,7 @@ being, you will have to build makefile (or other environment specific
 project files) manually.
 
 2.3. Installing Sphinx on Linux
--------------------------------
+===============================
 
    1. Extract everything from the distribution tarball (haven't you
       already?) and go to the sphinx subdirectory:
@@ -466,7 +603,7 @@ project files) manually.
       | $ make install
 
 2.4. Installing Sphinx on Windows
----------------------------------
+=================================
 
 Installing Sphinx on a Windows server is often easier than installing on
 a Linux environment; unless you are preparing code patches, you can use the
@@ -484,19 +621,30 @@ pre-compiled binary files from the Downloads area on the website.
       location for the folders or configuration file, please change it
       accordingly.
 
-   2. Install the searchd system as a Windows service:
+   2. Edit the contents of sphinx.conf.in - specifically entries relating
+      to @CONFDIR@ - to paths suitable for your system.
 
-      C:\Sphinx> C:\Sphinx\searchd --install --config C:\Sphinx\sphinx.conf
-      --servicename SphinxSearch
+   3. Install the searchd system as a Windows service:
 
-   3. The searchd service will now be listed in the Services panel within
+      C:\Sphinx\bin> C:\Sphinx\bin\searchd --install --config
+      C:\Sphinx\sphinx.conf.in --servicename SphinxSearch
+
+   4. The searchd service will now be listed in the Services panel within
       the Management Console, available from Administrative Tools. It will
       not have been started, as you will need to configure it and build
       your indexes with indexer before starting the service. A guide to do
       this can be found under Quick tour.
 
+      During the next steps of the install (which involve running indexer
+      pretty much as you would on Linux) you may find that you get an error
+      relating to libmysql.dll not being found. If you have MySQL
+      installed, you should find a copy of this library in your Windows
+      directory, or sometimes in Windows\System32, or failing that in the
+      MySQL core directories. If you do receive an error please copy
+      libmysql.dll into the bin directory.
+
 2.5. Known installation issues
-------------------------------
+==============================
 
 If configure fails to locate MySQL headers and/or libraries, try checking
 for and installing mysql-devel package. On some systems, it is not
@@ -526,7 +674,7 @@ If you keep getting any other error, or the suggestions above do not seem
 to help you, please don't hesitate to contact me.
 
 2.6. Quick Sphinx usage tour
-----------------------------
+============================
 
 All the example commands below assume that you installed Sphinx in
 /usr/local/sphinx, so searchd can be found in
@@ -557,7 +705,7 @@ To use Sphinx, you will need to:
    2. Run the indexer to create full-text index from your data:
 
       | $ cd /usr/local/sphinx/etc
-      | $ /usr/local/sphinx/bin/indexer
+      | $ /usr/local/sphinx/bin/indexer --all
 
    3. Query your newly created index!
 
@@ -584,11 +732,26 @@ To query the index from your PHP scripts, you need to:
 
 Happy searching!
 
-3. Indexing
-===========
+Chapter 3. Indexing
+===================
+
+Table of Contents
 
 3.1. Data sources
------------------
+3.2. Attributes
+3.3. MVA (multi-valued attributes)
+3.4. Indexes
+3.5. Restrictions on the source data
+3.6. Charsets, case folding, and translation tables
+3.7. SQL data sources (MySQL, PostgreSQL)
+3.8. xmlpipe data source
+3.9. xmlpipe2 data source
+3.10. Live index updates
+3.11. Delta index updates
+3.12. Index merging
+
+3.1. Data sources
+=================
 
 The data to be indexed can generally come from very different sources: SQL
 databases, plain text files, HTML files, mailboxes, and so on. From Sphinx
@@ -612,7 +775,7 @@ definition. All the documents coming from those sources will be merged as
 if they were coming from a single source.
 
 3.2. Attributes
----------------
+===============
 
 Attributes are additional values associated with each document that can be
 used to perform additional filtering and sorting during search.
@@ -685,6 +848,7 @@ supported attribute types are:
    * UNIX timestamps;
    * floating point values (32-bit, IEEE 754 single precision);
    * string ordinals (specially computed integers);
+   * strings (since 1.10-beta);
    * MVA, multi-value attributes (variable-length lists of 32-bit unsigned
      integers).
 
@@ -716,7 +880,7 @@ the data and keep it shared between queries. The children will NOT allocate
 any additional copies of this data.
 
 3.3. MVA (multi-valued attributes)
-----------------------------------
+==================================
 
 MVAs, or multi-valued attributes, are an important special type of
 per-document attributes in Sphinx. MVAs make it possible to attach lists of
@@ -751,7 +915,7 @@ rows; so you'll also need to use SetArrayResult() in order to employ
 group-by on MVA with PHP API.
 
 3.4. Indexes
-------------
+============
 
 To be able to answer full-text search queries fast, Sphinx needs to build
 a special data structure optimized for such queries from your text data.
@@ -780,7 +944,7 @@ specified indexes, and the clients can specify what indexes to search in
 run time.
 
 3.5. Restrictions on the source data
-------------------------------------
+====================================
 
 There are a few different restrictions imposed on the source data which is
 going to be indexed by Sphinx, of which the single most important one is:
@@ -795,7 +959,7 @@ a 1000-pound gorilla might eventually come out of your display and start
 throwing barrels at you. You've been warned.
 
 3.6. Charsets, case folding, and translation tables
----------------------------------------------------
+===================================================
 
 When indexing some index, Sphinx fetches documents from the specified
 sources, splits the text into words, and does case folding so that "Abc",
@@ -824,23 +988,23 @@ Default tables currently include English and Russian characters. Please do
 submit your tables for other languages!
 
 3.7. SQL data sources (MySQL, PostgreSQL)
------------------------------------------
+=========================================
 
 With all the SQL drivers, indexing generally works as follows.
 
    * connection to the database is established;
-   * pre-query (see Section 9.1.11, <<sql_query_pre>>) is executed to
+   * pre-query (see Section 11.1.11, <<sql_query_pre>>) is executed to
      perform any necessary initial setup, such as setting per-connection
      encoding with MySQL;
-   * main query (see Section 9.1.12, <<sql_query>>) is executed and the
+   * main query (see Section 11.1.12, <<sql_query>>) is executed and the
      rows it returns are indexed;
-   * post-query (see Section 9.1.23, <<sql_query_post>>) is executed to
+   * post-query (see Section 11.1.29, <<sql_query_post>>) is executed to
      perform any necessary cleanup;
    * connection to the database is closed;
    * indexer does the sorting phase (to be pedantic, index-type specific
      post-processing);
    * connection to the database is established again;
-   * post-index query (see Section 9.1.24, <<sql_query_post_index>>) is
+   * post-index query (see Section 11.1.30, <<sql_query_post_index>>) is
      executed to perform any necessary final cleanup;
    * connection to the database is closed again.
 
@@ -859,7 +1023,7 @@ fetches min and max document IDs from the table, and then substitutes
 different ID intervals into main query text and runs the modified query to
 fetch another chunk of documents. Here's an example.
 
-Example 1. Ranged query usage example
+Example 3.1. Ranged query usage example
 
    | # in sphinx.conf
    | 
@@ -889,7 +1053,7 @@ indexing was succesful. Database connection is dropped and re-established
 because sorting phase can be very lengthy and would just timeout otherwise.
 
 3.8. xmlpipe data source
-------------------------
+========================
 
 xmlpipe data source was designed to enable users to plug data into Sphinx
 without having to implement new data sources drivers themselves. It is
@@ -913,7 +1077,7 @@ a pipe to given command and then reads from that pipe.
 indexer will expect one or more documents in custom XML format. Here's the
 example document stream, consisting of two documents:
 
-Example 2. XMLpipe document stream
+Example 3.2. XMLpipe document stream
 
    | <document>
    | <id>123</id>
@@ -942,7 +1106,7 @@ exactly in the same order. The only optional field is timestamp; it
 defaults to 1.
 
 3.9. xmlpipe2 data source
--------------------------
+=========================
 
 xmlpipe2 lets you pass arbitrary full-text and attribute data to Sphinx in
 yet another custom XML format. It also allows to specify the schema (ie.
@@ -953,7 +1117,7 @@ When indexing xmlpipe2 source, indexer runs the given command, opens a pipe
 to its stdout, and expects well-formed XML stream. Here's sample stream
 data:
 
-Example 3. xmlpipe2 document stream
+Example 3.3. xmlpipe2 document stream
 
    | <?xml version="1.0" encoding="utf-8"?>
    | <sphinx:docset>
@@ -974,7 +1138,19 @@ Example 3. xmlpipe2 document stream
    | <misc>some undeclared element</misc>
    | </sphinx:document>
    | 
-   | <!-- ... more documents here ... -->
+   | <sphinx:document id="1235">
+   | <subject>another subject</subject>
+   | <content>here comes another document, and i am given to understand,
+   | that in-document field order must not matter, sir</content>
+   | <published>1012325467</published>
+   | </sphinx:document>
+   | 
+   | <!-- ... even more sphinx:document entries here ... -->
+   | 
+   | <sphinx:killlist>
+   | <id>1234</id>
+   | <id>4567</id>
+   | </sphinx:killlist>
    | 
    | </sphinx:docset>
 
@@ -1019,8 +1195,13 @@ sphinx:schema
 
 sphinx:field
    Optional element, child of sphinx:schema. Declares a full-text field.
-   The only recognized attribute is "name", it specifies the element name
-   that should be treated as a full-text field in the subsequent documents.
+   Known attributes are:
+
+      * "name", specifies the XML element name that will be treated as
+        a full-text field in the subsequent documents.
+      * "attr", specifies whether to also index this field as a string or
+        word count attribute. Possible values are "string" and "wordcount".
+        Introduced in version 1.10-beta.
 
 sphinx:attr
    Optional element, child of sphinx:schema. Declares an attribute. Known
@@ -1043,8 +1224,37 @@ sphinx:document
    configuration file. The only known attribute is "id" that must contain
    the unique integer document ID.
 
+sphinx:killlist
+   Optional element, child of sphinx:docset. Contains a number of "id"
+   elements whose contents are document IDs to be put into a kill-list for
+   this index.
+
 3.10. Live index updates
-------------------------
+========================
+
+There are two major approaches to maintaining the full-text index contents
+up to date. Note, however, that both these approaches deal with the task of
+full-text data updates, and not attribute updates. Instant attribute
+updates are supported since version 0.9.8. Refer to UpdateAttributes() API
+call description for details.
+
+First, you can use disk-based indexes, partition them manually, and only
+rebuild the smaller partitions (so-called "deltas") frequently. By
+minimizing the rebuild size, you can reduce the average indexing lag to
+something as low as 30-60 seconds. This approach was the the only one
+available in versions 0.9.x. On huge collections it actually might be the
+most efficient one. Refer to Section 3.11, <<Delta index updates>> for
+details.
+
+Second, versions 1.x (starting with 1.10-beta) add support for so-called
+real-time indexes (RT indexes for short) that on-the-fly updates of the
+full-text data. Updates on a RT index can appear in the search results in
+1-2 milliseconds, ie. 0.001-0.002 seconds. However, RT index are less
+efficient for bulk indexing huge amounts of data. Refer to Chapter 4,
+Real-time indexes for details.
+
+3.11. Delta index updates
+=========================
 
 There's a frequent situation when the total dataset is too big to be
 reindexed from scratch often, but the amount of new records is rather
@@ -1066,7 +1276,7 @@ index could also be made fully automatical. One option would be to make
 a counter table which would track the ID which would split the documents,
 and update it whenever the main index is reindexed.
 
-Example 4. Fully automated live updates
+Example 3.4. Fully automated live updates
 
    | # in MySQL
    | CREATE TABLE sph_counter
@@ -1115,8 +1325,8 @@ all inherited values, so the encoding setup is also lost. So sql_query_pre
 in the delta can not just be empty; and we need to issue the encoding setup
 query explicitly once again.
 
-3.11. Index merging
--------------------
+3.12. Index merging
+===================
 
 Merging two existing indexes can be more efficient that indexing the data
 from scratch, and desired in some cases (such as merging 'main' and 'delta'
@@ -1153,11 +1363,264 @@ example above, the filter passes only those records where 'deleted' is 0,
 eliminating all records that were flagged as deleted (for instance, using
 UpdateAttributes() call).
 
-4. Searching
-============
+Chapter 4. Real-time indexes
+============================
 
-4.1. Matching modes
--------------------
+Table of Contents
+
+4.1. RT indexes overview
+4.2. Known caveats with RT indexes
+4.3. RT index internals
+4.4. Binary logging
+
+Real-time indexes (or RT indexes for brevity) are a new backend that lets
+you insert, update, or delete documents (rows) on the fly. RT indexes were
+added in version 1.10-beta. While querying of RT indexes is possible using
+any of the SphinxAPI, SphinxQL, or SphinxSE, updating them is only possible
+via SphinxQL at the moment. Full SphinxQL reference is available in
+Chapter 7, SphinxQL reference.
+
+4.1. RT indexes overview
+========================
+
+RT indexes should be declared in sphinx.conf, just as every other index
+type. Notable differences from the regular, disk-based indexes are that a)
+data sources are not required and ignored, and b) you should explicitly
+enumerate all the text fields, not just attributes. Here's an example:
+
+Example 4.1. RT index declaration
+
+   | index rt
+   | {
+   | 	type = rt
+   | 	path = /usr/local/sphinx/data/rt
+   | 	rt_field = title
+   | 	rt_field = content
+   | 	rt_attr_uint = gid
+   | }
+
+RT INDEXES ARE CURRENTLY (AS OF VERSION 1.10-beta) A WORK IN PROGRESS.
+Therefore, they might lack certain features: for instance, prefix/infix
+indexing, MVA attributes, etc are not supported yet. There also might be
+performance and stability issues. However, all the regular indexing
+features and most of the searching features are already in place, our
+internal testing passes, and last but not least a number of production
+instances are already using RT indexes with good results.
+
+RT index can be accessed using MySQL protocol. INSERT, DELETE, and SELECT
+statements against RT index are supported. For instance, this is an example
+session with the sample index above:
+
+   | $ mysql -h 127.0.0.1 -P 9306
+   | Welcome to the MySQL monitor.  Commands end with ; or \g.
+   | Your MySQL connection id is 1
+   | Server version: 1.10-dev (r2153)
+   | 
+   | Type 'help;' or '\h' for help. Type '\c' to clear the buffer.
+   | 
+   | mysql> INSERT INTO rt VALUES ( 1, 'first record', 'test one', 123 );
+   | Query OK, 1 row affected (0.05 sec)
+   | 
+   | mysql> INSERT INTO rt VALUES ( 2, 'second record', 'test two', 234 );
+   | Query OK, 1 row affected (0.00 sec)
+   | 
+   | mysql> SELECT * FROM rt;
+   | +------+--------+------+
+   | | id   | weight | gid  |
+   | +------+--------+------+
+   | |    1 |      1 |  123 |
+   | |    2 |      1 |  234 |
+   | +------+--------+------+
+   | 2 rows in set (0.02 sec)
+   | 
+   | mysql> SELECT * FROM rt WHERE MATCH('test');
+   | +------+--------+------+
+   | | id   | weight | gid  |
+   | +------+--------+------+
+   | |    1 |   1643 |  123 |
+   | |    2 |   1643 |  234 |
+   | +------+--------+------+
+   | 2 rows in set (0.01 sec)
+   | 
+   | mysql> SELECT * FROM rt WHERE MATCH('@title test');
+   | Empty set (0.00 sec)
+
+Both partial and batch INSERT syntaxes are supported, ie. you can specify
+a subset of columns, and insert several rows at a time. Deletions are also
+possible using DELETE statement; the only currently supported syntax is
+DELETE FROM <index> WHERE id=<id>. REPLACE is also supported, enabling you
+to implement updates.
+
+   | mysql> INSERT INTO rt ( id, title ) VALUES ( 3, 'third row' ), ( 4, 'fourth entry' );
+   | Query OK, 2 rows affected (0.01 sec)
+   | 
+   | mysql> SELECT * FROM rt;
+   | +------+--------+------+
+   | | id   | weight | gid  |
+   | +------+--------+------+
+   | |    1 |      1 |  123 |
+   | |    2 |      1 |  234 |
+   | |    3 |      1 |    0 |
+   | |    4 |      1 |    0 |
+   | +------+--------+------+
+   | 4 rows in set (0.00 sec)
+   | 
+   | mysql> DELETE FROM rt WHERE id=2;
+   | Query OK, 0 rows affected (0.00 sec)
+   | 
+   | mysql> SELECT * FROM rt WHERE MATCH('test');
+   | +------+--------+------+
+   | | id   | weight | gid  |
+   | +------+--------+------+
+   | |    1 |   1500 |  123 |
+   | +------+--------+------+
+   | 1 row in set (0.00 sec)
+   | 
+   | mysql> INSERT INTO rt VALUES ( 1, 'first record on steroids', 'test one', 123 );
+   | ERROR 1064 (42000): duplicate id '1'
+   | 
+   | mysql> REPLACE INTO rt VALUES ( 1, 'first record on steroids', 'test one', 123 );
+   | Query OK, 1 row affected (0.01 sec)
+   | 
+   | mysql> SELECT * FROM rt WHERE MATCH('steroids');
+   | +------+--------+------+
+   | | id   | weight | gid  |
+   | +------+--------+------+
+   | |    1 |   1500 |  123 |
+   | +------+--------+------+
+   | 1 row in set (0.01 sec)
+
+Data stored in RT index should survive clean shutdown. When binary logging
+is enabled, it should also survive crash and/or dirty shutdown, and recover
+on subsequent startup.
+
+4.2. Known caveats with RT indexes
+==================================
+
+As of 1.10-beta, RT indexes are a beta quality feature: while no major,
+showstopper-class issues are known, there still are a few known usage
+quirks. Those quirks are listed in this section.
+
+   * Prefix and infix indexing are not supported yet.
+   * MVAs are not supported yet.
+   * Disk chunks optimization routine is not implemented yet.
+   * On initial index creation, attributes are reordered by type, in the
+     following order: uint, bigint, float, timestamp, string. So when using
+     INSERT without an explicit column names list, specify all uint column
+     values first, then bigint, etc.
+   * Default conservative RAM chunk limit (rt_mem_limit) of 32M can lead to
+     poor performance on bigger indexes, you should raise it to 256..1024M
+     if you're planning to index gigabytes.
+   * High DELETE/REPLACE rate can lead to kill-list fragmentation and
+     impact searching performance.
+   * No transaction size limits are currently imposed; too many concurrent
+     INSERT/REPLACE transactions might therefore consume a lot of RAM.
+   * In case of a damaged binlog, recovery will stop on the first damaged
+     transaction, even though it's technically possible to keep looking
+     further for subsequent undamaged transactions, and recover those. This
+     mid-file damage case (due to flaky HDD/CDD/tape?) is supposed to be
+     extremely rare, though.
+   * Multiple INSERTs grouped in a single transaction perform better than
+     equivalent single-row transactions and are recommended for batch
+     loading of data.
+
+4.3. RT index internals
+=======================
+
+RT index is internally chunked. It keeps a so-called RAM chunk that stores
+all the most recent changes. RAM chunk memory usage is rather strictly
+limited with per-index rt_mem_limit directive. Once RAM chunk grows over
+this limit, a new disk chunk is created from its data, and RAM chunk is
+reset. Thus, while most changes on the RT index will be performed in RAM
+only and complete instantly (in milliseconds), those changes that overflow
+the RAM chunk will stall for the duration of disk chunk creation (a few
+seconds).
+
+Disk chunks are, in fact, just regular disk-based indexes. But they're
+a part of an RT index and automatically managed by it, so you need not
+configure nor manage them manually. Because a new disk chunk is created
+every time RT chunk overflows the limit, and because in-memory chunk format
+is close to on-disk format, the disk chunks will be approximately
+rt_mem_limit bytes in size each.
+
+Generally, it is better to set the limit bigger, to minimize both the
+frequency of flushes, and the index fragmentation (number of disk chunks).
+For instance, on a dedicated search server that handles a big RT index, it
+can be advised to set rt_mem_limit to 1-3 GB. A global limit on all indexes
+is also planned, but not yet implemented yet as of 1.10-beta.
+
+Disk chunk full-text index data can not be actually modified, so the
+full-text field changes (ie. row deletions and updates) suppress a previous
+row version from a disk chunk using a kill-list, but do not actually
+physicall purge the data. Therefore, on workloads with high full-text
+updates ratio index might eventually get polluted by these previous row
+versions, and searching performance would degrade. Physical index purging
+that would improve the performance is planned, but not yet implemented as
+of 1.10-beta.
+
+Data in RAM chunk gets saved to disk on clean daemon shutdown, and then
+loaded back on startup. However, on daemon or server crash, updates from
+RAM chunk might be lost. To prevent that, binary logging of transactions
+can be used; see Section 4.4, <<Binary logging>> for details.
+
+Full-text changes in RT index are transactional. They are stored in
+a per-thread accumulator until COMMIT, then applied at once. Bigger batches
+per single COMMIT should result in faster indexing.
+
+4.4. Binary logging
+===================
+
+Binary logs are essentially a recovery mechanism. With binary logs enabled,
+searchd writes every given transaction to the binlog file, and uses that
+for recovery after an unclean shutdown. On clean shutdown, RAM chunks are
+saved to disk, and then all the binlog files are unlinked.
+
+During normal operation, a new binlog file will be opened every time when
+binlog_max_log_size limit (which defaults to 128M) is reached. Older,
+already closed binlog files are kept until all of the transactions stored
+in them (from all indexes) are flushed as a disk chunk. Setting the limit
+to 0 pretty much prevents binlog from being unlinked at all while searchd
+is running; however, it will still be unlinked on clean shutdown.
+
+There are 3 different binlog flushing strategies, controlled by
+binlog_flush directive which takes the values of 0, 1, or 2. 0 means to
+flush the log to OS and sync it to disk every second; 1 means flush and
+sync every transaction; and 2 (the default mode) means flush every
+transaction but sync every second. Sync is relatively slow because it has
+to perform physical disk writes, so mode 1 is the safest (every committed
+transaction is guaranteed to be written on disk) but the slowest. Flushing
+log to OS prevents from data loss on searchd crashes but not system
+crashes. Mode 2 is the default.
+
+On recovery after an unclean shutdown, binlogs are replayed and all logged
+transactions since the last good on-disk state are restored. Transactions
+are checksummed so in case of binlog file corruption garbage data will not
+be replayed; such a broken transaction will be detected and, currently,
+will stop replay. Transactions also start with a magic marker and
+timestamped, so in case of binlog damage in the middle of the file, it's
+technically possible to skip broken transactions and keep replaying from
+the next good one, and/or it's possible to replay transactions until
+a given timestamp (point-in-time recovery), but none of that is implemented
+yet as of 1.10-beta.
+
+Chapter 5. Searching
+====================
+
+Table of Contents
+
+5.1. Matching modes
+5.2. Boolean query syntax
+5.3. Extended query syntax
+5.4. Weighting
+5.5. Sorting modes
+5.6. Grouping (clustering) search results
+5.7. Distributed searching
+5.8. searchd query log format
+5.9. MySQL protocol support and SphinxQL
+5.10. Multi-queries
+
+5.1. Matching modes
+===================
 
 There are the following matching modes available:
 
@@ -1165,9 +1628,9 @@ There are the following matching modes available:
    * SPH_MATCH_ANY, matches any of the query words;
    * SPH_MATCH_PHRASE, matches query as a phrase, requiring perfect match;
    * SPH_MATCH_BOOLEAN, matches query as a boolean expression (see
-     Section 4.2, <<Boolean query syntax>>);
+     Section 5.2, <<Boolean query syntax>>);
    * SPH_MATCH_EXTENDED, matches query as an expression in Sphinx internal
-     query language (see Section 4.3, <<Extended query syntax>>). As of
+     query language (see Section 5.3, <<Extended query syntax>>). As of
      0.9.9, this has been superceded by SPH_MATCH_EXTENDED2, providing
      additional functionality and better performance. The ident is retained
      for legacy application code that will continue to be compatible once
@@ -1197,8 +1660,8 @@ post) where SetFilter() would match - in this case providing every post
 from that user. By default this will be ordered by relevancy, followed by
 Sphinx document ID in ascending order (earliest first).
 
-4.2. Boolean query syntax
--------------------------
+5.2. Boolean query syntax
+=========================
 
 Boolean queries allow the following special operators to be used:
 
@@ -1221,7 +1684,7 @@ Boolean queries allow the following special operators to be used:
 
 Here's an example query which uses all these operators:
 
-Example 5. Boolean query example
+Example 5.1. Boolean query example
 
    | ( cat -dog ) | ( cat -mouse)
 
@@ -1238,8 +1701,8 @@ performance reasons. Technically, Sphinx does not always keep a list of all
 IDs. Performance-wise, when the collection is huge (ie. 10-100M documents),
 evaluating such queries could take very long.
 
-4.3. Extended query syntax
---------------------------
+5.3. Extended query syntax
+==========================
 
 The following special operators and modifiers can be used when using the
 extended matching mode:
@@ -1295,7 +1758,7 @@ extended matching mode:
 
 Here's an example query that uses some of these operators:
 
-Example 6. Extended matching mode: query example
+Example 5.2. Extended matching mode: query example
 
    | "hello world" @title "example program"~5 @body python -(php|perl) @* code
 
@@ -1385,8 +1848,8 @@ an implicit list of all documents:
    | -aaa
    | aaa | -bbb
 
-4.4. Weighting
---------------
+5.4. Weighting
+==============
 
 Specific weighting function (currently) depends on the search mode.
 
@@ -1435,8 +1898,8 @@ Author's experience is that this phrase proximity based ranking provides
 noticeably better search quality than any statistical scheme alone (such as
 BM25, which is commonly used in other search engines).
 
-4.5. Sorting modes
-------------------
+5.5. Sorting modes
+==================
 
 There are the following result sorting modes available:
 
@@ -1532,7 +1995,7 @@ function.
    * Boolean operators: AND, OR, NOT.
    * 0-argument functions: NOW().
    * Unary (1-argument) functions: ABS(), CEIL(), FLOOR(), SIN(), COS(),
-     LN(), LOG2(), LOG10(), EXP(), SQRT(), BIGINT().
+     LN(), LOG2(), LOG10(), EXP(), SQRT(), BIGINT(), SINT().
    * Binary (2-argument) functions: MIN(), MAX(), POW(), IDIV().
    * Other functions: IF(), INTERVAL(), IN(), GEODIST().
 
@@ -1590,6 +2053,12 @@ integer argument to 64-bit type, and does nothing on floating point
 argument. It's intended to help enforce evaluation of certain expressions
 (such as "a*b") in 64-bit mode even though all the arguments are 32-bit.
 
+SINT() function, introduced in version 1.10-beta, forcibly reinterprets its
+32-bit unsigned integer argument as signed, and also expands it to 64-bit
+type (because 32-bit type is unsigned). It's easily illustrated by the
+following example: 1-2 normally evaluates to 4294967295, but SINT(1-2)
+evaluates to -1.
+
 IDIV() functions performs an integer division on its 2 arguments. The
 result is integer as well, unlike "a/b" result.
 
@@ -1621,8 +2090,8 @@ the four coordinates. An optimized path will be selected when one pair of
 the arguments refers directly to a pair attributes and the other one is
 constant.
 
-4.6. Grouping (clustering) search results
------------------------------------------
+5.6. Grouping (clustering) search results
+=========================================
 
 Sometimes it could be useful to group (or in other terms, cluster) search
 results and/or count per-group match counts - for instance, to draw a nice
@@ -1682,8 +2151,8 @@ with SPH_GROUPBY_DAY function, then the result set will contain
 Starting with version 0.9.9-rc2, aggregate functions (AVG(), MIN(), MAX(),
 SUM()) are supported through SetSelect() API call when using GROUP BY.
 
-4.7. Distributed searching
---------------------------
+5.7. Distributed searching
+==========================
 
 To scale well, Sphinx has distributed searching capabilities. Distributed
 searching is useful to improve query latency (ie. search time) and
@@ -1742,8 +2211,8 @@ It is scheduled to implement better HA support which would allow to specify
 which agents mirror each other, do health checks, keep track of alive
 agents, load-balance requests, etc.
 
-4.8. searchd query log format
------------------------------
+5.8. searchd query log format
+=============================
 
 searchd logs all succesfully executed search queries into query log file.
 Here's an example:
@@ -1788,10 +2257,10 @@ This additional block is information regarding I/O operations in performing
 the search: the number of file I/O operations carried out, the amount of
 data in kilobytes read from the index files and time spent on I/O
 operations (although there is a background processing component, the bulk
-of this time is the I/O operation time)
+of this time is the I/O operation time).
 
-4.9. MySQL protocol support and SphinxQL
-----------------------------------------
+5.9. MySQL protocol support and SphinxQL
+========================================
 
 Starting with version 0.9.9-rc2, Sphinx searchd daemon supports MySQL
 binary network protocol and can be accessed with regular MySQL API. For
@@ -1829,200 +2298,138 @@ a protocol:
    | listen = localhost:9306:mysql41
 
 Just supporting the protocol and not the SQL syntax would be useless so
-Sphinx now also supports a tiny subset of SQL that we dubbed SphinxQL.
-Currently implemented statements are:
+Sphinx now also supports a subset of SQL that we dubbed SphinxQL. It
+supports the standard querying all the index types with SELECT, modifying
+RT indexes with INSERT, REPLACE, and DELETE, and much more. Full SphinxQL
+reference is available in Chapter 7, SphinxQL reference.
 
-   * SELECT
-   * SHOW WARNINGS
-   * SHOW STATUS
-   * SHOW META
+5.10. Multi-queries
+===================
 
-SELECT syntax is based upon regular SQL but adds several Sphinx-specific
-extensions and has a few omissions (such as (currently) missing support for
-JOINs). Specifically,
+Multi-queries, or query batches, let you send multiple queries to Sphinx in
+one go (more formally, one network request).
 
-   * Column list clause. Column names, arbitrary expressions, and star
-     ('*') are all allowed (ie. "SELECT @id, group_id*123+456 FROM test1"
-     will work). Unlike in regular SQL, all computed expressions must be
-     aliased with a valid identifier. Special names such as @id and @weight
-     should currently be used with leading at-sign. This at-sign
-     requirement will be lifted in the future.
-   * FROM clause. FROM clause should contain the list of indexes to search
-     through. Unlike in regular SQL, comma means enumeration of full-text
-     indexes as in Query() API call rather than JOIN.
-   * WHERE clause. This clause will map both to fulltext query and filters.
-     Comparison operators (=, !=, <, >, <=, >=), IN(), AND, NOT, and
-     BETWEEN are all supported and map directly to filters. OR is not
-     supported yet but will be in the future. MATCH('query') is supported
-     and maps to fulltext query. Query will be interpreted according to
-     full-text query language rules. There must be at most one MATCH() in
-     the clause.
-   * GROUP BY clause. Currently only supports grouping by a single column.
-     The column however can be a computed expression:
+Two API methods that implement multi-query mechanism are AddQuery() and
+RunQueries(). (In fact, regular Query() call is internally implemented as
+a single AddQuery() call immediately followed by RunQueries() call.)
+AddQuery() captures the current state of all the query settings set by
+previous API calls, and memorizes the query. RunQueries() actually sends
+all the memorized queries, and returns multiple result sets. There are no
+restrictions on the queries at all, except just a sanity check on a number
+of queries in a single batch (see Section 11.4.24, <<max_batch_queries>>).
 
-      | SELECT *, group_id*1000+article_type AS gkey FROM example GROUP BY gkey
+Why use multi-queries? Generally, it all boils down to performance. First,
+by sending requests to searchd in a batch instead of one by one, you always
+save a bit by doing less network roundtrips. Second, and somewhat more
+important, sending queries in a batch enables searchd to perform certain
+internal optimizations. As new types of optimizations are being added over
+time, it generally makes sense to pack all the queries into batches where
+possible, so that simply upgrading Sphinx to a new version would
+automatically enable new optimizations. In the case when there aren't any
+possible batch optimizations to apply, queries will be processed one by one
+internally.
 
-     Aggregate functions (AVG(), MIN(), MAX(), SUM()) in column list clause
-     are supported. Arguments to aggregate functions can be either plain
-     attributes or arbitrary expressions. COUNT(*) is implicitly supported
-     as using GROUP BY will add @count column to result set. Explicit
-     support might be added in the future. COUNT(DISTINCT attr) is
-     supported. Currently there can be at most one COUNT(DISTINCT) per
-     query and an argument needs to be an attribute. Both current
-     restrictions on COUNT(DISTINCT) might be lifted in the future.
+Why (or rather when) not use multi-queries? Multi-queries requires all the
+queries in a batch to be independent, and sometimes they aren't. That is,
+sometimes query B is based on query A results, and so can only be set up
+after executing query A. For instance, you might want to display results
+from a secondary index if and only if there were no results found in
+a primary index. Or maybe just specify offset into 2nd result set based on
+the amount of matches in the 1st result set. In that case, you will have to
+use separate queries (or separate batches).
 
-      | SELECT *, AVG(price) AS avgprice, COUNT(DISTINCT storeid)
-      | FROM products
-      | WHERE MATCH('ipod')
-      | GROUP BY vendorid
+As of 0.9.10, there are two major optimizations to be aware of: common
+query optimization (available since 0.9.8); and common subtree optimization
+(available since 0.9.10).
 
-   * WITHIN GROUP ORDER BY clause. This is a Sphinx specific extension that
-     lets you control how the best row within a group will to be selected.
-     The syntax matches that of regular ORDER BY clause:
+Common query optimization means that searchd will identify all those
+queries in a batch where only the sorting and group-by settings differ, and
+only perform searching once. For instance, if a batch consists of
+3 queries, all of them are for "ipod nano", but 1st query requests top-10
+results sorted by price, 2nd query groups by vendor ID and requests top-5
+vendors sorted by rating, and 3rd query requests max price, full-text
+search for "ipod nano" will only be performed once, and its results will be
+reused to build 3 different result sets.
 
-      | SELECT *, INTERVAL(posted,NOW()-7*86400,NOW()-86400) AS timeseg
-      | FROM example WHERE MATCH('my search query')
-      | GROUP BY siteid
-      | WITHIN GROUP ORDER BY @weight DESC
-      | ORDER BY timeseg DESC, @weight DESC
+So-called faceted searching is a particularly important case that benefits
+from this optimization. Indeed, faceted searching can be implemented by
+running a number of queries, one to retrieve search results themselves, and
+a few other ones with same full-text query but different group-by settings
+to retrieve all the required groups of results (top-3 authors, top-5
+vendors, etc). And as long as full-text query and filtering settings stay
+the same, common query optimization will trigger, and greatly improve
+performance.
 
-   * ORDER BY clause. Unlike in regular SQL, only column names (not
-     expressions) are allowed and explicit ASC and DESC are required. The
-     columns however can be computed expressions:
+Common subtree optimization is even more interesting. It lets searchd
+exploit similarities between batched full-text queries. It identifies
+common full-text query parts (subtress) in all queries, and caches them
+between queries. For instance, look at the following query batch:
 
-      | SELECT *, @weight*10+docboost AS skey FROM example ORDER BY skey
+   | barack obama president
+   | barack obama john mccain
+   | barack obama speech
 
-   * LIMIT clause. Both LIMIT N and LIMIT M,N forms are supported. Unlike
-     in regular SQL (but like in Sphinx API), an implicit LIMIT 0,20 is
-     present by default.
-   * OPTION clause. This is a Sphinx specific extension that lets you
-     control a number of per-query options. The syntax is:
+There's a common two-word part ("barack obama") that can be computed only
+once, then cached and shared across the queries. And common subtree
+optimization does just that. Per-query cache size is strictly controlled by
+subtree_docs_cache and subtree_hits_cache directives (so that caching all
+sxiteen gazillions of documents that match "i am" does not exhaust the RAM
+and instantly kill your server).
 
-      | OPTION <optionname>=<value> [ , ... ]
+Here's a code sample (in PHP) that fire the same query in 3 different
+sorting modes:
 
-     Supported options and respectively allowed values are:
-
-      * 'ranker' - any of 'proximity_bm25', 'bm25', 'none', 'wordcount',
-        'proximity', 'matchany', or 'fieldmask'
-      * 'max_matches' - integer (per-query max matches value)
-      * 'cutoff' - integer (max found matches threshold)
-      * 'max_query_time' - integer (max search time threshold, msec)
-      * 'retry_count' - integer (distributed retries count)
-      * 'retry_delay' - integer (distributed retry delay, msec)
-
-   Example:
-
-      | SELECT * FROM test WHERE MATCH('@title hello @body world')
-      | OPTION ranker=bm25, max_matches=3000
-
-SHOW WARNINGS statement can be used to retrieve the warning produced by the
-latest query. The error message will be returned along with the query
-itself:
-
-   | mysql> SELECT * FROM test1 WHERE MATCH('@@title hello') \G
-   | ERROR 1064 (42000): index test1: syntax error, unexpected TOK_FIELDLIMIT
-   | near '@title hello'
+   | require ( "sphinxapi.php" );
+   | $cl = new SphinxClient ();
+   | $cl->SetMatchMode ( SPH_MATCH_EXTENDED2 );
    | 
-   | mysql> SELECT * FROM test1 WHERE MATCH('@title -hello') \G
-   | ERROR 1064 (42000): index test1: query is non-computable (single NOT operator)
-   | 
-   | mysql> SELECT * FROM test1 WHERE MATCH('"test doc"/3') \G
-   | *************************** 1. row ***************************
-   |         id: 4
-   |     weight: 2500
-   |   group_id: 2
-   | date_added: 1231721236
-   | 1 row in set, 1 warning (0.00 sec)
-   | 
-   | mysql> SHOW WARNINGS \G
-   | *************************** 1. row ***************************
-   |   Level: warning
-   |    Code: 1000
-   | Message: quorum threshold too high (words=2, thresh=3); replacing quorum operator
-   |          with AND operator
-   | 1 row in set (0.00 sec)
+   | $cl->SetSortMode ( SPH_SORT_RELEVANCE );
+   | $cl->AddQuery ( "the", "lj" );
+   | $cl->SetSortMode ( SPH_SORT_EXTENDED, "published desc" );
+   | $cl->AddQuery ( "the", "lj" );
+   | $cl->SetSortMode ( SPH_SORT_EXTENDED, "published asc" );
+   | $cl->AddQuery ( "the", "lj" );
+   | $res = $cl->RunQueries();
 
-SHOW STATUS shows a number of useful performance counters. IO and CPU
-counters will only be available if searchd was started with --iostats and
---cpustats switches respectively.
+How to tell whether the queries in the batch were actually optimized? If
+they were, respective query log will have a "multiplier" field that
+specifies how many queries were processed together:
 
-   | mysql> SHOW STATUS;
-   | +--------------------+-------+
-   | | Variable_name      | Value |
-   | +--------------------+-------+
-   | | uptime             | 216   |
-   | | connections        | 3     |
-   | | maxed_out          | 0     |
-   | | command_search     | 0     |
-   | | command_excerpt    | 0     |
-   | | command_update     | 0     |
-   | | command_keywords   | 0     |
-   | | command_persist    | 0     |
-   | | command_status     | 0     |
-   | | agent_connect      | 0     |
-   | | agent_retry        | 0     |
-   | | queries            | 10    |
-   | | dist_queries       | 0     |
-   | | query_wall         | 0.075 |
-   | | query_cpu          | OFF   |
-   | | dist_wall          | 0.000 |
-   | | dist_local         | 0.000 |
-   | | dist_wait          | 0.000 |
-   | | query_reads        | OFF   |
-   | | query_readkb       | OFF   |
-   | | query_readtime     | OFF   |
-   | | avg_query_wall     | 0.007 |
-   | | avg_query_cpu      | OFF   |
-   | | avg_dist_wall      | 0.000 |
-   | | avg_dist_local     | 0.000 |
-   | | avg_dist_wait      | 0.000 |
-   | | avg_query_reads    | OFF   |
-   | | avg_query_readkb   | OFF   |
-   | | avg_query_readtime | OFF   |
-   | +--------------------+-------+
-   | 29 rows in set (0.00 sec)
+   | [Sun Jul 12 15:18:17.000 2009] 0.040 sec x3 [ext2/0/rel 747541 (0,20)] [lj] the
+   | [Sun Jul 12 15:18:17.000 2009] 0.040 sec x3 [ext2/0/ext 747541 (0,20)] [lj] the
+   | [Sun Jul 12 15:18:17.000 2009] 0.040 sec x3 [ext2/0/ext 747541 (0,20)] [lj] the
 
-SHOW META shows additional meta-information about the latest query such as
-query time and keyword statistics:
+Note the "x3" field. It means that this query was optimized and processed
+in a sub-batch of 3 queries. For reference, this is how the regular log
+would look like if the queries were not batched:
 
-   | mysql> SELECT * FROM test1 WHERE MATCH('test|one|two');
-   | +------+--------+----------+------------+
-   | | id   | weight | group_id | date_added |
-   | +------+--------+----------+------------+
-   | |    1 |   3563 |      456 | 1231721236 |
-   | |    2 |   2563 |      123 | 1231721236 |
-   | |    4 |   1480 |        2 | 1231721236 |
-   | +------+--------+----------+------------+
-   | 3 rows in set (0.01 sec)
-   | 
-   | mysql> SHOW META;
-   | +---------------+-------+
-   | | Variable_name | Value |
-   | +---------------+-------+
-   | | total         | 3     |
-   | | total_found   | 3     |
-   | | time          | 0.005 |
-   | | keyword[0]    | test  |
-   | | docs[0]       | 3     |
-   | | hits[0]       | 5     |
-   | | keyword[1]    | one   |
-   | | docs[1]       | 1     |
-   | | hits[1]       | 2     |
-   | | keyword[2]    | two   |
-   | | docs[2]       | 1     |
-   | | hits[2]       | 2     |
-   | +---------------+-------+
-   | 12 rows in set (0.00 sec)
+   | [Sun Jul 12 15:18:17.062 2009] 0.059 sec [ext2/0/rel 747541 (0,20)] [lj] the
+   | [Sun Jul 12 15:18:17.156 2009] 0.091 sec [ext2/0/ext 747541 (0,20)] [lj] the
+   | [Sun Jul 12 15:18:17.250 2009] 0.092 sec [ext2/0/ext 747541 (0,20)] [lj] the
 
-5. Command line tools reference
-===============================
+Note how per-query time in multi-query case was improved by a factor of
+1.5x to 2.3x, depending on a particular sorting mode. In fact, for both
+common query and common subtree optimizations, there were reports of 3x and
+even more improvements, and that's from production instances, not just
+synthetic tests.
+
+Chapter 6. Command line tools reference
+=======================================
+
+Table of Contents
+
+6.1. indexer command reference
+6.2. searchd command reference
+6.3. search command reference
+6.4. spelldump command reference
+6.5. indextool command reference
 
 As mentioned elsewhere, Sphinx is not a single program called 'sphinx', but
 a collection of 4 separate programs which collectively form Sphinx. This
 section covers these tools and how to use them.
 
-5.1. indexer command reference
-------------------------------
+6.1. indexer command reference
+==============================
 
 indexer is the first of the two principle tools as part of Sphinx. Invoked
 from either the command line directly, or as part of a larger script,
@@ -2169,9 +2576,17 @@ performed. These options are:
      newly-merged destination index. It can be added several times to the
      command line, to add successive filters to the merge, all of which
      must be met in order for a document to become part of the final index.
+   * --dump-rows <FILE> dumps rows fetched by SQL source(s) into the
+     specified file, in a MySQL compatible syntax. Resulting dumps are the
+     exact representation of data as received by indexer and help to repeat
+     indexing-time issues.
+   * --verbose guarantees that every row that caused problems indexing
+     (duplicate, zero, or missing document ID; or file field IO issues;
+     etc) will be reported. By default, this option is off, and problem
+     summaries may be reported instead.
 
-5.2. searchd command reference
-------------------------------
+6.2. searchd command reference
+==============================
 
 searchd is the second of the two principle tools as part of Sphinx. searchd
 is the part of the system which actually handles searches; it functions as
@@ -2194,14 +2609,29 @@ The options available to searchd on all builds are:
      in your particular build of searchd.
    * --config <file> (-c <file> for short) tells searchd to use the given
      file as its configuration, just as with indexer above.
-   * --stop is used to stop searchd, using the details of the PID file as
-     specified in the sphinx.conf file, so you may also need to confirm to
-     searchd which configuration file to use with the --config option. NB,
-     calling --stop will also make sure any changes applied to the indexes
-     with UpdateAttributes() will be applied to the index files themselves.
-     Example:
+   * --stop is used to asynchronously stop searchd, using the details of
+     the PID file as specified in the sphinx.conf file, so you may also
+     need to confirm to searchd which configuration file to use with the
+     --config option. NB, calling --stop will also make sure any changes
+     applied to the indexes with UpdateAttributes() will be applied to the
+     index files themselves. Example:
 
       | $ searchd --config /home/myuser/sphinx.conf --stop
+
+   * --stopwait is used to synchronously stop searchd. --stop essentially
+     tells the running instance to exit (by sending it a SIGTERM) and then
+     immediately returns. --stopwait will also attempt to wait until the
+     running searchd instance actually finishes the shutdown (eg. saves all
+     the pending attribute changes) and exits. Example:
+
+      | $ searchd --config /home/myuser/sphinx.conf --stopwait
+
+     Possible exit codes are as follows:
+
+      * 0 on success;
+      * 1 if connection to running searchd daemon failed;
+      * 2 if daemon reported an error during shutdown;
+      * 3 if daemon crashed during shutdown.
 
    * --status command is used to query running searchd instance status,
      using the connection details from the (optionally) provided
@@ -2233,11 +2663,14 @@ The options available to searchd on all builds are:
      console/command line from which it is being called. Running in console
      mode also means that the process will not be forked (so searches are
      done in sequence) and logs will not be written to. (It should be noted
-     that console mode is not the intended method for running searchd) You
+     that console mode is not the intended method for running searchd.) You
      can invoke it as such:
 
       | $ searchd --config /home/myuser/sphinx.conf --console
 
+   * --logdebug enables additional debug output in the daemon log. Should
+     only be needed rarely, to assist with debugging issues that could not
+     be easily reproduced on request.
    * --iostats is used in conjuction with the logging options (the
      query_log will need to have been activated in sphinx.conf) to provide
      more detailed information on a per-query basis as to the input/output
@@ -2348,8 +2781,8 @@ SIGUSR1
    Forces reopen of searchd log and query log files, letting you implement
    log file rotation.
 
-5.3. search command reference
------------------------------
+6.3. search command reference
+=============================
 
 search is one of the helper tools within the Sphinx package. Whereas
 searchd is responsible for searches in a server-type environment, search is
@@ -2468,7 +2901,7 @@ Options for handling the results:
      user_karma + ln(pageviews) )*0.1" (again noting that this will have to
      be quoted to avoid the shell dealing with the asterisk). Extended sort
      mode is discussed in more detail under the SPH_SORT_EXTENDED entry
-     under the Sorting modes chapter of the manual.
+     under the Sorting modes section of the manual.
    * --sort=date specifies that the results should be sorted by descending
      (i.e. most recent first) date. This requires that there is an
      attribute in the index that is set as a timestamp.
@@ -2481,7 +2914,7 @@ Options for handling the results:
      it would return the documents from the last day, sorted by relevance,
      then the last week and then the last month. It is discussed in more
      detail under the SPH_SORT_TIME_SEGMENTS entry under the Sorting modes
-     chapter of the manual.
+     section of the manual.
 
 Other options:
 
@@ -2491,8 +2924,8 @@ Other options:
      returned document ID. It is explained in more detail under the
      sql_query_info directive.
 
-5.4. spelldump command reference
---------------------------------
+6.4. spelldump command reference
+================================
 
 spelldump is one of the helper tools within the Sphinx package.
 
@@ -2522,7 +2955,7 @@ Examples of its usage are:
    | spelldump ru.dict ru.aff ru.txt .1251
 
 The results file will contain a list of all the words in the dictionary in
-alphabetic order, output in the format of a wordforms file, which you can
+alphabetical order, output in the format of a wordforms file, which you can
 use to customise for your specific circumstances. An example of the result
 file:
 
@@ -2530,8 +2963,8 @@ file:
    | zoned > zoned
    | zoning > zoning
 
-5.5. indextool command reference
---------------------------------
+6.5. indextool command reference
+================================
 
 indextool is one of the helper tools within the Sphinx package, introduced
 in version 0.9.9-rc2. It is used to dump miscellaneous debug information
@@ -2560,10 +2993,412 @@ The commands are as follows:
      data from attribute (.spa) file and therefore requires docinfo=extern
      to work.
    * --dumphitlist INDEXNAME KEYWORD dumps all the hits (occurences) of
-     a given keyword in a given index.
+     a given keyword in a given index, with keyword specified as text.
+   * --dumphitlist INDEXNAME --wordid ID dumps all the hits (occurences) of
+     a given keyword in a given index, with keyword specified as internal
+     numeric ID.
+   * --htmlstrip INDEXNAME filters stdin using HTML stripper settings for
+     a given index, and prints the filtering results to stdout. Note that
+     the settings will be taken from sphinx.conf, and not the index header.
+   * --check INDEXNAME checks the index data files for consistency errors
+     that might be introduced either by bugs in indexer and/or hardware
+     faults.
+   * --strip-path strips the path names from all the file names referenced
+     from the index (stopwords, wordforms, exceptions, etc). This is useful
+     for checking indexes built on another machine with possibly different
+     path layouts.
 
-6. API reference
-================
+Chapter 7. SphinxQL reference
+=============================
+
+Table of Contents
+
+7.1. SELECT syntax
+7.2. SHOW META syntax
+7.3. SHOW WARNINGS syntax
+7.4. SHOW STATUS syntax
+7.5. INSERT and REPLACE syntax
+7.6. DELETE syntax
+7.7. SET syntax
+7.8. BEGIN, COMMIT, and ROLLBACK syntax
+7.9. CALL SNIPPETS syntax
+7.10. CALL KEYWORDS syntax
+
+SphinxQL is our SQL dialect that exposes all of the search daemon
+functionality using a standard SQL syntax with a few Sphinx-specific
+extensions. Everything available via the SphinxAPI is also available
+SphinxQL but not vice versa; for instance, writes into RT indexes are only
+available via SphinxQL. This chapter documents supported SphinxQL
+statements syntax.
+
+7.1. SELECT syntax
+==================
+
+   | SELECT
+   |     select_expr [, select_expr ...]
+   |     FROM index [, index2 ...]
+   |     [WHERE where_condition]
+   |     [GROUP BY {col_name | expr_alias}]
+   |     [ORDER BY {col_name | expr_alias} {ASC | DESC} [, ...]]
+   |     [WITHIN GROUP ORDER BY {col_name | expr_alias} {ASC | DESC}]
+   |     [LIMIT offset, row_count]
+   |     [OPTION opt_name = opt_value [, ...]]
+
+SELECT statement was introduced in version 0.9.9-rc2. It's syntax is based
+upon regular SQL but adds several Sphinx-specific extensions and has a few
+omissions (such as (currently) missing support for JOINs). Specifically,
+
+   * Column list clause. Column names, arbitrary expressions, and star
+     ('*') are all allowed (ie. "SELECT @id, group_id*123+456 FROM test1"
+     will work). Unlike in regular SQL, all computed expressions must be
+     aliased with a valid identifier. Special names such as @id and @weight
+     should currently be used with leading at-sign. This at-sign
+     requirement will be lifted in the future.
+   * FROM clause. FROM clause should contain the list of indexes to search
+     through. Unlike in regular SQL, comma means enumeration of full-text
+     indexes as in Query() API call rather than JOIN.
+   * WHERE clause. This clause will map both to fulltext query and filters.
+     Comparison operators (=, !=, <, >, <=, >=), IN(), AND, NOT, and
+     BETWEEN are all supported and map directly to filters. OR is not
+     supported yet but will be in the future. MATCH('query') is supported
+     and maps to fulltext query. Query will be interpreted according to
+     full-text query language rules. There must be at most one MATCH() in
+     the clause.
+   * GROUP BY clause. Currently only supports grouping by a single column.
+     The column however can be a computed expression:
+
+      | SELECT *, group_id*1000+article_type AS gkey FROM example GROUP BY gkey
+
+     Aggregate functions (AVG(), MIN(), MAX(), SUM()) in column list clause
+     are supported. Arguments to aggregate functions can be either plain
+     attributes or arbitrary expressions. COUNT(*) is implicitly supported
+     as using GROUP BY will add @count column to result set. Explicit
+     support might be added in the future. COUNT(DISTINCT attr) is
+     supported. Currently there can be at most one COUNT(DISTINCT) per
+     query and an argument needs to be an attribute. Both current
+     restrictions on COUNT(DISTINCT) might be lifted in the future.
+
+      | SELECT *, AVG(price) AS avgprice, COUNT(DISTINCT storeid)
+      | FROM products
+      | WHERE MATCH('ipod')
+      | GROUP BY vendorid
+
+   * WITHIN GROUP ORDER BY clause. This is a Sphinx specific extension that
+     lets you control how the best row within a group will to be selected.
+     The syntax matches that of regular ORDER BY clause:
+
+      | SELECT *, INTERVAL(posted,NOW()-7*86400,NOW()-86400) AS timeseg
+      | FROM example WHERE MATCH('my search query')
+      | GROUP BY siteid
+      | WITHIN GROUP ORDER BY @weight DESC
+      | ORDER BY timeseg DESC, @weight DESC
+
+   * ORDER BY clause. Unlike in regular SQL, only column names (not
+     expressions) are allowed and explicit ASC and DESC are required. The
+     columns however can be computed expressions:
+
+      | SELECT *, @weight*10+docboost AS skey FROM example ORDER BY skey
+
+   * LIMIT clause. Both LIMIT N and LIMIT M,N forms are supported. Unlike
+     in regular SQL (but like in Sphinx API), an implicit LIMIT 0,20 is
+     present by default.
+   * OPTION clause. This is a Sphinx specific extension that lets you
+     control a number of per-query options. The syntax is:
+
+      | OPTION <optionname>=<value> [ , ... ]
+
+     Supported options and respectively allowed values are:
+
+      * 'ranker' - any of 'proximity_bm25', 'bm25', 'none', 'wordcount',
+        'proximity', 'matchany', or 'fieldmask'
+      * 'max_matches' - integer (per-query max matches value)
+      * 'cutoff' - integer (max found matches threshold)
+      * 'max_query_time' - integer (max search time threshold, msec)
+      * 'retry_count' - integer (distributed retries count)
+      * 'retry_delay' - integer (distributed retry delay, msec)
+      * 'field_weights' - a named integer list (per-field user weights for
+        ranking)
+      * 'index_weights' - a named integer list (per-index user weights for
+        ranking)
+
+   Example:
+
+      | SELECT * FROM test WHERE MATCH('@title hello @body world')
+      | OPTION ranker=bm25, max_matches=3000,
+      |     field_weights=(title=10, body=3)
+
+7.2. SHOW META syntax
+=====================
+
+   | SHOW META
+
+SHOW META shows additional meta-information about the latest query such as
+query time and keyword statistics:
+
+   | mysql> SELECT * FROM test1 WHERE MATCH('test|one|two');
+   | +------+--------+----------+------------+
+   | | id   | weight | group_id | date_added |
+   | +------+--------+----------+------------+
+   | |    1 |   3563 |      456 | 1231721236 |
+   | |    2 |   2563 |      123 | 1231721236 |
+   | |    4 |   1480 |        2 | 1231721236 |
+   | +------+--------+----------+------------+
+   | 3 rows in set (0.01 sec)
+   | 
+   | mysql> SHOW META;
+   | +---------------+-------+
+   | | Variable_name | Value |
+   | +---------------+-------+
+   | | total         | 3     |
+   | | total_found   | 3     |
+   | | time          | 0.005 |
+   | | keyword[0]    | test  |
+   | | docs[0]       | 3     |
+   | | hits[0]       | 5     |
+   | | keyword[1]    | one   |
+   | | docs[1]       | 1     |
+   | | hits[1]       | 2     |
+   | | keyword[2]    | two   |
+   | | docs[2]       | 1     |
+   | | hits[2]       | 2     |
+   | +---------------+-------+
+   | 12 rows in set (0.00 sec)
+
+7.3. SHOW WARNINGS syntax
+=========================
+
+   | SHOW WARNINGS
+
+SHOW WARNINGS statement, introduced in version 0.9.9-rc2, can be used to
+retrieve the warning produced by the latest query. The error message will
+be returned along with the query itself:
+
+   | mysql> SELECT * FROM test1 WHERE MATCH('@@title hello') \G
+   | ERROR 1064 (42000): index test1: syntax error, unexpected TOK_FIELDLIMIT
+   | near '@title hello'
+   | 
+   | mysql> SELECT * FROM test1 WHERE MATCH('@title -hello') \G
+   | ERROR 1064 (42000): index test1: query is non-computable (single NOT operator)
+   | 
+   | mysql> SELECT * FROM test1 WHERE MATCH('"test doc"/3') \G
+   | *************************** 1. row ***************************
+   |         id: 4
+   |     weight: 2500
+   |   group_id: 2
+   | date_added: 1231721236
+   | 1 row in set, 1 warning (0.00 sec)
+   | 
+   | mysql> SHOW WARNINGS \G
+   | *************************** 1. row ***************************
+   |   Level: warning
+   |    Code: 1000
+   | Message: quorum threshold too high (words=2, thresh=3); replacing quorum operator
+   |          with AND operator
+   | 1 row in set (0.00 sec)
+
+7.4. SHOW STATUS syntax
+=======================
+
+SHOW STATUS, introduced in version 0.9.9-rc2, displays a number of useful
+performance counters. IO and CPU counters will only be available if searchd
+was started with --iostats and --cpustats switches respectively.
+
+   | mysql> SHOW STATUS;
+   | +--------------------+-------+
+   | | Variable_name      | Value |
+   | +--------------------+-------+
+   | | uptime             | 216   |
+   | | connections        | 3     |
+   | | maxed_out          | 0     |
+   | | command_search     | 0     |
+   | | command_excerpt    | 0     |
+   | | command_update     | 0     |
+   | | command_keywords   | 0     |
+   | | command_persist    | 0     |
+   | | command_status     | 0     |
+   | | agent_connect      | 0     |
+   | | agent_retry        | 0     |
+   | | queries            | 10    |
+   | | dist_queries       | 0     |
+   | | query_wall         | 0.075 |
+   | | query_cpu          | OFF   |
+   | | dist_wall          | 0.000 |
+   | | dist_local         | 0.000 |
+   | | dist_wait          | 0.000 |
+   | | query_reads        | OFF   |
+   | | query_readkb       | OFF   |
+   | | query_readtime     | OFF   |
+   | | avg_query_wall     | 0.007 |
+   | | avg_query_cpu      | OFF   |
+   | | avg_dist_wall      | 0.000 |
+   | | avg_dist_local     | 0.000 |
+   | | avg_dist_wait      | 0.000 |
+   | | avg_query_reads    | OFF   |
+   | | avg_query_readkb   | OFF   |
+   | | avg_query_readtime | OFF   |
+   | +--------------------+-------+
+   | 29 rows in set (0.00 sec)
+
+7.5. INSERT and REPLACE syntax
+==============================
+
+   | {INSERT | REPLACE} INTO index [(column, ...)]
+   | 	VALUES (value, ...)
+   | 	[, (...)]
+
+INSERT statement, introduced in version 1.10-beta, is only supported for RT
+indexes. It inserts new rows (documents) into an existing index, with the
+provided column values.
+
+ID column must be present in all cases. Rows with duplicate IDs will not be
+overwritten by INSERT; use REPLACE to do that.
+
+index is the name of RT index into which the new row(s) should be inserted.
+The optional column names list lets you only explicitly specify values for
+some of the columns present in the index. All the other columns will be
+filled with their default values (0 for scalar types, empty string for text
+types).
+
+Expressions are not currently supported in INSERT and values should be
+explicitly specified.
+
+Multiple rows can be inserted using a single INSERT statement by providing
+several comma-separated, parens-enclosed lists of rows values.
+
+7.6. DELETE syntax
+==================
+
+   | DELETE FROM index WHERE id = value
+
+DELETE statement, introduced in version 1.10-beta, is only supported for RT
+indexes. It deletes existing rows (documents) from an existing index based
+on ID.
+
+index is the name of RT index from which the row should be deleted. value
+is the row ID to be deleted.
+
+Additional types of WHERE conditions (such as IN, conditions on attributes,
+etc) are planned, but not supported yet as of 1.10-beta.
+
+7.7. SET syntax
+===============
+
+   | SET variable_name = value
+
+SET statement, introduced in version 1.10-beta, modifies a server variable
+value. The only variable supported as of 1.10-beta is AUTOCOMMIT, and its
+allowed values are 0 and 1.
+
+7.8. BEGIN, COMMIT, and ROLLBACK syntax
+=======================================
+
+   | START TRANSACTION | BEGIN
+   | COMMIT
+   | ROLLBACK
+   | SET AUTOCOMMIT = {0 | 1}
+
+BEGIN, COMMIT, and ROLLBACK statements were introduced in version
+1.10-beta. BEGIN statement (or its START TRANSACTION alias) forcibly
+commits pending transaction, if any, and begins a new one. COMMIT statement
+commits the current transaction, making all its changes permanent. ROLLBACK
+statement rolls back the current transaction, canceling all its changes.
+SET AUTOCOMMIT controls the autocommit mode in the active session.
+
+AUTOCOMMIT is set to 1 by default, meaning that every statement that
+perfoms any changes on any index is implicitly wrapped in BEGIN and COMMIT.
+
+Transactions are limited to a single RT index, and also limited in size.
+They are atomic, consistent, overly isolated, and durable. Overly isolated
+means that the changes are not only invisible to the concurrent
+transactions but even to the current session itself.
+
+7.9. CALL SNIPPETS syntax
+=========================
+
+   | CALL SNIPPETS(data, index, query[, opt_value AS opt_name[, ...]])
+
+CALL SNIPPETS statement, introduced in version 1.10-beta, builds a snippet
+from provided data and query, using specified index settings.
+
+data is the source data string to extract a snippet from. index is the name
+of the index from which to take the text processing settings. query is the
+full-text query to build snippets for. Additional options are documented in
+Section 8.7.1, <<BuildExcerpts>>. Usage example:
+
+   | CALL SNIPPETS('this is my document text', 'test1', 'hello world',
+   |     5 AS around, 200 AS limit)
+
+7.10. CALL KEYWORDS syntax
+==========================
+
+   | CALL KEYWORDS(text, index, [hits])
+
+CALL KEYWORDS statement, introduced in version 1.10-beta, splits text into
+particular keywords. It returns tokenized and normalized forms of the
+keywords, and, optionally, keyword statistics.
+
+text is the text to break down to keywords. index is the name of the index
+from which to take the text processing settings. hits is an optional
+boolean parameter that specifies whether to return document and hit
+occurrence statistics.
+
+Chapter 8. API reference
+========================
+
+Table of Contents
+
+8.1. General API functions
+   8.1.1. GetLastError
+   8.1.2. GetLastWarning
+   8.1.3. SetServer
+   8.1.4. SetRetries
+   8.1.5. SetConnectTimeout
+   8.1.6. SetArrayResult
+   8.1.7. IsConnectError
+
+8.2. General query settings
+   8.2.1. SetLimits
+   8.2.2. SetMaxQueryTime
+   8.2.3. SetOverride
+   8.2.4. SetSelect
+
+8.3. Full-text search query settings
+   8.3.1. SetMatchMode
+   8.3.2. SetRankingMode
+   8.3.3. SetSortMode
+   8.3.4. SetWeights
+   8.3.5. SetFieldWeights
+   8.3.6. SetIndexWeights
+
+8.4. Result set filtering settings
+   8.4.1. SetIDRange
+   8.4.2. SetFilter
+   8.4.3. SetFilterRange
+   8.4.4. SetFilterFloatRange
+   8.4.5. SetGeoAnchor
+
+8.5. GROUP BY settings
+   8.5.1. SetGroupBy
+   8.5.2. SetGroupDistinct
+
+8.6. Querying
+   8.6.1. Query
+   8.6.2. AddQuery
+   8.6.3. RunQueries
+   8.6.4. ResetFilters
+   8.6.5. ResetGroupBy
+
+8.7. Additional functionality
+   8.7.1. BuildExcerpts
+   8.7.2. UpdateAttributes
+   8.7.3. BuildKeywords
+   8.7.4. EscapeString
+   8.7.5. Status
+   8.7.6. FlushAttributes
+
+8.8. Persistent connections
+   8.8.1. Open
+   8.8.2. Close
 
 There is a number of native searchd client API implementations for Sphinx.
 As of time of this writing, we officially support our own PHP, Python, and
@@ -2581,10 +3416,10 @@ well. There might be minor differences as to the method naming conventions
 or specific data structures used. But the provided functionality must not
 differ across languages.
 
-6.1. General API functions
---------------------------
+8.1. General API functions
+==========================
 
-6.1.1. GetLastError
+8.1.1. GetLastError
 -------------------
 
 Prototype: function GetLastError()
@@ -2599,7 +3434,7 @@ contain the error description.
 The error message is not reset by this call; so you can safely call it
 several times if needed.
 
-6.1.2. GetLastWarning
+8.1.2. GetLastWarning
 ---------------------
 
 Prototype: function GetLastWarning ()
@@ -2616,7 +3451,7 @@ agents timed out. In that case, a warning message would be produced.
 The warning message is not reset by this call; so you can safely call it
 several times if needed.
 
-6.1.3. SetServer
+8.1.3. SetServer
 ----------------
 
 Prototype: function SetServer ( $host, $port )
@@ -2625,7 +3460,7 @@ Sets searchd host name and TCP port. All subsequent requests will use the
 new host and port settings. Default host and port are 'localhost' and 9312,
 respectively.
 
-6.1.4. SetRetries
+8.1.4. SetRetries
 -----------------
 
 Prototype: function SetRetries ( $count, $delay=0 )
@@ -2639,7 +3474,7 @@ on temporary failure; it only tells searchd to do so. Currently, the list
 of temporary failures includes all kinds of connect() failures and maxed
 out (too busy) remote agents.
 
-6.1.5. SetConnectTimeout
+8.1.5. SetConnectTimeout
 ------------------------
 
 Prototype: function SetConnectTimeout ( $timeout )
@@ -2657,7 +3492,7 @@ In the event of a failure to connect, an appropriate error code should be
 returned back to the application in order for application-level error
 handling to advise the user.
 
-6.1.6. SetArrayResult
+8.1.6. SetArrayResult
 ---------------------
 
 Prototype: function SetArrayResult ( $arrayresult )
@@ -2676,7 +3511,7 @@ result sets may contain duplicate document IDs. Thus they need to be
 returned as plain arrays, because hashes will only keep one entry per
 document ID.
 
-6.1.7. IsConnectError
+8.1.7. IsConnectError
 ---------------------
 
 Prototype: function IsConnectError ()
@@ -2686,10 +3521,10 @@ error reported by searchd. Returns true if the last connection attempt to
 searchd failed on API side, false otherwise (if the error was remote, or
 there were no connection attempts at all). Introduced in version 0.9.9-rc1.
 
-6.2. General query settings
----------------------------
+8.2. General query settings
+===========================
 
-6.2.1. SetLimits
+8.2.1. SetLimits
 ----------------
 
 Prototype: function SetLimits ( $offset, $limit, $max_matches=0, $cutoff=0
@@ -2728,7 +3563,7 @@ $cutoff setting is intended for advanced performance control. It tells
 searchd to forcibly stop search query once $cutoff matches had been found
 and processed.
 
-6.2.2. SetMaxQueryTime
+8.2.2. SetMaxQueryTime
 ----------------------
 
 Prototype: function SetMaxQueryTime ( $max_query_time )
@@ -2742,7 +3577,7 @@ once that much time has elapsed. Note that if you're performing a search
 which queries several local indexes, this limit applies to each index
 separately.
 
-6.2.3. SetOverride
+8.2.3. SetOverride
 ------------------
 
 Prototype: function SetOverride ( $attrname, $attrtype, $values )
@@ -2763,7 +3598,7 @@ a "friends_weight" value for every document, defaulting to 0, then
 temporary override it with 1 for documents 123, 456 and 789 (recommended by
 exactly the friends of current user), and use that value when ranking.
 
-6.2.4. SetSelect
+8.2.4. SetSelect
 ----------------
 
 Prototype: function SetSelect ( $clause )
@@ -2789,8 +3624,8 @@ as the regular attributes.
 Starting with version 0.9.9-rc2, aggregate functions (AVG(), MIN(), MAX(),
 SUM()) are supported when using GROUP BY.
 
-Expression sorting (Section 4.5, <<SPH_SORT_EXPR mode>>) and geodistance
-functions (Section 6.4.5, <<SetGeoAnchor>>) are now internally implemented
+Expression sorting (Section 5.5, <<SPH_SORT_EXPR mode>>) and geodistance
+functions (Section 8.4.5, <<SetGeoAnchor>>) are now internally implemented
 using this computed expressions mechanism, using magic names '@expr' and
 '@geodist' respectively.
 
@@ -2801,15 +3636,15 @@ Example:
    |    IF(age>40,1,0) AS over40" );
    | $cl->SetSelect ( "*, AVG(price) AS avgprice" );
 
-6.3. Full-text search query settings
-------------------------------------
+8.3. Full-text search query settings
+====================================
 
-6.3.1. SetMatchMode
+8.3.1. SetMatchMode
 -------------------
 
 Prototype: function SetMatchMode ( $mode )
 
-Sets full-text query matching mode, as described in Section 4.1, <<Matching
+Sets full-text query matching mode, as described in Section 5.1, <<Matching
 modes>>. Parameter must be a constant specifying one of the known modes.
 
 WARNING: (PHP specific) you must not take the matching mode constant name
@@ -2818,7 +3653,7 @@ in quotes, that syntax specifies a string and is incorrect:
    | $cl->SetMatchMode ( "SPH_MATCH_ANY" ); // INCORRECT! will not work as expected
    | $cl->SetMatchMode ( SPH_MATCH_ANY ); // correct, works OK
 
-6.3.2. SetRankingMode
+8.3.2. SetRankingMode
 ---------------------
 
 Prototype: function SetRankingMode ( $ranker )
@@ -2863,13 +3698,21 @@ Currently implemented modes are:
      with N-th bit corresponding to N-th fulltext field, numbering from 0.
      The bit will only be set when the respective field has any keyword
      occurences satisfiying the query.
+   * SPH_RANK_SPH04, added in version 1.10-beta, is generally based on the
+     default SPH_RANK_PROXIMITY_BM25 ranker, but additionally boosts the
+     matches when they occur in the very beginning or the very end of
+     a text field. Thus, if a field equals the exact query, SPH04 should
+     rank it higher than a field that contains the exact query but is not
+     equal to it. (For instance, when the query is "Hyde Park", a document
+     entitled "Hyde Park" should be ranked higher than a one entitled "Hyde
+     Park, London" or "The Hyde Park Cafe".)
 
-6.3.3. SetSortMode
+8.3.3. SetSortMode
 ------------------
 
 Prototype: function SetSortMode ( $mode, $sortby="" )
 
-Set matches sorting mode, as described in Section 4.5, <<Sorting modes>>.
+Set matches sorting mode, as described in Section 5.5, <<Sorting modes>>.
 Parameter must be a constant specifying one of the known modes.
 
 WARNING: (PHP specific) you must not take the matching mode constant name
@@ -2878,7 +3721,7 @@ in quotes, that syntax specifies a string and is incorrect:
    | $cl->SetSortMode ( "SPH_SORT_ATTR_DESC" ); // INCORRECT! will not work as expected
    | $cl->SetSortMode ( SPH_SORT_ATTR_ASC ); // correct, works OK
 
-6.3.4. SetWeights
+8.3.4. SetWeights
 -----------------
 
 Prototype: function SetWeights ( $weights )
@@ -2886,7 +3729,7 @@ Prototype: function SetWeights ( $weights )
 Binds per-field weights in the order of appearance in the index.
 DEPRECATED, use SetFieldWeights() instead.
 
-6.3.5. SetFieldWeights
+8.3.5. SetFieldWeights
 ----------------------
 
 Prototype: function SetFieldWeights ( $weights )
@@ -2895,7 +3738,7 @@ Binds per-field weights by name. Parameter must be a hash (associative
 array) mapping string field names to integer weights.
 
 Match ranking can be affected by per-field weights. For instance, see
-Section 4.4, <<Weighting>> for an explanation how phrase proximity ranking
+Section 5.4, <<Weighting>> for an explanation how phrase proximity ranking
 is affected. This call lets you specify what non-default weights to assign
 to different full-text fields.
 
@@ -2908,11 +3751,11 @@ However, beware that if you set it too high you can start hitting 32-bit
 wraparound issues. For instance, if you set a weight of 10,000,000 and
 search in extended mode, then maximum possible weight will be equal to 10
 million (your weight) by 1 thousand (internal BM25 scaling factor, see
-Section 4.4, <<Weighting>>) by 1 or more (phrase proximity rank). The
+Section 5.4, <<Weighting>>) by 1 or more (phrase proximity rank). The
 result is at least 10 billion that does not fit in 32 bits and will be
 wrapped around, producing unexpected results.
 
-6.3.6. SetIndexWeights
+8.3.6. SetIndexWeights
 ----------------------
 
 Prototype: function SetIndexWeights ( $weights )
@@ -2937,10 +3780,10 @@ also in index B with the weight of 3, and you called SetIndexWeights (
 array ( "A"=>100, "B"=>10 ) ), the final weight return to the client will
 be 2*100+3*10 = 230.
 
-6.4. Result set filtering settings
-----------------------------------
+8.4. Result set filtering settings
+==================================
 
-6.4.1. SetIDRange
+8.4.1. SetIDRange
 -----------------
 
 Prototype: function SetIDRange ( $min, $max )
@@ -2951,7 +3794,7 @@ Defaults are 0 and 0; that combination means to not limit by range.
 After this call, only those records that have document ID between $min and
 $max (including IDs exactly equal to $min or $max) will be matched.
 
-6.4.2. SetFilter
+8.4.2. SetFilter
 ----------------
 
 Prototype: function SetFilter ( $attribute, $values, $exclude=false )
@@ -2968,7 +3811,7 @@ Only those documents where $attribute column value stored in the index
 matches any of the values from $values array will be matched (or rejected,
 if $exclude is true).
 
-6.4.3. SetFilterRange
+8.4.3. SetFilterRange
 ---------------------
 
 Prototype: function SetFilterRange ( $attribute, $min, $max, $exclude=false
@@ -2987,7 +3830,7 @@ Only those documents where $attribute column value stored in the index is
 between $min and $max (including values that are exactly equal to $min or
 $max) will be matched (or rejected, if $exclude is true).
 
-6.4.4. SetFilterFloatRange
+8.4.4. SetFilterFloatRange
 --------------------------
 
 Prototype: function SetFilterFloatRange ( $attribute, $min, $max,
@@ -3006,7 +3849,7 @@ Only those documents where $attribute column value stored in the index is
 between $min and $max (including values that are exactly equal to $min or
 $max) will be matched (or rejected, if $exclude is true).
 
-6.4.5. SetGeoAnchor
+8.4.5. SetGeoAnchor
 -------------------
 
 Prototype: function SetGeoAnchor ( $attrlat, $attrlong, $lat, $long )
@@ -3027,24 +3870,24 @@ SetGeoAnchor and the index attribute data are expected to be in radians.
 The result will be returned in meters, so geodistance value of 1000.0 means
 1 km. 1 mile is approximately 1609.344 meters.
 
-6.5. GROUP BY settings
-----------------------
+8.5. GROUP BY settings
+======================
 
-6.5.1. SetGroupBy
+8.5.1. SetGroupBy
 -----------------
 
 Prototype: function SetGroupBy ( $attribute, $func, $groupsort="@group
 desc" )
 
 Sets grouping attribute, function, and groups sorting mode; and enables
-grouping (as described in Section 4.6, <<Grouping (clustering) search
+grouping (as described in Section 5.6, <<Grouping (clustering) search
 results >>).
 
 $attribute is a string that contains group-by attribute name. $func is
 a constant that chooses a function applied to the attribute value in order
 to compute group-by key. $groupsort is a clause that controls how the
 groups will be sorted. Its syntax is similar to that described in
-Section 4.5, <<SPH_SORT_EXTENDED mode>>.
+Section 5.5, <<SPH_SORT_EXTENDED mode>>.
 
 Grouping feature is very similar in nature to GROUP BY clause from SQL.
 Results produces by this function call are going to be the same as produced
@@ -3053,7 +3896,7 @@ by the following pseudo code:
    | SELECT ... GROUP BY $func($attribute) ORDER BY $groupsort
 
 Note that it's $groupsort that affects the order of matches in the final
-result set. Sorting mode (see Section 6.3.3, <<SetSortMode>>) affect the
+result set. Sorting mode (see Section 8.3.3, <<SetSortMode>>) affect the
 ordering of matches within group, ie. what match will be selected as the
 best one from the group. So you can for instance order the groups by
 matches count and select the most relevant match within each group at the
@@ -3062,7 +3905,7 @@ same time.
 Starting with version 0.9.9-rc2, aggregate functions (AVG(), MIN(), MAX(),
 SUM()) are supported through SetSelect() API call when using GROUP BY.
 
-6.5.2. SetGroupDistinct
+8.5.2. SetGroupDistinct
 -----------------------
 
 Prototype: function SetGroupDistinct ( $attribute )
@@ -3095,10 +3938,10 @@ queries will return one matching row for each category. In addition to
 indexed attributes, matches will also contain total per-category matches
 count, and the count of distinct vendor IDs within each category.
 
-6.6. Querying
--------------
+8.6. Querying
+=============
 
-6.6.1. Query
+8.6.1. Query
 ------------
 
 Prototype: function Query ( $query, $index="*", $comment="" )
@@ -3167,7 +4010,7 @@ a single AddQuery() call, followed by a corresponding RunQueries(), then
 returning the first array element of matches (from the first, and only,
 query.)
 
-6.6.2. AddQuery
+8.6.2. AddQuery
 ---------------
 
 Prototype: function AddQuery ( $query, $index="*", $comment="" )
@@ -3237,7 +4080,7 @@ integer, ie. first call will return 0, second will return 1, and so on.
 Just a small helper so you won't have to track the indexes manualy if you
 need then.
 
-6.6.3. RunQueries
+8.6.3. RunQueries
 -----------------
 
 Prototype: function RunQueries ()
@@ -3262,7 +4105,7 @@ because API was able to succesfully connect to searchd, submit the batch,
 and receive the results - but every result set will have a specific error
 message.
 
-6.6.4. ResetFilters
+8.6.4. ResetFilters
 -------------------
 
 Prototype: function ResetFilters ()
@@ -3274,7 +4117,7 @@ want to set different filters for different queries in the batch. To do
 that, you should call ResetFilters() and add new filters using the
 respective calls.
 
-6.6.5. ResetGroupBy
+8.6.5. ResetGroupBy
 -------------------
 
 Prototype: function ResetGroupBy ()
@@ -3288,10 +4131,10 @@ calls. ResetGroupBy() fully resets previous group-by settings and disables
 group-by mode in the current state, so that subsequent AddQuery() calls can
 perform non-grouping searches.
 
-6.7. Additional functionality
------------------------------
+8.7. Additional functionality
+=============================
 
-6.7.1. BuildExcerpts
+8.7.1. BuildExcerpts
 --------------------
 
 Prototype: function BuildExcerpts ( $docs, $index, $words, $opts=array() )
@@ -3310,10 +4153,17 @@ to star-syntax available in queries. $opts is a hash which contains
 additional optional highlighting parameters:
 
 "before_match":
-   A string to insert before a keyword match. Default is "<b>".
+   A string to insert before a keyword match. Starting with version
+   1.10-beta, a %PASSAGE_ID% macro can be used in this string. The macro is
+   replaced with an incrementing passage number within a current snippet.
+   Numbering starts at 1 by default but can be overridden with
+   "start_passage_id" option. In a multi-document call, %PASSAGE_ID% would
+   restart at every given document. Default is "<b>".
 
 "after_match":
-   A string to insert after a keyword match. Default is "<b>".
+   A string to insert after a keyword match. Starting with version
+   1.10-beta, a %PASSAGE_ID% macro can be used in this string. Default is
+   "<b>".
 
 "chunk_separator":
    A string to insert between snippet chunks (passages). Default is
@@ -3338,10 +4188,58 @@ additional optional highlighting parameters:
    weight), or in order of appearance in the document (increasing
    position). Boolean, default is false.
 
+"query_mode":
+   Added in version 1.10-beta. Whether to handle $words as a query in
+   extended syntax, or as a bag of words (default behavior). For instance,
+   in query mode ("one two" | "three four") will only highlight and include
+   those occurrences "one two" or "three four" when the two words from each
+   pair are adjacent to each other. In default mode, any single occurrence
+   of "one", "two", "three", or "four" would be highlighted. Boolean,
+   default is false.
+
+"force_all_words":
+   Added in version 1.10-beta. Ignores the snippet length limit until it
+   includes all the keywords. Boolean, default is false.
+
+"limit_passages":
+   Added in version 1.10-beta. Limits the maximum number of passages that
+   can be included into the snippet. Integer, default is 0 (no limit).
+
+"limit_words":
+   Added in version 1.10-beta. Limits the maximum number of keywords that
+   can be included into the snippet. Integer, default is 0 (no limit).
+
+"start_passage_id":
+   Added in version 1.10-beta. Specifies the starting value of %PASSAGE_ID%
+   macro (that gets detected and expanded in before_match, after_match
+   strings). Integer, default is 1.
+
+"load_files":
+   Added in version 1.10-beta. Whether to handle $docs as data to extract
+   snippets from (default behavior), or to treat it as file names, and load
+   data from specified files on the server side. Boolean, default is false.
+
+"html_strip_mode":
+   Added in version 1.10-beta. HTML stripping mode setting. Defaults to
+   "index", which means that index settings will be used. The other values
+   are "none" and "strip", that forcibly skip or apply stripping
+   irregardless of index settings; and "retain", that retains HTML markup
+   and protects it from highlighting. The "retain" mode can only be used
+   when highlighting full documents and thus requires that no snippet size
+   limits are set. String, allowed values are "none", "strip", "index", and
+   "retain".
+
+"allow_empty":
+   Added in version 1.10-beta. Allows empty string to be returned as
+   highlighting result when a snippet could not be generated (no keywords
+   match, or no passages fit the limit). By default, the beginning of
+   original text would be returned instead of an empty string. Boolean,
+   default is false.
+
 Returns false on failure. Returns a plain array of strings with excerpts
 (snippets) on success.
 
-6.7.2. UpdateAttributes
+8.7.2. UpdateAttributes
 -----------------------
 
 Prototype: function UpdateAttributes ( $index, $attrs, $values )
@@ -3377,7 +4275,7 @@ in index "products". For document 1001, the new price will be set to 123
 and the new amount in stock to 5; for document 1002, the new price will be
 37 and the new amount will be 11; etc.
 
-6.7.3. BuildKeywords
+8.7.3. BuildKeywords
 --------------------
 
 Prototype: function BuildKeywords ( $query, $index, $hits )
@@ -3395,7 +4293,7 @@ Usage example:
 
    | $keywords = $cl->BuildKeywords ( "this.is.my query", "test1", false );
 
-6.7.4. EscapeString
+8.7.4. EscapeString
 -------------------
 
 Prototype: function EscapeString ( $string )
@@ -3414,7 +4312,7 @@ Usage example:
 
    | $escaped = $cl->EscapeString ( "escaping-sample@query/string" );
 
-6.7.5. Status
+8.7.5. Status
 -------------
 
 Prototype: function Status ()
@@ -3428,31 +4326,72 @@ Usage example:
    | foreach ( $status as $row )
    | 	print join ( ": ", $row ) . "\n";
 
-6.8. Persistent connections
----------------------------
+8.7.6. FlushAttributes
+----------------------
+
+Prototype: function FlushAttributes ()
+
+Forces searchd to flush pending attribute updates to disk, and blocks until
+completion. Returns a non-negative internal "flush tag" on success. Returns
+-1 and sets an error message on error. Introduced in version 1.10-beta.
+
+Attribute values updated using UpdateAttributes() API call are only kept in
+RAM until a so-called flush (which writes the current, possibly updated
+attribute values back to disk). FlushAttributes() call lets you enforce
+a flush. The call will block until searchd finishes writing the data to
+disk, which might take seconds or even minutes depending on the total data
+size (.spa file size). All the currently updated indexes will be flushed.
+
+Flush tag should be treated as an ever growing magic number that does not
+mean anything. It's guaranteed to be non-negative. It is guaranteed to grow
+over time, though not necessarily in a sequential fashion; for instance,
+two calls that return 10 and then 1000 respectively are a valid situation.
+If two calls to FlushAttrs() return the same tag, it means that there were
+no actual attribute updates in between them, and therefore current flushed
+state remained the same (for all indexes).
+
+Usage example:
+
+   | $status = $cl->FlushAttributes ();
+   | if ( $status<0 )
+   | 	print "ERROR: " . $cl->GetLastError(); 
+
+8.8. Persistent connections
+===========================
 
 Persistent connections allow to use single network connection to run
 multiple commands that would otherwise require reconnects.
 
-6.8.1. Open
+8.8.1. Open
 -----------
 
 Prototype: function Open ()
 
 Opens persistent connection to the server.
 
-6.8.2. Close
+8.8.2. Close
 ------------
 
 Prototype: function Close ()
 
 Closes previously opened persistent connection.
 
-7. MySQL storage engine (SphinxSE)
-==================================
+Chapter 9. MySQL storage engine (SphinxSE)
+==========================================
 
-7.1. SphinxSE overview
-----------------------
+Table of Contents
+
+9.1. SphinxSE overview
+9.2. Installing SphinxSE
+   9.2.1. Compiling MySQL 5.0.x with SphinxSE
+   9.2.2. Compiling MySQL 5.1.x with SphinxSE
+   9.2.3. Checking SphinxSE installation
+
+9.3. Using SphinxSE
+9.4. Building snippets (excerpts) via MySQL
+
+9.1. SphinxSE overview
+======================
 
 SphinxSE is MySQL storage engine which can be compiled into MySQL server
 5.x using its pluggable architecure. It is not available for MySQL 4.x
@@ -3473,8 +4412,8 @@ Obvious SphinxSE applications include:
      side is required (eg. JOINs with original document tables, additional
      MySQL-side filtering, etc).
 
-7.2. Installing SphinxSE
-------------------------
+9.2. Installing SphinxSE
+========================
 
 You will need to obtain a copy of MySQL sources, prepare those, and then
 recompile MySQL binary. MySQL sources (mysql-5.x.yy.tar.gz) could be
@@ -3489,7 +4428,7 @@ If such tarball is not available, or does not work for you for any reason,
 you would have to prepare sources manually. You will need to GNU Autotools
 framework (autoconf, automake and libtool) installed to do that.
 
-7.2.1. Compiling MySQL 5.0.x with SphinxSE
+9.2.1. Compiling MySQL 5.0.x with SphinxSE
 ------------------------------------------
 
 Skips steps 1-3 if using already prepared delta tarball.
@@ -3521,7 +4460,7 @@ Skips steps 1-3 if using already prepared delta tarball.
       | make
       | make install
 
-7.2.2. Compiling MySQL 5.1.x with SphinxSE
+9.2.2. Compiling MySQL 5.1.x with SphinxSE
 ------------------------------------------
 
 Skip steps 1-2 if using already prepared delta tarball.
@@ -3545,7 +4484,7 @@ Skip steps 1-2 if using already prepared delta tarball.
       | make
       | make install
 
-7.2.3. Checking SphinxSE installation
+9.2.3. Checking SphinxSE installation
 -------------------------------------
 
 To check whether SphinxSE has been succesfully compiled into MySQL, launch
@@ -3564,8 +4503,8 @@ should see a list of all available engines. Sphinx should be present and
    | +------------+----------+-------------------------------------------------------------+
    | 13 rows in set (0.00 sec)
 
-7.3. Using SphinxSE
--------------------
+9.3. Using SphinxSE
+===================
 
 To search via SphinxSE, you would need to create special ENGINE=SPHINX
 "search table", and then SELECT from it with full text query put into WHERE
@@ -3682,6 +4621,16 @@ number of options can be specified. Available options are:
 
       | ... WHERE query='test;indexweights=idx_exact,2,idx_stemmed,1;';
 
+   * comment - a string to mark this query in query log (mapping to
+     $comment parameter in Query() API call):
+
+      | ... WHERE query='test;comment=marker001;';
+
+   * select - a string with expressions to compute (mapping to SetSelect()
+     API call):
+
+      | ... WHERE query='test;select=2*a+3*b as myexpr;';
+
 One very important note that it is much more efficient to allow Sphinx to
 perform sorting, filtering and slicing the result set than to raise max
 matches count and use WHERE, ORDER BY and LIMIT clauses on MySQL side. This
@@ -3739,8 +4688,8 @@ engines. Here's an example with "documents" from example.sql:
    | +--------+-------+---------------------------------------------+
    | 2 rows in set (0.00 sec)
 
-7.4. Building snippets (excerpts) via MySQL
--------------------------------------------
+9.4. Building snippets (excerpts) via MySQL
+===========================================
 
 Starting with version 0.9.9-rc2, SphinxSE also includes a UDF function that
 lets you create snippets through MySQL. The functionality is fully similar
@@ -3777,8 +4726,8 @@ Usage examples:
    |     FROM sphinx, documents
    |     WHERE query='mysql php' AND sphinx.id=documents.id;
 
-8. Reporting bugs
-=================
+Chapter 10. Reporting bugs
+==========================
 
 Unfortunately, Sphinx is not yet 100% bug free (even though I'm working
 hard towards that), so you might occasionally run into some issues.
@@ -3789,7 +4738,7 @@ deduce what's causing it from the information that you provide. So here are
 some instructions on how to do that.
 
 Build-time issues
------------------
+=================
 
 If Sphinx fails to build for some reason, please do the following:
 
@@ -3808,7 +4757,7 @@ If Sphinx fails to build for some reason, please do the following:
       log).
 
 Run-time issues
----------------
+===============
 
 If Sphinx builds and runs, but there are any problems running it, please do
 the following:
@@ -3847,7 +4796,7 @@ the following:
    9. if any program dies with an assertion, provide the assertion message.
 
 Debugging assertions, crashes and hangups
------------------------------------------
+=========================================
 
 If any program dies with an assertion, crashes without an assertion or
 hangs up, you would additionally need to generate a core dump and examine
@@ -3896,14 +4845,161 @@ additional helpful information which could be retrieved from it. You do not
 need to send me this file (as the debug info there is closely tied to your
 system) but I might need to ask you a few additional questions about it.
 
-9. sphinx.conf options reference
-================================
+Chapter 11. sphinx.conf options reference
+=========================================
 
-9.1. Data source configuration options
---------------------------------------
+Table of Contents
 
-9.1.1. type
------------
+11.1. Data source configuration options
+   11.1.1. type
+   11.1.2. sql_host
+   11.1.3. sql_port
+   11.1.4. sql_user
+   11.1.5. sql_pass
+   11.1.6. sql_db
+   11.1.7. sql_sock
+   11.1.8. mysql_connect_flags
+   11.1.9. mysql_ssl_cert, mysql_ssl_key, mysql_ssl_ca
+   11.1.10. odbc_dsn
+   11.1.11. sql_query_pre
+   11.1.12. sql_query
+   11.1.13. sql_joined_field
+   11.1.14. sql_query_range
+   11.1.15. sql_range_step
+   11.1.16. sql_query_killlist
+   11.1.17. sql_attr_uint
+   11.1.18. sql_attr_bool
+   11.1.19. sql_attr_bigint
+   11.1.20. sql_attr_timestamp
+   11.1.21. sql_attr_str2ordinal
+   11.1.22. sql_attr_float
+   11.1.23. sql_attr_multi
+   11.1.24. sql_attr_string
+   11.1.25. sql_attr_str2wordcount
+   11.1.26. sql_field_string
+   11.1.27. sql_field_str2wordcount
+   11.1.28. sql_file_field
+   11.1.29. sql_query_post
+   11.1.30. sql_query_post_index
+   11.1.31. sql_ranged_throttle
+   11.1.32. sql_query_info
+   11.1.33. xmlpipe_command
+   11.1.34. xmlpipe_field
+   11.1.35. xmlpipe_field_string
+   11.1.36. xmlpipe_field_wordcount
+   11.1.37. xmlpipe_attr_uint
+   11.1.38. xmlpipe_attr_bool
+   11.1.39. xmlpipe_attr_timestamp
+   11.1.40. xmlpipe_attr_str2ordinal
+   11.1.41. xmlpipe_attr_float
+   11.1.42. xmlpipe_attr_multi
+   11.1.43. xmlpipe_attr_string
+   11.1.44. xmlpipe_fixup_utf8
+   11.1.45. mssql_winauth
+   11.1.46. mssql_unicode
+   11.1.47. unpack_zlib
+   11.1.48. unpack_mysqlcompress
+   11.1.49. unpack_mysqlcompress_maxsize
+
+11.2. Index configuration options
+   11.2.1. type
+   11.2.2. source
+   11.2.3. path
+   11.2.4. docinfo
+   11.2.5. mlock
+   11.2.6. morphology
+   11.2.7. min_stemming_len
+   11.2.8. stopwords
+   11.2.9. wordforms
+   11.2.10. exceptions
+   11.2.11. min_word_len
+   11.2.12. charset_type
+   11.2.13. charset_table
+   11.2.14. ignore_chars
+   11.2.15. min_prefix_len
+   11.2.16. min_infix_len
+   11.2.17. prefix_fields
+   11.2.18. infix_fields
+   11.2.19. enable_star
+   11.2.20. ngram_len
+   11.2.21. ngram_chars
+   11.2.22. phrase_boundary
+   11.2.23. phrase_boundary_step
+   11.2.24. html_strip
+   11.2.25. html_index_attrs
+   11.2.26. html_remove_elements
+   11.2.27. local
+   11.2.28. agent
+   11.2.29. agent_blackhole
+   11.2.30. agent_connect_timeout
+   11.2.31. agent_query_timeout
+   11.2.32. preopen
+   11.2.33. ondisk_dict
+   11.2.34. inplace_enable
+   11.2.35. inplace_hit_gap
+   11.2.36. inplace_docinfo_gap
+   11.2.37. inplace_reloc_factor
+   11.2.38. inplace_write_factor
+   11.2.39. index_exact_words
+   11.2.40. overshort_step
+   11.2.41. stopword_step
+   11.2.42. hitless_words
+   11.2.43. expand_keywords
+   11.2.44. blend_chars
+   11.2.45. rt_mem_limit
+   11.2.46. rt_field
+   11.2.47. rt_attr_uint
+   11.2.48. rt_attr_bigint
+   11.2.49. rt_attr_float
+   11.2.50. rt_attr_timestamp
+   11.2.51. rt_attr_string
+
+11.3. indexer program configuration options
+   11.3.1. mem_limit
+   11.3.2. max_iops
+   11.3.3. max_iosize
+   11.3.4. max_xmlpipe2_field
+   11.3.5. write_buffer
+   11.3.6. max_file_field_buffer
+
+11.4. searchd program configuration options
+   11.4.1. listen
+   11.4.2. address
+   11.4.3. port
+   11.4.4. log
+   11.4.5. query_log
+   11.4.6. read_timeout
+   11.4.7. client_timeout
+   11.4.8. max_children
+   11.4.9. pid_file
+   11.4.10. max_matches
+   11.4.11. seamless_rotate
+   11.4.12. preopen_indexes
+   11.4.13. unlink_old
+   11.4.14. attr_flush_period
+   11.4.15. ondisk_dict_default
+   11.4.16. max_packet_size
+   11.4.17. mva_updates_pool
+   11.4.18. crash_log_path
+   11.4.19. max_filters
+   11.4.20. max_filter_values
+   11.4.21. listen_backlog
+   11.4.22. read_buffer
+   11.4.23. read_unhinted
+   11.4.24. max_batch_queries
+   11.4.25. subtree_docs_cache
+   11.4.26. subtree_hits_cache
+   11.4.27. workers
+   11.4.28. dist_threads
+   11.4.29. binlog_path
+   11.4.30. binlog_flush
+   11.4.31. binlog_max_log_size
+
+11.1. Data source configuration options
+=======================================
+
+11.1.1. type
+------------
 
 Data source type. Mandatory, no default value. Known types are mysql,
 pgsql, mssql, xmlpipe and xmlpipe2, and odbc.
@@ -3921,8 +5017,8 @@ Example:
 
    | type = mysql
 
-9.1.2. sql_host
----------------
+11.1.2. sql_host
+----------------
 
 SQL server host to connect to. Mandatory, no default value. Applies to SQL
 source types (mysql, pgsql, mssql) only.
@@ -3939,8 +5035,8 @@ Example:
 
    | sql_host = localhost
 
-9.1.3. sql_port
----------------
+11.1.3. sql_port
+----------------
 
 SQL server IP port to connect to. Optional, default is 3306 for mysql
 source type and 5432 for pgsql type. Applies to SQL source types (mysql,
@@ -3951,8 +5047,8 @@ Example:
 
    | sql_port = 3306
 
-9.1.4. sql_user
----------------
+11.1.4. sql_user
+----------------
 
 SQL user to use when connecting to sql_host. Mandatory, no default value.
 Applies to SQL source types (mysql, pgsql, mssql) only.
@@ -3961,8 +5057,8 @@ Example:
 
    | sql_user = test
 
-9.1.5. sql_pass
----------------
+11.1.5. sql_pass
+----------------
 
 SQL user password to use when connecting to sql_host. Mandatory, no default
 value. Applies to SQL source types (mysql, pgsql, mssql) only.
@@ -3971,8 +5067,8 @@ Example:
 
    | sql_pass = mysecretpassword
 
-9.1.6. sql_db
--------------
+11.1.6. sql_db
+--------------
 
 SQL database (in MySQL terms) to use after the connection and perform
 further queries within. Mandatory, no default value. Applies to SQL source
@@ -3982,8 +5078,8 @@ Example:
 
    | sql_db = test
 
-9.1.7. sql_sock
----------------
+11.1.7. sql_sock
+----------------
 
 UNIX socket name to connect to for local SQL servers. Optional, default
 value is empty (use client library default settings). Applies to SQL source
@@ -3997,8 +5093,8 @@ Example:
 
    | sql_sock = /tmp/mysql.sock
 
-9.1.8. mysql_connect_flags
---------------------------
+11.1.8. mysql_connect_flags
+---------------------------
 
 MySQL client connection flags. Optional, default value is 0 (do not set any
 flags). Applies to mysql source type only.
@@ -4026,8 +5122,8 @@ Example:
 
    | mysql_connect_flags = 32 # enable compression
 
-9.1.9. mysql_ssl_cert, mysql_ssl_key, mysql_ssl_ca
---------------------------------------------------
+11.1.9. mysql_ssl_cert, mysql_ssl_key, mysql_ssl_ca
+---------------------------------------------------
 
 SSL certificate settings to use for connecting to MySQL server. Optional,
 default values are empty strings (do not use SSL). Applies to mysql source
@@ -4043,8 +5139,8 @@ Example:
    | mysql_ssl_key = /etc/ssl/client-key.pem
    | mysql_ssl_ca = /etc/ssl/cacert.pem
 
-9.1.10. odbc_dsn
-----------------
+11.1.10. odbc_dsn
+-----------------
 
 ODBC DSN to connect to. Mandatory, no default value. Applies to odbc source
 type only.
@@ -4057,8 +5153,8 @@ Example:
 
    | odbc_dsn = Driver={Oracle ODBC Driver};Dbq=myDBName;Uid=myUsername;Pwd=myPassword
 
-9.1.11. sql_query_pre
----------------------
+11.1.11. sql_query_pre
+----------------------
 
 Pre-fetch query, or pre-query. Multi-value, optional, default is empty list
 of queries. Applies to SQL source types (mysql, pgsql, mssql) only.
@@ -4092,8 +5188,8 @@ Example:
    | sql_query_pre = SET NAMES utf8
    | sql_query_pre = SET SESSION query_cache_type=OFF
 
-9.1.12. sql_query
------------------
+11.1.12. sql_query
+------------------
 
 Main document fetch query. Mandatory, no default value. Applies to SQL
 source types (mysql, pgsql, mssql) only.
@@ -4117,8 +5213,75 @@ Example:
    | 		title, content \
    | 	FROM documents
 
-9.1.13. sql_query_range
------------------------
+11.1.13. sql_joined_field
+-------------------------
+
+Joined/payload field fetch query. Multi-value, optional, default is empty
+list of queries. Applies to SQL source types (mysql, pgsql, mssql) only.
+
+sql_joined_field lets you use two different features: joined fields, and
+payloads (payload fields). It's syntax is as follows:
+
+   | sql_joined_field = FIELD-NAME 'from'  ( 'query' | 'payload-query' ); QUERY
+
+where
+
+   * FIELD-NAME is a joined/payload field name;
+   * QUERY is an SQL query used to fetch values to index.
+
+Joined fields let you avoid JOIN and/or GROUP_CONCAT statements in the main
+document fetch query (sql_query). This can be useful when SQL-side JOIN is
+slow, or needs to be offloaded on Sphinx side, or simply to emulate
+MySQL-specific GROUP_CONCAT funcionality in case your database server does
+not support it.
+
+The query must return exactly 2 columns: document ID, and text to append to
+a joined field. Document IDs can be duplicate, but they must be in
+ascending order. All the text rows fetched for a given ID will be
+concatented together, and the concatenation result will be indexed as the
+entire contents of a joined field. Rows will be concatenated in the order
+returned from the query, and separating whitespace will be inserted between
+them. For instance, if joined field query returns the following rows:
+
+   | ( 1, 'red' )
+   | ( 1, 'right' )
+   | ( 1, 'hand' )
+   | ( 2, 'mysql' )
+   | ( 2, 'sphinx' )
+
+then the indexing results would be equivalent to that of adding a new text
+field with a value of 'red right hand' to document 1 and 'mysql sphinx' to
+document 2.
+
+Joined fields are only indexed differently. There are no other differences
+between joined fields and regular text fields.
+
+Payloads let you create a special field in which, instead of keyword
+positions, so-called user payloads are stored. Payloads are custom integer
+values attached to every keyword. They can then be used in search time to
+affect the ranking.
+
+The payload query must return exactly 3 columns: document ID; keyword; and
+integer payload value. Document IDs can be duplicate, but they must be in
+ascending order. Payloads must be unsigned integers within 24-bit range,
+ie. from 0 to 16777215. For reference, payloads are currently internally
+stored as in-field keyword positions, but that is not guaranteed and might
+change in the future.
+
+Currently, the only method to account for payloads is to use
+SPH_RANK_PROXIMITY_BM25 ranker. On indexes with payload fields, it will
+automatically switch to a variant that matches keywords in those fields,
+computes a sum of matched payloads multiplied by field wieghts, and adds
+that sum to the final rank.
+
+Example:
+
+   | sql_joined_field = \
+   | 	tagstext from query; \
+   | 	SELECT docid, CONCAT('tag',tagid) FROM tags ORDER BY docid ASC
+
+11.1.14. sql_query_range
+------------------------
 
 Range query setup. Optional, default is empty. Applies to SQL source types
 (mysql, pgsql, mssql) only.
@@ -4146,8 +5309,8 @@ Example:
 
    | sql_query_range = SELECT MIN(id),MAX(id) FROM documents
 
-9.1.14. sql_range_step
-----------------------
+11.1.15. sql_range_step
+-----------------------
 
 Range query step. Optional, default is 1024. Applies to SQL source types
 (mysql, pgsql, mssql) only.
@@ -4167,8 +5330,8 @@ Example:
 
    | sql_range_step = 1000
 
-9.1.15. sql_query_killlist
---------------------------
+11.1.16. sql_query_killlist
+---------------------------
 
 Kill-list query. Optional, default is empty (no query). Applies to SQL
 source types (mysql, pgsql, mssql) only. Introduced in version 0.9.9-rc1.
@@ -4209,8 +5372,8 @@ Example:
    | 	SELECT id FROM documents WHERE updated_ts>=@last_reindex UNION \
    | 	SELECT id FROM documents_deleted WHERE deleted_ts>=@last_reindex
 
-9.1.16. sql_attr_uint
----------------------
+11.1.17. sql_attr_uint
+----------------------
 
 Unsigned integer attribute declaration. Multi-value (there might be
 multiple attributes declared), optional. Applies to SQL source types
@@ -4232,8 +5395,8 @@ Example:
    | sql_attr_uint = group_id
    | sql_attr_uint = forum_id:9 # 9 bits for forum_id
 
-9.1.17. sql_attr_bool
----------------------
+11.1.18. sql_attr_bool
+----------------------
 
 Boolean attribute declaration. Multi-value (there might be multiple
 attributes declared), optional. Applies to SQL source types (mysql, pgsql,
@@ -4243,8 +5406,8 @@ Example:
 
    | sql_attr_bool = is_deleted # will be packed to 1 bit
 
-9.1.18. sql_attr_bigint
------------------------
+11.1.19. sql_attr_bigint
+------------------------
 
 64-bit signed integer attribute declaration. Multi-value (there might be
 multiple attributes declared), optional. Applies to SQL source types
@@ -4255,8 +5418,8 @@ Example:
 
    | sql_attr_bigint = my_bigint_id
 
-9.1.19. sql_attr_timestamp
---------------------------
+11.1.20. sql_attr_timestamp
+---------------------------
 
 UNIX timestamp attribute declaration. Multi-value (there might be multiple
 attributes declared), optional. Applies to SQL source types (mysql, pgsql,
@@ -4276,8 +5439,8 @@ Example:
 
    | sql_attr_timestamp = UNIX_TIMESTAMP(added_datetime) AS added_ts
 
-9.1.20. sql_attr_str2ordinal
-----------------------------
+11.1.21. sql_attr_str2ordinal
+-----------------------------
 
 Ordinal string number attribute declaration. Multi-value (there might be
 multiple attributes declared), optional. Applies to SQL source types
@@ -4320,8 +5483,8 @@ Example:
 
    | sql_attr_str2ordinal = author_name
 
-9.1.21. sql_attr_float
-----------------------
+11.1.22. sql_attr_float
+-----------------------
 
 Floating point attribute declaration. Multi-value (there might be multiple
 attributes declared), optional. Applies to SQL source types (mysql, pgsql,
@@ -4339,8 +5502,8 @@ Example:
    | sql_attr_float = lat_radians
    | sql_attr_float = long_radians
 
-9.1.22. sql_attr_multi
-----------------------
+11.1.23. sql_attr_multi
+-----------------------
 
 Multi-valued attribute (MVA) declaration. Multi-value (ie. there may be
 more than one such attribute declared), optional. Applies to SQL source
@@ -4373,8 +5536,95 @@ Example:
    | 	SELECT id, tag FROM tags WHERE id>=$start AND id<=$end; \
    | 	SELECT MIN(id), MAX(id) FROM tags
 
-9.1.23. sql_query_post
-----------------------
+11.1.24. sql_attr_string
+------------------------
+
+String attribute declaration. Multi-value (ie. there may be more than one
+such attribute declared), optional. Applies to SQL source types (mysql,
+pgsql, mssql) only. Introduced in version 1.10-beta.
+
+String attributes can store arbitrary strings attached to every document.
+There's a fixed size limit of 4 MB per value. Also, searchd will currently
+cache all the values in RAM, which is an additional implicit limit.
+
+As of 1.10-beta, strings can only be used for storage and retrieval. They
+can not participate in expressions, be used for filtering, sorting, or
+grouping (ie. in WHERE, ORDER or GROUP clauses). Note that attributes
+declared using sql_attr_string will not be full-text indexed; you can use
+sql_field_string directive for that.
+
+Example:
+
+   | sql_attr_string = title # will be stored but will not be indexed
+
+11.1.25. sql_attr_str2wordcount
+-------------------------------
+
+Word-count attribute declaration. Multi-value (ie. there may be more than
+one such attribute declared), optional. Applies to SQL source types (mysql,
+pgsql, mssql) only. Introduced in version 1.10-beta.
+
+Word-count attribute takes a string column, tokenizes it according to index
+settings, and stores the resulting number of tokens in an attribute. This
+number of tokens ("word count") is a normal integer that can be later used,
+for instance, in custom ranking expressions (boost shorter titles, help
+identify exact field matches, etc).
+
+Example:
+
+   | sql_attr_str2wordcount = title_wc
+
+11.1.26. sql_field_string
+-------------------------
+
+Combined string attribute and full-text field declaration. Multi-value (ie.
+there may be more than one such attribute declared), optional. Applies to
+SQL source types (mysql, pgsql, mssql) only. Introduced in version
+1.10-beta.
+
+sql_attr_string only stores the column value but does not full-text index
+it. In some cases it might be desired to both full-text index the column
+and store it as attribute. sql_field_string lets you do exactly that. Both
+the field and the attribute will be named the same.
+
+Example:
+
+   | sql_field_string = title # will be both indexed and stored
+
+11.1.27. sql_field_str2wordcount
+--------------------------------
+
+Combined word-count attribute and full-text field declaration. Multi-value
+(ie. there may be more than one such attribute declared), optional. Applies
+to SQL source types (mysql, pgsql, mssql) only. Introduced in version
+1.10-beta.
+
+sql_attr_str2wordcount only stores the column word count but does not
+full-text index it. In some cases it might be desired to both full-text
+index the column and also have the count. sql_field_str2wordcount lets you
+do exactly that. Both the field and the attribute will be named the same.
+Example:
+
+   | sql_field_str2wordcount = title # will be indexed, and counted/stored
+
+11.1.28. sql_file_field
+-----------------------
+
+File based field declaration. Applies to SQL source types (mysql, pgsql,
+mssql) only. Introduced in version 1.10-beta.
+
+This directive makes indexer interpret field contents as a file name, and
+load and index the referred file. Files larger than max_file_field_buffer
+in size are skipped. Any errors during the file loading (IO errors, missed
+limits, etc) will be reported as indexing warnings and will not early
+terminate the indexing. No content will be indexed for such files.
+
+Example:
+
+   | sql_file_field = my_file_path # load and index files referred to by my_file_path
+
+11.1.29. sql_query_post
+-----------------------
 
 Post-fetch query. Optional, default value is empty. Applies to SQL source
 types (mysql, pgsql, mssql) only.
@@ -4392,8 +5642,8 @@ Example:
 
    | sql_query_post = DROP TABLE my_tmp_table
 
-9.1.24. sql_query_post_index
-----------------------------
+11.1.30. sql_query_post_index
+-----------------------------
 
 Post-index query. Optional, default value is empty. Applies to SQL source
 types (mysql, pgsql, mssql) only.
@@ -4409,8 +5659,8 @@ Example:
    | sql_query_post_index = REPLACE INTO counters ( id, val ) \
    |     VALUES ( 'max_indexed_id', $maxid )
 
-9.1.25. sql_ranged_throttle
----------------------------
+11.1.31. sql_ranged_throttle
+----------------------------
 
 Ranged query throttling period, in milliseconds. Optional, default is 0 (no
 throttling). Applies to SQL source types (mysql, pgsql, mssql) only.
@@ -4424,8 +5674,8 @@ Example:
 
    | sql_ranged_throttle = 1000 # sleep for 1 sec before each query step
 
-9.1.26. sql_query_info
-----------------------
+11.1.32. sql_query_info
+-----------------------
 
 Document info query. Optional, default is empty. Applies to mysql source
 type only.
@@ -4440,8 +5690,8 @@ Example:
 
    | sql_query_info = SELECT * FROM documents WHERE id=$id
 
-9.1.27. xmlpipe_command
------------------------
+11.1.33. xmlpipe_command
+------------------------
 
 Shell command that invokes xmlpipe stream producer. Mandatory. Applies to
 xmlpipe and xmlpipe2 source types only.
@@ -4454,8 +5704,8 @@ Example:
 
    | xmlpipe_command = cat /home/sphinx/test.xml
 
-9.1.28. xmlpipe_field
----------------------
+11.1.34. xmlpipe_field
+----------------------
 
 xmlpipe field declaration. Multi-value, optional. Applies to xmlpipe2
 source type only. Refer to Section 3.9, <<xmlpipe2 data source>>.
@@ -4465,8 +5715,38 @@ Example:
    | xmlpipe_field = subject
    | xmlpipe_field = content
 
-9.1.29. xmlpipe_attr_uint
--------------------------
+11.1.35. xmlpipe_field_string
+-----------------------------
+
+xmlpipe field and string attribute declaration. Multi-value, optional.
+Applies to xmlpipe2 source type only. Refer to Section 3.9, <<xmlpipe2 data
+source>>. Introduced in version 1.10-beta.
+
+Makes the specified XML element indexed as both a full-text field and
+a string attribute. Equivalent to <sphinx:field name="field"
+attr="string"/> declaration within the XML file.
+
+Example:
+
+   | xmlpipe_field_string = subject
+
+11.1.36. xmlpipe_field_wordcount
+--------------------------------
+
+xmlpipe field and word count attribute declaration. Multi-value, optional.
+Applies to xmlpipe2 source type only. Refer to Section 3.9, <<xmlpipe2 data
+source>>. Introduced in version 1.10-beta.
+
+Makes the specified XML element indexed as both a full-text field and
+a word count attribute. Equivalent to <sphinx:field name="field"
+attr="wordcount"/> declaration within the XML file.
+
+Example:
+
+   | xmlpipe_field_wordcount = subject
+
+11.1.37. xmlpipe_attr_uint
+--------------------------
 
 xmlpipe integer attribute declaration. Multi-value, optional. Applies to
 xmlpipe2 source type only. Syntax fully matches that of sql_attr_uint.
@@ -4475,8 +5755,8 @@ Example:
 
    | xmlpipe_attr_uint = author
 
-9.1.30. xmlpipe_attr_bool
--------------------------
+11.1.38. xmlpipe_attr_bool
+--------------------------
 
 xmlpipe boolean attribute declaration. Multi-value, optional. Applies to
 xmlpipe2 source type only. Syntax fully matches that of sql_attr_bool.
@@ -4485,8 +5765,8 @@ Example:
 
    | xmlpipe_attr_bool = is_deleted # will be packed to 1 bit
 
-9.1.31. xmlpipe_attr_timestamp
-------------------------------
+11.1.39. xmlpipe_attr_timestamp
+-------------------------------
 
 xmlpipe UNIX timestamp attribute declaration. Multi-value, optional.
 Applies to xmlpipe2 source type only. Syntax fully matches that of
@@ -4496,8 +5776,8 @@ Example:
 
    | xmlpipe_attr_timestamp = published
 
-9.1.32. xmlpipe_attr_str2ordinal
---------------------------------
+11.1.40. xmlpipe_attr_str2ordinal
+---------------------------------
 
 xmlpipe string ordinal attribute declaration. Multi-value, optional.
 Applies to xmlpipe2 source type only. Syntax fully matches that of
@@ -4507,8 +5787,8 @@ Example:
 
    | xmlpipe_attr_str2ordinal = author_sort
 
-9.1.33. xmlpipe_attr_float
---------------------------
+11.1.41. xmlpipe_attr_float
+---------------------------
 
 xmlpipe floating point attribute declaration. Multi-value, optional.
 Applies to xmlpipe2 source type only. Syntax fully matches that of
@@ -4519,8 +5799,8 @@ Example:
    | xmlpipe_attr_float = lat_radians
    | xmlpipe_attr_float = long_radians
 
-9.1.34. xmlpipe_attr_multi
---------------------------
+11.1.42. xmlpipe_attr_multi
+---------------------------
 
 xmlpipe MVA attribute declaration. Multi-value, optional. Applies to
 xmlpipe2 source type only.
@@ -4534,8 +5814,21 @@ Example:
 
    | xmlpipe_attr_multi = taglist
 
-9.1.35. xmlpipe_fixup_utf8
---------------------------
+11.1.43. xmlpipe_attr_string
+----------------------------
+
+xmlpipe string declaration. Multi-value, optional. Applies to xmlpipe2
+source type only. Introduced in version 1.10-beta.
+
+This setting declares a string attribute tag in xmlpipe2 stream. The
+contents of the specified tag will be parsed and stored as a string value.
+
+Example:
+
+   | xmlpipe_attr_string = subject
+
+11.1.44. xmlpipe_fixup_utf8
+---------------------------
 
 Perform Sphinx-side UTF-8 validation and filtering to prevent XML parser
 from choking on non-UTF-8 documents. Optional, default is 0. Applies to
@@ -4554,8 +5847,8 @@ Example:
 
    | xmlpipe_fixup_utf8 = 1
 
-9.1.36. mssql_winauth
----------------------
+11.1.45. mssql_winauth
+----------------------
 
 MS SQL Windows authentication flag. Boolean, optional, default value is
 0 (false). Applies to mssql source type only. Introduced in version
@@ -4570,8 +5863,8 @@ Example:
 
    | mssql_winauth = 1
 
-9.1.37. mssql_unicode
----------------------
+11.1.46. mssql_unicode
+----------------------
 
 MS SQL encoding type flag. Boolean, optional, default value is 0 (false).
 Applies to mssql source type only. Introduced in version 0.9.9-rc1.
@@ -4587,8 +5880,8 @@ Example:
 
    | mssql_unicode = 1
 
-9.1.38. unpack_zlib
--------------------
+11.1.47. unpack_zlib
+--------------------
 
 Columns to unpack using zlib (aka deflate, aka gunzip). Multi-value,
 optional, default value is empty list of columns. Applies to SQL source
@@ -4605,8 +5898,8 @@ Example:
    | unpack_zlib = col1
    | unpack_zlib = col2
 
-9.1.39. unpack_mysqlcompress
-----------------------------
+11.1.48. unpack_mysqlcompress
+-----------------------------
 
 Columns to unpack using MySQL UNCOMPRESS() algorithm. Multi-value,
 optional, default value is empty list of columns. Applies to SQL source
@@ -4623,8 +5916,8 @@ Example:
    | unpack_mysqlcompress = body_compressed
    | unpack_mysqlcompress = description_compressed
 
-9.1.40. unpack_mysqlcompress_maxsize
-------------------------------------
+11.1.49. unpack_mysqlcompress_maxsize
+-------------------------------------
 
 Buffer size for UNCOMPRESS()ed data. Optional, default value is 16M.
 Introduced in version 0.9.9-rc1.
@@ -4640,28 +5933,35 @@ Example:
 
    | unpack_mysqlcompress_maxsize = 1M
 
-9.2. Index configuration options
---------------------------------
+11.2. Index configuration options
+=================================
 
-9.2.1. type
------------
+11.2.1. type
+------------
 
-Index type. Optional, default is empty (index is plain local index). Known
-values are empty string or 'distributed'.
+Index type. Known values are 'plain', 'distributed', and 'rt'. Optional,
+default is 'plain' (plain local index).
 
-Sphinx supports two different types of indexes: local, that are stored and
-processed on the local machine; and distributed, that involve not only
-local searching but querying remote searchd instances over the network as
-well. Index type settings lets you choose this type. By default, indexes
-are local. Specifying 'distributed' for type enables distributed searching,
-see Section 4.7, <<Distributed searching>>.
+Sphinx supports several different types of indexes. Versions 0.9.x
+supported two index types: plain local indexes that are stored and
+processed on the local machine; and distributed indexes, that involve not
+only local searching but querying remote searchd instances over the network
+as well (see Section 5.7, <<Distributed searching>>). Version 1.10-beta
+also adds support for so-called real-time indexes (or RT indexes for short)
+that are also stored and processed locally, but additionally allow for
+on-the-fly updates of the full-text index (see Chapter 4, Real-time
+indexes). Note that attributes can be updated on-the-fly using either plain
+local indexes or RT ones.
+
+Index type setting lets you choose the needed type. By default, plain local
+index type will be assumed.
 
 Example:
 
    | type = distributed
 
-9.2.2. source
--------------
+11.2.2. source
+--------------
 
 Adds document source to local index. Multi-value, mandatory.
 
@@ -4716,8 +6016,8 @@ Example:
    | source = srcpart2
    | source = srcpart3
 
-9.2.3. path
------------
+11.2.3. path
+------------
 
 Index files path and file name (without extension). Mandatory.
 
@@ -4743,8 +6043,8 @@ Example:
 
    | path = /var/data/test1
 
-9.2.4. docinfo
---------------
+11.2.4. docinfo
+---------------
 
 Document attribute values (docinfo) storage mode. Optional, default is
 'extern'. Known values are 'none', 'extern' and 'inline'.
@@ -4767,8 +6067,8 @@ Example:
 
    | docinfo = inline
 
-9.2.5. mlock
-------------
+11.2.5. mlock
+-------------
 
 Memory locking for cached data. Optional, default is 0 (do not call
 mlock()).
@@ -4790,8 +6090,8 @@ Example:
 
    | mlock = 1
 
-9.2.6. morphology
------------------
+11.2.6. morphology
+------------------
 
 A list of morphology preprocessors to apply. Optional, default is empty (do
 not apply any preprocessor).
@@ -4830,8 +6130,8 @@ Example:
 
    | morphology = stem_en, libstemmer_sv
 
-9.2.7. min_stemming_len
------------------------
+11.2.7. min_stemming_len
+------------------------
 
 Minimum word length at which to enable stemming. Optional, default is
 1 (stem everything). Introduced in version 0.9.9-rc1.
@@ -4850,8 +6150,8 @@ Example:
 
    | min_stemming_len = 4
 
-9.2.8. stopwords
-----------------
+11.2.8. stopwords
+-----------------
 
 Stopword files list (space separated). Optional, default is empty.
 
@@ -4878,8 +6178,8 @@ Example:
    | stopwords = /usr/local/sphinx/data/stopwords.txt
    | stopwords = stopwords-ru.txt stopwords-en.txt
 
-9.2.9. wordforms
-----------------
+11.2.9. wordforms
+-----------------
 
 Word forms dictionary. Optional, default is empty.
 
@@ -4930,8 +6230,8 @@ Example:
 
    | wordforms = /usr/local/sphinx/data/wordforms.txt
 
-9.2.10. exceptions
-------------------
+11.2.10. exceptions
+-------------------
 
 Tokenizing exceptions file. Optional, default is empty.
 
@@ -5008,8 +6308,8 @@ Example:
 
    | exceptions = /usr/local/sphinx/data/exceptions.txt
 
-9.2.11. min_word_len
---------------------
+11.2.11. min_word_len
+---------------------
 
 Minimum indexed word length. Optional, default is 1 (index everything).
 
@@ -5021,8 +6321,8 @@ Example:
 
    | min_word_len = 4
 
-9.2.12. charset_type
---------------------
+11.2.12. charset_type
+---------------------
 
 Character set encoding type. Optional, default is 'sbcs'. Known values are
 'sbcs' and 'utf-8'.
@@ -5046,8 +6346,8 @@ Example:
 
    | charset_type = utf-8
 
-9.2.13. charset_table
----------------------
+11.2.13. charset_table
+----------------------
 
 Accepted characters table, with case folding rules. Optional, default value
 depends on charset_type value.
@@ -5118,8 +6418,8 @@ Example:
    | charset_table = 0..9, A..Z->a..z, _, a..z, \
    | 	U+410..U+42F->U+430..U+44F, U+430..U+44F
 
-9.2.14. ignore_chars
---------------------
+11.2.14. ignore_chars
+---------------------
 
 Ignored characters list. Optional, default is empty.
 
@@ -5138,8 +6438,8 @@ Example:
 
    | ignore_chars = U+AD
 
-9.2.15. min_prefix_len
-----------------------
+11.2.15. min_prefix_len
+-----------------------
 
 Minimum word prefix length to index. Optional, default is 0 (do not index
 prefixes).
@@ -5175,8 +6475,8 @@ Example:
 
    | min_prefix_len = 3
 
-9.2.16. min_infix_len
----------------------
+11.2.16. min_infix_len
+----------------------
 
 Minimum infix prefix length to index. Optional, default is 0 (do not index
 infixes).
@@ -5201,8 +6501,8 @@ Example:
 
    | min_infix_len = 3
 
-9.2.17. prefix_fields
----------------------
+11.2.17. prefix_fields
+----------------------
 
 The list of full-text fields to limit prefix indexing to. Optional, default
 is empty (index all fields in prefix mode).
@@ -5218,8 +6518,8 @@ Example:
 
    | prefix_fields = url, domain
 
-9.2.18. infix_fields
---------------------
+11.2.18. infix_fields
+---------------------
 
 The list of full-text fields to limit infix indexing to. Optional, default
 is empty (index all fields in infix mode).
@@ -5231,8 +6531,8 @@ Example:
 
    | infix_fields = url, domain
 
-9.2.19. enable_star
--------------------
+11.2.19. enable_star
+--------------------
 
 Enables star-syntax (or wildcard syntax) when searching through
 prefix/infix indexes. Optional, default is is 0 (do not use wildcard
@@ -5268,8 +6568,8 @@ Example:
 
    | enable_star = 1
 
-9.2.20. ngram_len
------------------
+11.2.20. ngram_len
+------------------
 
 N-gram lengths for N-gram indexing. Optional, default is 0 (disable n-gram
 indexing). Known values are 0 and 1 (other lengths to be implemented).
@@ -5308,8 +6608,8 @@ Example:
 
    | ngram_len = 1
 
-9.2.21. ngram_chars
--------------------
+11.2.21. ngram_chars
+--------------------
 
 N-gram characters list. Optional, default is empty.
 
@@ -5322,8 +6622,8 @@ Example:
 
    | ngram_chars = U+3000..U+2FA1F
 
-9.2.22. phrase_boundary
------------------------
+11.2.22. phrase_boundary
+------------------------
 
 Phrase boundary characters list. Optional, default is empty.
 
@@ -5348,8 +6648,8 @@ Example:
 
    | phrase_boundary = ., ?, !, U+2026 # horizontal ellipsis
 
-9.2.23. phrase_boundary_step
-----------------------------
+11.2.23. phrase_boundary_step
+-----------------------------
 
 Phrase boundary word position increment. Optional, default is 0.
 
@@ -5360,8 +6660,8 @@ Example:
 
    | phrase_boundary_step = 100
 
-9.2.24. html_strip
-------------------
+11.2.24. html_strip
+-------------------
 
 Whether to strip HTML markup from incoming full-text data. Optional,
 default is 0. Known values are 0 (disable stripping) and 1 (enable
@@ -5382,8 +6682,8 @@ Example:
 
    | html_strip = 1
 
-9.2.25. html_index_attrs
-------------------------
+11.2.25. html_index_attrs
+-------------------------
 
 A list of markup attributes to index when stripping HTML. Optional, default
 is empty (do not index markup attributes).
@@ -5396,8 +6696,8 @@ Example:
 
    | html_index_attrs = img=alt,title; a=title;
 
-9.2.26. html_remove_elements
-----------------------------
+11.2.26. html_remove_elements
+-----------------------------
 
 A list of HTML elements for which to strip contents along with the elements
 themselves. Optional, default is empty string (do not strip contents of any
@@ -5415,8 +6715,8 @@ Example:
 
    | html_remove_elements = style, script
 
-9.2.27. local
--------------
+11.2.27. local
+--------------
 
 Local index declaration in the distributed index. Multi-value, optional,
 default is empty.
@@ -5424,7 +6724,7 @@ default is empty.
 This setting is used to declare local indexes that will be searched when
 given distributed index is searched. All local indexes will be searched
 sequentially, utilizing only 1 CPU or core; to parallelize processing, you
-can configure searchd to query itself (refer to Section 9.2.28, <<agent>>
+can configure searchd to query itself (refer to Section 11.2.28, <<agent>>
 for the details). There might be several local indexes declared per each
 distributed index. Any local index can be mentioned several times in other
 distributed indexes.
@@ -5434,8 +6734,8 @@ Example:
    | local = chunk1
    | local = chunk2
 
-9.2.28. agent
--------------
+11.2.28. agent
+--------------
 
 Remote agent declaration in the distributed index. Multi-value, optional,
 default is empty.
@@ -5493,8 +6793,8 @@ Example:
    | agent = /var/run/searchd.s:chunk2
    | agent = searchbox2:9312:chunk3,chunk4 # search remote indexes
 
-9.2.29. agent_blackhole
------------------------
+11.2.29. agent_blackhole
+------------------------
 
 Remote blackhole agent declaration in the distributed index. Multi-value,
 optional, default is empty. Introduced in version 0.9.9-rc1.
@@ -5513,8 +6813,8 @@ Example:
 
    | agent_blackhole = testbox:9312:testindex1,testindex2
 
-9.2.30. agent_connect_timeout
------------------------------
+11.2.30. agent_connect_timeout
+------------------------------
 
 Remote agent connection timeout, in milliseconds. Optional, default is 1000
 (ie. 1 second).
@@ -5528,8 +6828,8 @@ Example:
 
    | agent_connect_timeout = 300
 
-9.2.31. agent_query_timeout
----------------------------
+11.2.31. agent_query_timeout
+----------------------------
 
 Remote agent query timeout, in milliseconds. Optional, default is 3000 (ie.
 3 seconds).
@@ -5545,8 +6845,8 @@ Example:
 
    | agent_query_timeout = 10000 # our query can be long, allow up to 10 sec
 
-9.2.32. preopen
----------------
+11.2.32. preopen
+----------------
 
 Whether to pre-open all index files, or open them per each query. Optional,
 default is 0 (do not preopen).
@@ -5567,8 +6867,8 @@ Example:
 
    | preopen = 1
 
-9.2.33. ondisk_dict
--------------------
+11.2.33. ondisk_dict
+--------------------
 
 Whether to keep the dictionary file (.spi) for this index on disk, or
 precache it in RAM. Optional, default is 0 (precache in RAM). Introduced in
@@ -5586,8 +6886,8 @@ Example:
 
    | ondisk_dict = 1
 
-9.2.34. inplace_enable
-----------------------
+11.2.34. inplace_enable
+-----------------------
 
 Whether to enable in-place index inversion. Optional, default is 0 (use
 separate temporary files). Introduced in version 0.9.9-rc1.
@@ -5616,8 +6916,8 @@ Example:
 
    | inplace_enable = 1
 
-9.2.35. inplace_hit_gap
------------------------
+11.2.35. inplace_hit_gap
+------------------------
 
 In-place inversion fine-tuning option. Controls preallocated hitlist gap
 size. Optional, default is 0. Introduced in version 0.9.9-rc1.
@@ -5628,8 +6928,8 @@ Example:
 
    | inplace_hit_gap = 1M
 
-9.2.36. inplace_docinfo_gap
----------------------------
+11.2.36. inplace_docinfo_gap
+----------------------------
 
 In-place inversion fine-tuning option. Controls preallocated docinfo gap
 size. Optional, default is 0. Introduced in version 0.9.9-rc1.
@@ -5640,8 +6940,8 @@ Example:
 
    | inplace_docinfo_gap = 1M
 
-9.2.37. inplace_reloc_factor
-----------------------------
+11.2.37. inplace_reloc_factor
+-----------------------------
 
 In-place inversion fine-tuning option. Controls relocation buffer size
 within indexing memory arena. Optional, default is 0.1. Introduced in
@@ -5653,8 +6953,8 @@ Example:
 
    | inplace_reloc_factor = 0.1
 
-9.2.38. inplace_write_factor
-----------------------------
+11.2.38. inplace_write_factor
+-----------------------------
 
 In-place inversion fine-tuning option. Controls in-place write buffer size
 within indexing memory arena. Optional, default is 0.1. Introduced in
@@ -5666,8 +6966,8 @@ Example:
 
    | inplace_write_factor = 0.1
 
-9.2.39. index_exact_words
--------------------------
+11.2.39. index_exact_words
+--------------------------
 
 Whether to index the original keywords along with the stemmed/remapped
 versions. Optional, default is 0 (do not index). Introduced in version
@@ -5683,8 +6983,8 @@ Example:
 
    | index_exact_words = 1
 
-9.2.40. overshort_step
-----------------------
+11.2.40. overshort_step
+-----------------------
 
 Position increment on overshort (less that min_word_len) keywords.
 Optional, allowed values are 0 and 1, default is 1. Introduced in version
@@ -5696,8 +6996,8 @@ Example:
 
    | overshort_step = 1
 
-9.2.41. stopword_step
----------------------
+11.2.41. stopword_step
+----------------------
 
 Position increment on stopwords. Optional, allowed values are 0 and 1,
 default is 1. Introduced in version 0.9.9-rc1.
@@ -5708,11 +7008,198 @@ Example:
 
    | stopword_step = 1
 
-9.3. indexer program configuration options
-------------------------------------------
+11.2.42. hitless_words
+----------------------
 
-9.3.1. mem_limit
-----------------
+Hitless words list. Optional, allowed values are 'all', or a list file
+name. Introduced in version 1.10-beta.
+
+By default, Sphinx full-text index stores not only a list of matching
+documents for every given keyword, but also a list of its in-document
+positions (aka hitlist). Hitlists enables phrase, proximity, strict order
+and other advanced types of searching, as well as phrase proximity ranking.
+However, hitlists for specific frequent keywords (that can not be stopped
+for some reason despite being frequent) can get huge and thus slow to
+process while querying. Also, in some cases we might only care about
+boolean keyword matching, and never need position-based searching operators
+(such as phrase matching) nor phrase ranking.
+
+hitless_words lets you create indexes that either do not have positional
+information (hitlists) at all, or skip it for specific keywords.
+
+Hitless index will generally use less space than the respective regular
+index (about 1.5x can be expected). Both indexing and searching should be
+faster, at a cost of missing positional query and ranking support. When
+searching, positional queries (eg. phrase queries) will be automatically
+converted to respective non-positional (document-level) or combined
+queries. For instance, if keywords "hello" and "world" are hitless, "hello
+world" phrase query will be converted to (hello & world) bag-of-words
+query, matching all documents that mention either of the keywords but not
+necessarily the exact phrase. And if, in addition, keywords "simon" and
+"says" are not hitless, "simon says hello world" will be converted to
+("simon says" & hello & world) query, matching all documents that contain
+"hello" and "world" anywhere in the document, and also "simon says" as an
+exact phrase.
+
+Example:
+
+   | hitless_words = all
+
+11.2.43. expand_keywords
+------------------------
+
+Expand keywords with exact forms and/or stars when possible. Optional,
+default is 0 (do not expand keywords). Introduced in version 1.10-beta.
+
+Queries against indexes with expand_keywords feature enabled are internally
+expanded as follows. If the index was built with prefix or infix indexing
+enabled, every keyword gets internally replaced with a disjunction of
+keyword itself and a respective prefix or infix (keyword with stars). If
+the index was built with both stemming and index_exact_words enabled, exact
+form is also added. Here's an example that shows how internal expansion
+works when all of the above (infixes, stemming, and exact words) are
+combined:
+
+   | running -> ( running | *running* | =running )
+
+Expanded queries take naturally longer to complete, but can possibly
+improve the search quality, as the documents with exact form matches should
+be ranked generally higher than documents with stemmed or infix matches.
+
+Note that the existing query syntax does not allowe to emulate this kind of
+expansion, because internal expansion works on keyword level and expands
+keywords within phrase or quorum operators too (which is not possible
+through the query syntax).
+
+This directive does not affect indexer in any way, it only affects searchd.
+
+Example:
+
+   | expand_keywords = 1
+
+11.2.44. blend_chars
+--------------------
+
+Blended characters list. Optional, default is empty. Introduced in version
+1.10-beta.
+
+Blended characters are indexed both as separators and valid characters. For
+instance, assume that & is configured as blended and AT&T occurs in an
+indexed document. Three different keywords will get indexed, namely "at&t",
+treating blended characters as valid, plus "at" and "t", treating them as
+separators. Note that all these three keywords will be assigned the very
+same position (in a sense blending with each other). Thus, querying for
+either AT&T or just AT will match that document. However, querying for "AT
+T" phrase will not match it.
+
+Blended characters can overlap with special characters used in query syntax
+(think of T-Mobile or @twitter). Where possible, query parser will
+automatically handle blended character as blended. For instance, "hello
+@twitter" within quotes (a phrase operator) would handle @-sign as blended,
+because @-syntax for field operator is not allowed within phrases.
+Otherwise, the character would be handled as an operator. So you might want
+to escape the query terms.
+
+Example:
+
+   | blend_chars = +, &, U+23
+
+11.2.45. rt_mem_limit
+---------------------
+
+RAM chunk size limit. Optional, default is empty. Introduced in version
+1.10-beta.
+
+RT index keeps some data in memory (so-called RAM chunk) and also maintains
+a number of on-disk indexes (so-called disk chunks). This directive lets
+you control the RAM chunk size. Once there's too much data to keep in RAM,
+RT index will flush it to disk, activate a newly created disk chunk, and
+reset the RAM chunk.
+
+The limit is pretty strict; RT index should never allocate more memory than
+it's limited to. The memory is not preallocated either, hence, specifying
+512 MB limit and only inserting 3 MB of data should result in allocating
+3 MB, not 512 MB.
+
+Example:
+
+   | rt_mem_limit = 512M
+
+11.2.46. rt_field
+-----------------
+
+Full-text field declaration. Multi-value, mandatory Introduced in version
+1.10-beta.
+
+Full-text fields to be indexed are declared using rt_field directive. The
+names must be unique. The order is preserved; and so field values in INSERT
+statements without an explicit list of inserted columns will have to be in
+the same order as configured.
+
+Example:
+
+   | rt_field = author
+   | rt_field = title
+   | rt_field = content
+
+11.2.47. rt_attr_uint
+---------------------
+
+Unsigned integer attribute declaration. Multi-value (an arbitrary number of
+attributes is allowed), optional. Declares an unsigned 32-bit attribute.
+Introduced in version 1.10-beta.
+
+Example:
+
+   | rt_attr_uint = gid
+
+11.2.48. rt_attr_bigint
+-----------------------
+
+BIGINT attribute declaration. Multi-value (an arbitrary number of
+attributes is allowed), optional. Declares a signed 64-bit attribute.
+Introduced in version 1.10-beta.
+
+Example:
+
+   | rt_attr_bigint = guid
+
+11.2.49. rt_attr_float
+----------------------
+
+Floating point attribute declaration. Multi-value (an arbitrary number of
+attributes is allowed), optional. Declares a single precision, 32-bit IEEE
+754 format float attribute. Introduced in version 1.10-beta.
+
+Example:
+
+   | rt_attr_float = gpa
+
+11.2.50. rt_attr_timestamp
+--------------------------
+
+Timestamp attribute declaration. Multi-value (an arbitrary number of
+attributes is allowed), optional. Introduced in version 1.10-beta.
+
+Example:
+
+   | rt_attr_timestamp = date_added
+
+11.2.51. rt_attr_string
+-----------------------
+
+String attribute declaration. Multi-value (an arbitrary number of
+attributes is allowed), optional. Introduced in version 1.10-beta.
+
+Example:
+
+   | rt_attr_string = author
+
+11.3. indexer program configuration options
+===========================================
+
+11.3.1. mem_limit
+-----------------
 
 Indexing RAM usage limit. Optional, default is 32M.
 
@@ -5737,8 +7224,8 @@ Example:
    | # mem_limit = 262144K # same, but in KB
    | # mem_limit = 268435456 # same, but in bytes
 
-9.3.2. max_iops
----------------
+11.3.2. max_iops
+----------------
 
 Maximum I/O operations per second, for I/O throttling. Optional, default is
 0 (unlimited).
@@ -5760,8 +7247,8 @@ Example:
 
    | max_iops = 40
 
-9.3.3. max_iosize
------------------
+11.3.3. max_iosize
+------------------
 
 Maximum allowed I/O operation size, in bytes, for I/O throttling. Optional,
 default is 0 (unlimited).
@@ -5778,8 +7265,8 @@ Example:
 
    | max_iosize = 1048576
 
-9.3.4. max_xmlpipe2_field
--------------------------
+11.3.4. max_xmlpipe2_field
+--------------------------
 
 Maximum allowed field size for XMLpipe2 source type, bytes. Optional,
 default is 2 MB.
@@ -5788,8 +7275,8 @@ Example:
 
    | max_xmlpipe2_field = 8M
 
-9.3.5. write_buffer
--------------------
+11.3.5. write_buffer
+--------------------
 
 Write buffer size, bytes. Optional, default is 1 MB.
 
@@ -5803,11 +7290,31 @@ Example:
 
    | write_buffer = 4M
 
-9.4. searchd program configuration options
-------------------------------------------
+11.3.6. max_file_field_buffer
+-----------------------------
 
-9.4.1. listen
--------------
+Maximum file field adaptive buffer size, bytes. Optional, default is 8 MB,
+minimum is 1 MB.
+
+File field buffer is used to load files referred to from sql_file_field
+columns. This buffer is adaptive, starting at 1 MB at first allocation, and
+growing in 2x steps until either file contents can be loaded, or maximum
+buffer size, specified by max_file_field_buffer directive, is reached.
+
+Thus, if there are no file fields are specified, no buffer is allocated at
+all. If all files loaded during indexing are under (for example) 2 MB in
+size, but max_file_field_buffer value is 128 MB, peak buffer usage would
+still be only 2 MB. However, files over 128 MB would be entirely skipped.
+
+Example:
+
+   | max_file_field_buffer = 128M
+
+11.4. searchd program configuration options
+===========================================
+
+11.4.1. listen
+--------------
 
 This setting lets you specify IP address and port, or Unix-domain socket
 path, that searchd will listen on. Introduced in version 0.9.9-rc1.
@@ -5825,7 +7332,7 @@ Starting with version 0.9.9-rc2, you can also specify a protocol handler
 (listener) to be used for connections on this socket. Supported protocol
 values are 'sphinx' (Sphinx 0.9.x API protocol) and 'mysql41' (MySQL
 protocol used since 4.1 upto at least 5.1). More details on MySQL protocol
-support can be found in Section 4.9, <<MySQL protocol support and
+support can be found in Section 5.9, <<MySQL protocol support and
 SphinxQL>> section.
 
 Examples:
@@ -5838,14 +7345,17 @@ Examples:
    | listen = localhost:9306:mysql41
 
 There can be multiple listen directives, searchd will listen for client
-connections on all specified ports and sockets. If no listen directive is
+connections on all specified ports and sockets. If no listen directives are
 found then the server will listen on all available interfaces using the
-default port (which is 9312).
+default SphinxAPI port 9312. Starting with 1.10-beta, it will also listen
+on default SphinxQL port 9306. Both port numbers are assigned by IANA (see
+http://www.iana.org/assignments/port-numbers for details) and should
+therefore be available.
 
 Unix-domain sockets are not supported on Windows.
 
-9.4.2. address
---------------
+11.4.2. address
+---------------
 
 Interface IP address to bind on. Optional, default is 0.0.0.0 (ie. listen
 on all interfaces). DEPRECATED, use listen instead.
@@ -5859,8 +7369,8 @@ Example:
 
    | address = 192.168.0.1
 
-9.4.3. port
------------
+11.4.3. port
+------------
 
 searchd TCP port number. DEPRECATED, use listen instead. Used to be
 mandatory. Default port number is 9312.
@@ -5869,8 +7379,8 @@ Example:
 
    | port = 9312
 
-9.4.4. log
-----------
+11.4.4. log
+-----------
 
 Log file name. Optional, default is 'searchd.log'. All searchd run time
 events will be logged in this file.
@@ -5879,19 +7389,19 @@ Example:
 
    | log = /var/log/searchd.log
 
-9.4.5. query_log
-----------------
+11.4.5. query_log
+-----------------
 
 Query log file name. Optional, default is empty (do not log queries). All
 search queries will be logged in this file. The format is described in
-Section 4.8, <<searchd query log format>>.
+Section 5.8, <<searchd query log format>>.
 
 Example:
 
    | query_log = /var/log/query.log
 
-9.4.6. read_timeout
--------------------
+11.4.6. read_timeout
+--------------------
 
 Network client request read timeout, in seconds. Optional, default is
 5 seconds. searchd will forcibly close the client connections which fail to
@@ -5901,8 +7411,8 @@ Example:
 
    | read_timeout = 1
 
-9.4.7. client_timeout
----------------------
+11.4.7. client_timeout
+----------------------
 
 Maximum time to wait between requests (in seconds) when using persistent
 connections. Optional, default is five minutes.
@@ -5911,8 +7421,8 @@ Example:
 
    | client_timeout = 3600
 
-9.4.8. max_children
--------------------
+11.4.8. max_children
+--------------------
 
 Maximum amount of children to fork (or in other words, concurrent searches
 to run in parallel). Optional, default is 0 (unlimited).
@@ -5927,8 +7437,8 @@ Example:
 
    | max_children = 10
 
-9.4.9. pid_file
----------------
+11.4.9. pid_file
+----------------
 
 searchd process ID file name. Mandatory.
 
@@ -5943,8 +7453,8 @@ Example:
 
    | pid_file = /var/run/searchd.pid
 
-9.4.10. max_matches
--------------------
+11.4.10. max_matches
+--------------------
 
 Maximum amount of matches that the daemon keeps in RAM for each index and
 can return to the client. Optional, default is 1000.
@@ -5982,8 +7492,8 @@ Example:
 
    | max_matches = 10000
 
-9.4.11. seamless_rotate
------------------------
+11.4.11. seamless_rotate
+------------------------
 
 Prevents searchd stalls while rotating indexes with huge amounts of data to
 precache. Optional, default is 1 (enable seamless rotation).
@@ -6024,8 +7534,8 @@ Example:
 
    | seamless_rotate = 1
 
-9.4.12. preopen_indexes
------------------------
+11.4.12. preopen_indexes
+------------------------
 
 Whether to forcibly preopen all indexes on startup. Optional, default is
 0 (do not preopen). Enforces enabled preopen on all served indexes, to
@@ -6035,8 +7545,8 @@ Example:
 
    | preopen_indexes = 1
 
-9.4.13. unlink_old
-------------------
+11.4.13. unlink_old
+-------------------
 
 Whether to unlink .old index copies on succesful rotation. Optional,
 default is 1 (do unlink).
@@ -6045,8 +7555,8 @@ Example:
 
    | unlink_old = 0
 
-9.4.14. attr_flush_period
--------------------------
+11.4.14. attr_flush_period
+--------------------------
 
 When calling UpdateAttributes() to update document attributes in real-time,
 changes are first written to the in-memory copy of attributes (docinfo must
@@ -6065,8 +7575,8 @@ Example:
 
    | attr_flush_period = 900 # persist updates to disk every 15 minutes
 
-9.4.15. ondisk_dict_default
----------------------------
+11.4.15. ondisk_dict_default
+----------------------------
 
 Instance-wide defaults for ondisk_dict directive. Optional, default it
 0 (precache dictionaries in RAM). Introduced in version 0.9.9-rc1.
@@ -6080,8 +7590,8 @@ Example:
 
    | ondisk_dict_default = 1 # keep all dictionaries on disk
 
-9.4.16. max_packet_size
------------------------
+11.4.16. max_packet_size
+------------------------
 
 Maximum allowed network packet size. Limits both query packets from
 clients, and response packets from remote agents in distributed
@@ -6093,8 +7603,8 @@ Example:
 
    | max_packet_size = 32M
 
-9.4.17. mva_updates_pool
-------------------------
+11.4.17. mva_updates_pool
+-------------------------
 
 Shared pool size for in-memory MVA updates storage. Optional, default size
 is 1M. Introduced in version 0.9.9-rc1.
@@ -6113,8 +7623,8 @@ Example:
 
    | mva_updates_pool = 16M
 
-9.4.18. crash_log_path
-----------------------
+11.4.18. crash_log_path
+-----------------------
 
 Path (formally prefix) for the crash log files. Optional, default is empty
 (do not create crash logs). Introduced in version 0.9.9-rc1.
@@ -6129,8 +7639,8 @@ Example:
 
    | crash_log_path = /home/sphinx/log/crashlog
 
-9.4.19. max_filters
--------------------
+11.4.19. max_filters
+--------------------
 
 Maximum allowed per-query filter count. Only used for internal sanity
 checks, does not directly affect RAM use or performance. Optional, default
@@ -6140,8 +7650,8 @@ Example:
 
    | max_filters = 1024
 
-9.4.20. max_filter_values
--------------------------
+11.4.20. max_filter_values
+--------------------------
 
 Maximum allowed per-filter values count. Only used for internal sanity
 checks, does not directly affect RAM use or performance. Optional, default
@@ -6151,8 +7661,8 @@ Example:
 
    | max_filter_values = 16384
 
-9.4.21. listen_backlog
-----------------------
+11.4.21. listen_backlog
+-----------------------
 
 TCP listen backlog. Optional, default is 5.
 
@@ -6167,8 +7677,8 @@ Example:
 
    | listen_backlog = 20
 
-9.4.22. read_buffer
--------------------
+11.4.22. read_buffer
+--------------------
 
 Per-keyword read buffer size. Optional, default is 256K.
 
@@ -6181,8 +7691,8 @@ Example:
 
    | read_buffer = 1M
 
-9.4.23. read_unhinted
----------------------
+11.4.23. read_unhinted
+----------------------
 
 Unhinted read size. Optional, default is 32K.
 
@@ -6198,11 +7708,302 @@ Example:
 
    | read_unhinted = 32K
 
-A. Sphinx revision history
-==========================
+11.4.24. max_batch_queries
+--------------------------
 
-A.1. Version 0.9.9-release, 02 dec 2009
----------------------------------------
+Limits the amount of queries per batch. Optional, default is 32.
+
+Makes searchd perform a sanity check of the amount of the queries submitted
+in a single batch when using multi-queries. Set it to 0 to skip the check.
+
+Example:
+
+   | max_batch_queries = 256
+
+11.4.25. subtree_docs_cache
+---------------------------
+
+Max common subtree document cache size, per-query. Optional, default is
+0 (disabled).
+
+Limits RAM usage of a common subtree optimizer (see Section 5.10,
+<<Multi-queries>>). At most this much RAM will be spent to cache document
+entries per each query. Setting the limit to 0 disables the optimizer.
+
+Example:
+
+   | subtree_docs_cache = 8M
+
+11.4.26. subtree_hits_cache
+---------------------------
+
+Max common subtree hit cache size, per-query. Optional, default is
+0 (disabled).
+
+Limits RAM usage of a common subtree optimizer (see Section 5.10,
+<<Multi-queries>>). At most this much RAM will be spent to cache keyword
+occurrences (hits) per each query. Setting the limit to 0 disables the
+optimizer.
+
+Example:
+
+   | subtree_hits_cache = 16M
+
+11.4.27. workers
+----------------
+
+Multi-processing mode (MPM). Optional; allowed values are none, fork,
+prefork, and threads; default is fork. Introduced in version 1.10-beta.
+
+Lets you choose how searchd processes multiple concurrent requests. The
+possible values are:
+
+none
+   All requests will be handled serially, one-by-one. Prior to 1.x, this
+   was the only mode available on Windows.
+
+fork
+   A new child process will be forked to handle every incoming request.
+   Historically, this is the default mode.
+
+prefork
+   On startup, searchd will pre-fork a number of worker processes, and pass
+   the incoming requests to one of those children.
+
+threads
+   A new thread will be created to handle every incoming request. This is
+   the only mode compatible with RT indexing backend.
+
+Historically, searchd used fork-based model, which generally performs OK
+but spends a noticeable amount of CPU in fork() system call when there's
+a high amount of (tiny) requests per second. Prefork mode was implemented
+to alleviate that; with prefork, worker processes are basically only
+created on startup and re-created on index rotation, somewhat reducing
+fork() call pressure.
+
+Threads mode was implemented along with RT backend and is required to use
+RT indexes. (Regular disk-based indexes work in all the available modes.)
+
+Example:
+
+   | workers = threads
+
+11.4.28. dist_threads
+---------------------
+
+Max local search threads to use when searching a distributed index.
+Optional, default is 0, which means to disable multi-threaded distributed
+searching. Introduced in version 1.10-beta.
+
+Distributed index can include several local indexes. dist_threads lets you
+easily utilize multiple CPUs/cores for that (previously existing
+alternative was to specify the indexes as remote agents, pointing searchd
+to itself and paying some network overheads).
+
+When set to a value N greater than 1, this directive will create up to
+N threads for every query, and schedule the specific searches within these
+threads. For example, if there are 7 local indexes to search and
+dist_threads is set to 2, then 2 parallel threads would be created: one
+that sequentially searches 4 indexes, and another one that searches the
+other 3 indexes.
+
+In case of CPU bound workload, setting dist_threads to 1x the number of
+cores is advised (creating more threads than cores will not improve query
+time). In case of mixed CPU/disk bound workload it might sometimes make
+sense to use more (so that all cores could be utilizes even when there are
+threads that wait for I/O completion).
+
+Note that dist_threads does not require threads MPM. You can perfectly use
+it with fork or prefork MPMs too.
+
+Example:
+
+   | index dist_test
+   | {
+   | 	type = distributed
+   | 	local = chunk1
+   | 	local = chunk2
+   | 	local = chunk3
+   | 	local = chunk4
+   | }
+   | 
+   | # ...
+   | 
+   | dist_threads = 4
+
+11.4.29. binlog_path
+--------------------
+
+Binary log (aka transaction log) files path and name prefix. Optional,
+default is empty string, which means to disable logging. Introduced in
+version 1.10-beta.
+
+Binary logs are used for crash recovery of RT index data that would
+otherwise only be stored in RAM. When logging is enabled, every transaction
+COMMIT-ted into RT index gets written into a log file. Logs are then
+automatically replayed on startup after an unclean shutdown, recovering the
+logged changes.
+
+binlog_path directive specifies the binary log files location. It should
+contain both the path and a file name but not an extension nor a trailing
+dot; searchd will append a current log number as an extension (.001, .002,
+.003, and so on) to generate a file name.
+
+Example:
+
+   | binlog_path = /var/data/binlog # /var/data/binlog.001 etc will be created
+
+11.4.30. binlog_flush
+---------------------
+
+Binary log transaction flush/sync mode. Optional, default is 2 (flush every
+transaction, sync every second). Introduced in version 1.10-beta.
+
+This directive controls how frequently will binary log be flushed to OS and
+synced to disk. Three modes are supported:
+
+   * 0, flush and sync every second. Best performance, but up to 1 second
+     worth of committed transactions can be lost both on daemon crash, or
+     OS/hardware crash.
+   * 1, flush and sync every transaction. Worst performance, but every
+     committed transaction data is guaranteed to be saved.
+   * 2, flush every transaction, sync every second. Good performance, and
+     every committed transaction is guaranteed to be saved in case of
+     daemon crash. However, in case of OS/hardware crash up to 1 second
+     worth of committed transactions can be lost.
+
+For those familiar with MySQL and InnoDB, this directive is entirely
+similar to innodb_flush_log_at_trx_commit. In most cases, the default
+hybrid mode 2 provides a nice balance of speed and safety, with full RT
+index data protection against daemon crashes, and some protection against
+hardware ones.
+
+Example:
+
+   | binlog_flush = 1 # ultimate safety, low speed
+
+11.4.31. binlog_max_log_size
+----------------------------
+
+Maximum binary log file size. Optional, default is 0 (do not reopen binlog
+file based on size). Introduced in version 1.10-beta.
+
+A new binlog file will be forcibly opened once the current binlog file
+reaches this limit. This achieves a finer granularity of logs and can yield
+more efficient binlog disk usage under certain borderline workloads.
+
+Example:
+
+   | binlog_max_log_size = 16M
+
+Appendix A. Sphinx revision history
+===================================
+
+Table of Contents
+
+A.1. Version 1.10-beta, 19 jul 2010
+A.2. Version 0.9.9-release, 02 dec 2009
+A.3. Version 0.9.9-rc2, 08 apr 2009
+A.4. Version 0.9.9-rc1, 17 nov 2008
+A.5. Version 0.9.8.1, 30 oct 2008
+A.6. Version 0.9.8, 14 jul 2008
+A.7. Version 0.9.7, 02 apr 2007
+A.8. Version 0.9.7-rc2, 15 dec 2006
+A.9. Version 0.9.7-rc1, 26 oct 2006
+A.10. Version 0.9.6, 24 jul 2006
+A.11. Version 0.9.6-rc1, 26 jun 2006
+
+A.1. Version 1.10-beta, 19 jul 2010
+===================================
+
+   * added RT indexes support (Chapter 4, Real-time indexes)
+   * added prefork and threads support (workers directives)
+   * added multi-threaded local searches in distributed indexes
+     (dist_threads directive)
+   * added common subquery cache (subtree_docs_cache, subtree_hits_cache
+     directives)
+   * added string attributes support (sql_attr_string, sql_field_string,
+     xml_attr_string, xml_field_string directives)
+   * added indexing-time word counter (sql_attr_str2wordcount,
+     sql_field_str2wordcount directives)
+   * added CALL SNIPPETS(), CALL KEYWORDS() SphinxQL statements
+   * added field_weights, index_weights options to SphinxQL SELECT
+     statement
+   * added insert-only SphinxQL-talking tables to SphinxSE
+     (connection='sphinxql://host[:port]/index')
+   * added select option to SphinxSE queries
+   * added backtrace on crash to searchd
+   * added SQL+FS indexing, aka loading files by names fetched from SQL
+     (sql_file_field directive)
+   * added a watchdog in threads mode to searchd
+   * added automatic row phantoms elimination to index merge
+   * added hitless indexing support (hitless_words directive)
+   * added --check, --strip-path, --htmlstrip, --dumphitlist ... --wordid
+     switches to indextool
+   * added --stopwait, --logdebug switches to searchd
+   * added --dump-rows, --verbose switches to indexer
+   * added "blended" characters indexing support (blend_chars directive)
+   * added joined/payload field indexing (sql_joined_field directive)
+   * added FlushAttributes() API call
+   * added query_mode, force_all_words, limit_passages, limit_words,
+     start_passage_id, load_files, html_strip_mode, allow_empty options,
+     and %PASSAGE_ID% macro in before_match, after_match options to
+     BuildExcerpts() API call
+   * added @groupby/@count/@distinct columns support to SELECT (but not to
+     expressions)
+   * added query-time keyword expansion support (expand_keywords directive,
+     SPH_RANK_SPH04 ranker)
+   * added query batch size limit option (max_batch_queries directive; was
+     hardcoded)
+   * added SINT() function to expressions
+   * improved SphinxQL syntax error reporting
+   * improved expression optimizer (better constant handling)
+   * improved dash handling within keywords (no longer treated as an
+     operator)
+   * improved snippets (better passage selection/trimming, around option
+     now a hard limit)
+   * optimized index format that yields ~20-30% smaller indexes
+   * optimized sorting code (indexing time 1-5% faster on average; 100x
+     faster in worst case)
+   * optimized searchd startup time (moved .spa preindexing to indexer),
+     added a progress bar
+   * optimized queries against indexes with many attributes (eliminated
+     redundant copying)
+   * optimized 1-keyword queries (performace regression introduced in
+     0.9.9)
+   * optimized SphinxQL protocol overheads, and performance on bigger
+     result sets
+   * optimized unbuffered attributes writes on index merge
+   * changed attribute handling, duplicate names are strictly forbidden now
+   * fixed that SphinxQL sessions could stall shutdown
+   * fixed consts with leading minus in SphinxQL
+   * fixed AND/OR precedence in expressions
+   * fixed #334, AVG() on integers was not computed in floats
+   * fixed #371, attribute flush vs 2+ GB files
+   * fixed #373, segfault on distributed queries vs certain libc versions
+   * fixed #398, stopwords not stopped in prefix/infix indexes
+   * fixed #404, erroneous MVA failures in indextool --check
+   * fixed #408, segfault on certain query batches (regular scan, plus
+     a scan with MVA groupby)
+   * fixed #431, occasional shutdown hangs in preforked workers
+   * fixed #436, trunk checkout builds vs Solaris sh
+   * fixed #440, escaping vs parentheses declared as valid in charset_table
+   * fixed #442, occasional non-aligned free in MVA indexing
+   * fixed #447, occasional crashes in MVA indexing
+   * fixed #449, pconn busyloop on aborted clients on certain arches
+   * fixed #465, build issue on Alpha
+   * fixed #468, build issue in libsphinxclient
+   * fixed #472, multiple stopword files failing to load
+   * fixed #489, buffer overflow in query logging
+   * fixed #493, Python API assertion after error returned from Query()
+   * fixed #500, malformed MySQL packet when sending MVAs
+   * fixed #504, SIGPIPE in libsphinxclient
+   * fixed #506, better MySQL protocol commands support in SphinxQL (PING
+     etc)
+   * fixed #509, indexing ranged results from stored procedures
+
+A.2. Version 0.9.9-release, 02 dec 2009
+=======================================
 
    * added Open, Close, Status calls to libsphinxclient (C API)
    * added automatic persistent connection reopening to PHP, Python APIs
@@ -6264,8 +8065,8 @@ A.1. Version 0.9.9-release, 02 dec 2009
    * fixed #344 (invalid checkpoints after merge)
    * fixed #326 (missing CLOCK_xxx on FreeBSD)
 
-A.2. Version 0.9.9-rc2, 08 apr 2009
------------------------------------
+A.3. Version 0.9.9-rc2, 08 apr 2009
+===================================
 
    * added IsConnectError(), Open(), Close() calls to Java API (bug #240)
    * added read_buffer, read_unhinted directives
@@ -6363,8 +8164,8 @@ A.2. Version 0.9.9-rc2, 08 apr 2009
      static
    * fixed parser vs @field -keyword, foo|@field bar, "" queries (bug #310)
 
-A.3. Version 0.9.9-rc1, 17 nov 2008
------------------------------------
+A.4. Version 0.9.9-rc1, 17 nov 2008
+===================================
 
    * added min_stemming_len directive
    * added IsConnectError() API call (helps distingusih API vs remote
@@ -6426,8 +8227,8 @@ A.3. Version 0.9.9-rc1, 17 nov 2008
    * fixed backslash escaping, added backslash to EscapeString()
    * fixed handling of over-2GB dictionary files (.spi)
 
-A.4. Version 0.9.8.1, 30 oct 2008
----------------------------------
+A.5. Version 0.9.8.1, 30 oct 2008
+=================================
 
    * added configure script to libsphinxclient
    * changed proximity/quorum operator syntax to require whitespace after
@@ -6463,8 +8264,8 @@ A.4. Version 0.9.8.1, 30 oct 2008
    * fixed default ID range (that filtered out all 64-bit values) in Java
      and Python APIs
 
-A.5. Version 0.9.8, 14 jul 2008
--------------------------------
+A.6. Version 0.9.8, 14 jul 2008
+===============================
 
 Indexing
 --------
@@ -6590,26 +8391,26 @@ General
      file-existence-based
    * fixed unaligned RAM accesses, now works on SPARC and ARM
 
-Changes and fixes since 0.9.8-RC2
+Changes and fixes since 0.9.8-rc2
 ---------------------------------
 
    * added pure C API (libsphinxclient)
    * added Ruby API
    * added SetConnectTimeout() PHP API call
-   * added allowed type check to UpdateAttributes() handler (issue #174)
+   * added allowed type check to UpdateAttributes() handler (bug #174)
    * added defensive MVA checks on index preload (protection against broken
-     indexes, issue #168)
+     indexes, bug #168)
    * added sphinx-min.conf sample file
    * added --without-iconv switch to configure
    * removed redundant -lz dependency in searchd
    * removed erroneous "xmlpipe2 deprecated" warning
-   * fixed EINTR handling in piped read (issue #166)
-   * fixup query time before logging and sending to client (issue #153)
-   * fixed attribute updates vs full-scan early-reject index (issue #149)
-   * fixed gcc warnings (issue #160)
-   * fixed mysql connection attempt vs pgsql source type (issue #165)
+   * fixed EINTR handling in piped read (bug #166)
+   * fixup query time before logging and sending to client (bug #153)
+   * fixed attribute updates vs full-scan early-reject index (bug #149)
+   * fixed gcc warnings (bug #160)
+   * fixed mysql connection attempt vs pgsql source type (bug #165)
    * fixed 32-bit wraparound when preloading over 2 GB files
-   * fixed "out of memory" message vs over 2 GB allocs (issue #116)
+   * fixed "out of memory" message vs over 2 GB allocs (bug #116)
    * fixed unaligned RAM access detection on ARM (where unaligned reads do
      not crash but produce wrong results)
    * fixed missing full scan results in some cases
@@ -6643,8 +8444,8 @@ Changes and fixes since 0.9.8-RC2
      reusable sorter issue
    * fixed sorting of negative floats in SPH_SORT_EXTENDED mode
 
-A.6. Version 0.9.7, 02 apr 2007
--------------------------------
+A.7. Version 0.9.7, 02 apr 2007
+===============================
 
    * added support for sql_str2ordinal_column
    * added support for upto 5 sort-by attrs (in extended sorting mode)
@@ -6693,8 +8494,8 @@ A.6. Version 0.9.7, 02 apr 2007
    * fixed wrong assertion in SBCS encoder
    * fixed crashes with no-attribute indexes after rotate
 
-A.7. Version 0.9.7-RC2, 15 dec 2006
------------------------------------
+A.8. Version 0.9.7-rc2, 15 dec 2006
+===================================
 
    * added support for extended matching mode (query language)
    * added support for extended sorting mode (sorting clauses)
@@ -6715,8 +8516,8 @@ A.7. Version 0.9.7-RC2, 15 dec 2006
      paths)
    * fixes for 64-bit platforms
 
-A.8. Version 0.9.7-RC1, 26 oct 2006
------------------------------------
+A.9. Version 0.9.7-rc1, 26 oct 2006
+===================================
 
    * added alpha index merging code
    * added an option to decrease max_matches per-query
@@ -6744,8 +8545,8 @@ A.8. Version 0.9.7-RC1, 26 oct 2006
    * fixed line numbering in config parser
    * fixed some issues with index rotation
 
-A.9. Version 0.9.6, 24 jul 2006
--------------------------------
+A.10. Version 0.9.6, 24 jul 2006
+================================
 
    * added support for empty indexes
    * added support for multiple sql_query_pre/post/post_index
@@ -6753,8 +8554,8 @@ A.9. Version 0.9.6, 24 jul 2006
    * fixed configure issues with --without-mysql and --with-pgsql options
    * fixed building on Solaris 9
 
-A.10. Version 0.9.6-RC1, 26 jun 2006
-------------------------------------
+A.11. Version 0.9.6-rc1, 26 jun 2006
+====================================
 
    * added boolean queries support (experimental, beta version)
    * added simple file-based query cache (experimental, beta version)

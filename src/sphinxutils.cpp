@@ -1,9 +1,11 @@
 //
-// $Id: sphinxutils.cpp 2114 2009-12-02 13:25:04Z shodan $
+// $Id: sphinxutils.cpp 2395 2010-07-13 13:31:13Z shodan $
 //
 
 //
-// Copyright (c) 2001-2008, Andrew Aksyonoff. All rights reserved.
+// Copyright (c) 2001-2010, Andrew Aksyonoff
+// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License. You should have
@@ -70,11 +72,12 @@ int CSphConfigSection::GetSize ( const char * sKey, int iDefault ) const
 
 	iLen--;
 	int iScale = 1;
-	if ( toupper(sMemLimit[iLen])=='K' )
+	if ( toupper ( sMemLimit[iLen] )=='K' )
 	{
 		iScale = 1024;
 		sMemLimit[iLen] = '\0';
-	} else if ( toupper(sMemLimit[iLen])=='M' )
+
+	} else if ( toupper ( sMemLimit[iLen] )=='M' )
 	{
 		iScale = 1048576;
 		sMemLimit[iLen] = '\0';
@@ -146,18 +149,28 @@ static KeyDesc_t g_dKeysSource[] =
 	{ "xmlpipe_field",			KEY_LIST, NULL },
 	{ "xmlpipe_attr_uint",		KEY_LIST, NULL },
 	{ "xmlpipe_attr_timestamp",	KEY_LIST, NULL },
-	{ "xmlpipe_attr_str2ordinal",KEY_LIST, NULL },
+	{ "xmlpipe_attr_str2ordinal",	KEY_LIST, NULL },
 	{ "xmlpipe_attr_bool",		KEY_LIST, NULL },
 	{ "xmlpipe_attr_float",		KEY_LIST, NULL },
 	{ "xmlpipe_attr_multi",		KEY_LIST, NULL },
+	{ "xmlpipe_attr_string",	KEY_LIST, NULL },
+	{ "xmlpipe_attr_wordcount",	KEY_LIST, NULL },
+	{ "xmlpipe_field_string",	KEY_LIST, NULL },
+	{ "xmlpipe_field_wordcount",	KEY_LIST, NULL },
 	{ "xmlpipe_fixup_utf8",		0, NULL },
-	{ "sql_group_column",		KEY_LIST | KEY_DEPRECATED, "sql_attr_uint"  },
+	{ "sql_group_column",		KEY_LIST | KEY_DEPRECATED, "sql_attr_uint" },
 	{ "sql_date_column",		KEY_LIST | KEY_DEPRECATED, "sql_attr_timestamp" },
 	{ "sql_str2ordinal_column",	KEY_LIST | KEY_DEPRECATED, "sql_attr_str2ordinal" },
 	{ "unpack_zlib",			KEY_LIST, NULL },
 	{ "unpack_mysqlcompress",	KEY_LIST, NULL },
 	{ "unpack_mysqlcompress_maxsize", 0, NULL },
 	{ "odbc_dsn",				0, NULL },
+	{ "sql_joined_field",		KEY_LIST, NULL },
+	{ "sql_attr_string",		KEY_LIST, NULL },
+	{ "sql_attr_str2wordcount",	KEY_LIST, NULL },
+	{ "sql_field_string",		KEY_LIST, NULL },
+	{ "sql_field_str2wordcount",	KEY_LIST, NULL },
+	{ "sql_file_field",			KEY_LIST, NULL },
 	{ NULL,						0, NULL }
 };
 
@@ -206,6 +219,17 @@ static KeyDesc_t g_dKeysIndex[] =
 	{ "min_stemming_len",		0, NULL },
 	{ "overshort_step",			0, NULL },
 	{ "stopword_step",			0, NULL },
+	{ "blend_chars",			0, NULL },
+	{ "expand_keywords",		0, NULL },
+	{ "hitless_words",			KEY_LIST, NULL },
+	{ "hit_format",				0, NULL },
+	{ "rt_field",				KEY_LIST, NULL },
+	{ "rt_attr_uint",			KEY_LIST, NULL },
+	{ "rt_attr_bigint",			KEY_LIST, NULL },
+	{ "rt_attr_float",			KEY_LIST, NULL },
+	{ "rt_attr_timestamp",		KEY_LIST, NULL },
+	{ "rt_attr_string",			KEY_LIST, NULL },
+	{ "rt_mem_limit",			0, NULL },
 	{ NULL,						0, NULL }
 };
 
@@ -216,6 +240,7 @@ static KeyDesc_t g_dKeysIndexer[] =
 	{ "max_iops",				0, NULL },
 	{ "max_iosize",				0, NULL },
 	{ "max_xmlpipe2_field",		0, NULL },
+	{ "max_file_field_buffer",	0, NULL },
 	{ "write_buffer",			0, NULL },
 	{ NULL,						0, NULL }
 };
@@ -246,6 +271,14 @@ static KeyDesc_t g_dKeysSearchd[] =
 	{ "listen_backlog",			0, NULL },
 	{ "read_buffer",			0, NULL },
 	{ "read_unhinted",			0, NULL },
+	{ "max_batch_queries",		0, NULL },
+	{ "subtree_docs_cache",		0, NULL },
+	{ "subtree_hits_cache",		0, NULL },
+	{ "workers",				0, NULL },
+	{ "dist_threads",			0, NULL },
+	{ "binlog_flush",			0, NULL },
+	{ "binlog_path",			0, NULL },
+	{ "binlog_max_log_size",	0, NULL },
 	{ NULL,						0, NULL }
 };
 
@@ -347,7 +380,7 @@ bool CSphConfigParser::ValidateKey ( const char * sKey )
 		pDesc++;
 	if ( !pDesc->m_sKey )
 	{
-		snprintf  ( m_sError, sizeof(m_sError), "unknown key name '%s'", sKey );
+		snprintf ( m_sError, sizeof(m_sError), "unknown key name '%s'", sKey );
 		return false;
 	}
 
@@ -369,10 +402,6 @@ bool CSphConfigParser::ValidateKey ( const char * sKey )
 }
 
 #if !USE_WINDOWS
-static void sigchld ( int )
-{
-}
-
 
 bool CSphConfigParser::TryToExec ( char * pBuffer, char * pEnd, const char * szFilename, CSphVector<char> & dResult )
 {
@@ -386,14 +415,12 @@ bool CSphConfigParser::TryToExec ( char * pBuffer, char * pEnd, const char * szF
 
 	pBuffer = trim ( pBuffer );
 
-	int iRead  = dPipe [0];
-	int iWrite = dPipe [1];
-
-	signal ( SIGCHLD, sigchld );
+	int iRead = dPipe[0];
+	int iWrite = dPipe[1];
 
 	int iChild = fork();
 
-	if ( iChild == 0 )
+	if ( iChild==0 )
 	{
 		close ( iRead );
 		close ( STDOUT_FILENO );
@@ -419,11 +446,11 @@ bool CSphConfigParser::TryToExec ( char * pBuffer, char * pEnd, const char * szF
 			execl ( pBuffer, pBuffer, szFilename, (char*)NULL );
 
 		exit ( 1 );
-	}
-	else
-		if ( iChild == -1 )
+
+	} else
+		if ( iChild==-1 )
 		{
-			snprintf ( m_sError, sizeof ( m_sError ), "fork failed (error=%s)", strerror(errno) );
+			snprintf ( m_sError, sizeof ( m_sError ), "fork failed: [%d] %s", errno, strerror(errno) );
 			return false;
 		}
 
@@ -437,24 +464,46 @@ bool CSphConfigParser::TryToExec ( char * pBuffer, char * pEnd, const char * szF
 	do
 	{
 		dResult.Resize ( iTotalRead + BUFFER_SIZE );
-		iBytesRead = read ( iRead, (void*)&(dResult [iTotalRead]), BUFFER_SIZE );
+		for ( ;; )
+		{
+			iBytesRead = read ( iRead, (void*)&(dResult [iTotalRead]), BUFFER_SIZE );
+			if ( iBytesRead==-1 && errno==EINTR ) // we can get SIGCHLD just before eof
+				continue;
+			break;
+		}
 		iTotalRead += iBytesRead;
 	}
 	while ( iBytesRead > 0 );
 
-	int iStatus;
-	wait ( &iStatus );
-	iStatus = (signed char) WEXITSTATUS (iStatus);
-
-	if ( iStatus )
+	int iStatus, iResult;
+	do
 	{
-		snprintf ( m_sError, sizeof ( m_sError ), "error executing '%s'", pBuffer );
+		// can be interrupted by pretty much anything (e.g. SIGCHLD from other searchd children)
+		iResult = waitpid ( iChild, &iStatus, 0 );
+		if ( iResult==-1 && errno!=EINTR )
+		{
+			snprintf ( m_sError, sizeof ( m_sError ), "waitpid() failed: [%d] %s", errno, strerror(errno) );
+			return false;
+		}
+	}
+	while ( iResult!=iChild );
+
+	if ( WIFEXITED ( iStatus ) && WEXITSTATUS ( iStatus ) )
+	{
+		// FIXME? read stderr and log that too
+		snprintf ( m_sError, sizeof ( m_sError ), "error executing '%s' status = %d", pBuffer, WEXITSTATUS ( iStatus ) );
 		return false;
 	}
 
-	if ( iBytesRead < 0  )
+	if ( WIFSIGNALED ( iStatus ) )
 	{
-		snprintf ( m_sError, sizeof ( m_sError ), "pipe read error (error=%s)", strerror(errno) );
+		snprintf ( m_sError, sizeof ( m_sError ), "error executing '%s', killed by signal %d", pBuffer, WTERMSIG ( iStatus ) );
+		return false;
+	}
+
+	if ( iBytesRead < 0 )
+	{
+		snprintf ( m_sError, sizeof ( m_sError ), "pipe read error: [%d] %s", errno, strerror(errno) );
 		return false;
 	}
 
@@ -470,7 +519,7 @@ char * CSphConfigParser::GetBufferString ( char * szDest, int iMax, const char *
 {
 	int nCopied = 0;
 
-	while ( nCopied < iMax-1 && szSource [nCopied] && ( nCopied == 0 || szSource [nCopied-1] != '\n' ) )
+	while ( nCopied < iMax-1 && szSource[nCopied] && ( nCopied==0 || szSource[nCopied-1]!='\n' ) )
 	{
 		szDest [nCopied] = szSource [nCopied];
 		nCopied++;
@@ -567,7 +616,7 @@ bool CSphConfigParser::Parse ( const char * sFileName, const char * pBuffer )
 				{
 					CSphVector<char> dResult;
 					if ( TryToExec ( p+2, pEnd, sFileName, dResult ) )
-						Parse ( sFileName, &dResult [0] );
+						Parse ( sFileName, &dResult[0] );
 					break;
 				} else
 #endif
@@ -627,7 +676,6 @@ bool CSphConfigParser::Parse ( const char * sFileName, const char * pBuffer )
 			if ( *p=='}' )					{ LOC_POP (); continue; }
 			if ( sphIsAlpha(*p) )			{ LOC_PUSH ( S_KEY ); LOC_PUSH ( S_TOK ); LOC_BACK(); iValue = 0; sValue[0] = '\0'; continue; }
 											LOC_ERROR2 ( "section contents: expected token, got '%c'", *p );
-
 		}
 
 		// handle S_KEY state
@@ -665,8 +713,9 @@ bool CSphConfigParser::Parse ( const char * sFileName, const char * pBuffer )
 		// handle S_SECNAME state
 		if ( eState==S_SECNAME )
 		{
-			if ( isspace(*p) )				{ continue; }
-			if ( !sToken[0]&&!sphIsAlpha(*p)){ LOC_ERROR2 ( "named section: expected name, got '%c'", *p ); }
+			if ( isspace(*p) )					{ continue; }
+			if ( !sToken[0]&&!sphIsAlpha(*p))	{ LOC_ERROR2 ( "named section: expected name, got '%c'", *p ); }
+
 			if ( !sToken[0] )				{ LOC_PUSH ( S_TOK ); LOC_BACK(); continue; }
 											if ( !AddSection ( m_sSectionType.cstr(), sToken ) ) break; sToken[0] = '\0';
 			if ( *p==':' )					{ eState = S_SECBASE; continue; }
@@ -677,9 +726,9 @@ bool CSphConfigParser::Parse ( const char * sFileName, const char * pBuffer )
 		// handle S_SECBASE state
 		if ( eState==S_SECBASE )
 		{
-			if ( isspace(*p) )				{ continue; }
-			if ( !sToken[0]&&!sphIsAlpha(*p)){ LOC_ERROR2 ( "named section: expected parent name, got '%c'", *p ); }
-			if ( !sToken[0] )				{ LOC_PUSH ( S_TOK ); LOC_BACK(); continue; }
+			if ( isspace(*p) )					{ continue; }
+			if ( !sToken[0]&&!sphIsAlpha(*p))	{ LOC_ERROR2 ( "named section: expected parent name, got '%c'", *p ); }
+			if ( !sToken[0] )					{ LOC_PUSH ( S_TOK ); LOC_BACK(); continue; }
 
 			// copy the section
 			assert ( m_tConf.Exists ( m_sSectionType ) );
@@ -748,25 +797,26 @@ bool sphConfTokenizer ( const CSphConfigSection & hIndex, CSphTokenizerSettings 
 	if ( !hIndex("charset_type") || hIndex["charset_type"]=="sbcs" )
 	{
 		tSettings.m_iType = TOKENIZER_SBCS;
-	}
-	else if ( hIndex["charset_type"]=="utf-8" )
+
+	} else if ( hIndex["charset_type"]=="utf-8" )
 	{
 		tSettings.m_iType = hIndex("ngram_chars") ? TOKENIZER_NGRAM : TOKENIZER_UTF8;
-	}
-	else
+
+	} else
 	{
 		sError.SetSprintf ( "unknown charset type '%s'", hIndex["charset_type"].cstr() );
 		return false;
 	}
 
-	tSettings.m_sCaseFolding	= hIndex.GetStr ( "charset_table" );
-	tSettings.m_iMinWordLen		= Max ( hIndex.GetInt ( "min_word_len" ), 0 );
-	tSettings.m_sNgramChars		= hIndex.GetStr ( "ngram_chars" );
-	tSettings.m_iNgramLen		= Max ( hIndex.GetInt ( "ngram_len" ), 0 );
-	tSettings.m_sSynonymsFile	= hIndex.GetStr ( "exceptions" ); // new option name
+	tSettings.m_sCaseFolding = hIndex.GetStr ( "charset_table" );
+	tSettings.m_iMinWordLen = Max ( hIndex.GetInt ( "min_word_len" ), 0 );
+	tSettings.m_sNgramChars = hIndex.GetStr ( "ngram_chars" );
+	tSettings.m_iNgramLen = Max ( hIndex.GetInt ( "ngram_len" ), 0 );
+	tSettings.m_sSynonymsFile = hIndex.GetStr ( "exceptions" ); // new option name
 	if ( tSettings.m_sSynonymsFile.IsEmpty() )
 		tSettings.m_sSynonymsFile = hIndex.GetStr ( "synonyms" ); // deprecated option name
-	tSettings.m_sIgnoreChars	= hIndex.GetStr ( "ignore_chars" );
+	tSettings.m_sIgnoreChars = hIndex.GetStr ( "ignore_chars" );
+	tSettings.m_sBlendChars = hIndex.GetStr ( "blend_chars" );
 
 	// phrase boundaries
 	int iBoundaryStep = Max ( hIndex.GetInt ( "phrase_boundary_step" ), -1 );
@@ -779,16 +829,16 @@ bool sphConfTokenizer ( const CSphConfigSection & hIndex, CSphTokenizerSettings 
 void sphConfDictionary ( const CSphConfigSection & hIndex, CSphDictSettings & tSettings )
 {
 	tSettings.m_sMorphology = hIndex.GetStr ( "morphology" );
-	tSettings.m_sStopwords	= hIndex.GetStr ( "stopwords" );
-	tSettings.m_sWordforms	= hIndex.GetStr ( "wordforms" );
-	tSettings.m_iMinStemmingLen	= hIndex.GetInt ( "min_stemming_len", 1 );
+	tSettings.m_sStopwords = hIndex.GetStr ( "stopwords" );
+	tSettings.m_sWordforms = hIndex.GetStr ( "wordforms" );
+	tSettings.m_iMinStemmingLen = hIndex.GetInt ( "min_stemming_len", 1 );
 }
 
 
 void sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSettings )
 {
 	tSettings.m_iMinPrefixLen = Max ( hIndex.GetInt ( "min_prefix_len" ), 0 );
-	tSettings.m_iMinInfixLen  = Max ( hIndex.GetInt ( "min_infix_len" ), 0 );
+	tSettings.m_iMinInfixLen = Max ( hIndex.GetInt ( "min_infix_len" ), 0 );
 	tSettings.m_iBoundaryStep = Max ( hIndex.GetInt ( "phrase_boundary_step" ), -1 );
 	tSettings.m_bIndexExactWords = hIndex.GetInt ( "index_exact_words" )!=0;
 	tSettings.m_iOvershortStep = Min ( Max ( hIndex.GetInt ( "overshort_step", 1 ), 0 ), 1 );
@@ -796,19 +846,45 @@ void sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSetti
 
 	if ( hIndex ( "html_strip" ) )
 	{
-		tSettings.m_bHtmlStrip			= hIndex.GetInt ( "html_strip" )!=0;
-		tSettings.m_sHtmlIndexAttrs		= hIndex.GetStr ( "html_index_attrs" );
-		tSettings.m_sHtmlRemoveElements	= hIndex.GetStr ( "html_remove_elements" );
+		tSettings.m_bHtmlStrip = hIndex.GetInt ( "html_strip" )!=0;
+		tSettings.m_sHtmlIndexAttrs = hIndex.GetStr ( "html_index_attrs" );
+		tSettings.m_sHtmlRemoveElements = hIndex.GetStr ( "html_remove_elements" );
 	}
 
 	tSettings.m_eDocinfo = SPH_DOCINFO_EXTERN;
-	if ( hIndex ("docinfo") )
+	if ( hIndex("docinfo") )
 	{
 		if ( hIndex["docinfo"]=="none" )		tSettings.m_eDocinfo = SPH_DOCINFO_NONE;
 		else if ( hIndex["docinfo"]=="inline" )	tSettings.m_eDocinfo = SPH_DOCINFO_INLINE;
 		else if ( hIndex["docinfo"]=="extern" )	tSettings.m_eDocinfo = SPH_DOCINFO_EXTERN;
 		else
 			fprintf ( stdout, "WARNING: unknown docinfo=%s, defaulting to extern\n", hIndex["docinfo"].cstr() );
+	}
+
+	tSettings.m_eHitFormat = SPH_HIT_FORMAT_INLINE;
+	if ( hIndex("hit_format") )
+	{
+		if ( hIndex["hit_format"]=="plain" )		tSettings.m_eHitFormat = SPH_HIT_FORMAT_PLAIN;
+		else if ( hIndex["hit_format"]=="inline" )	tSettings.m_eHitFormat = SPH_HIT_FORMAT_INLINE;
+		else
+			fprintf ( stdout, "WARNING: unknown hit_format=%s, defaulting to inline\n", hIndex["hit_format"].cstr() );
+	}
+
+	// hit-less indices
+	if ( hIndex("hitless_words") )
+	{
+		for ( const CSphVariant * pVariant = &hIndex["hitless_words"]; pVariant; pVariant = pVariant->m_pNext )
+		{
+			const CSphString & sValue = *pVariant;
+			if ( sValue=="all" )
+			{
+				tSettings.m_eHitless = SPH_HITLESS_ALL;
+			} else
+			{
+				tSettings.m_eHitless = SPH_HITLESS_SOME;
+				tSettings.m_sHitlessFile = sValue;
+			}
+		}
 	}
 }
 
@@ -847,7 +923,7 @@ bool sphFixupIndexSettings ( CSphIndex * pIndex, const CSphConfigSection & hInde
 		ISphTokenizer * pTokenizer = pIndex->LeakTokenizer ();
 		ISphTokenizer * pTokenFilter = ISphTokenizer::CreateTokenFilter ( pTokenizer, pIndex->GetDictionary ()->GetMultiWordforms () );
 		pIndex->SetTokenizer ( pTokenFilter ? pTokenFilter : pTokenizer );
- 	}
+	}
 
 	if ( !pIndex->IsStripperInited () )
 	{
@@ -855,9 +931,9 @@ bool sphFixupIndexSettings ( CSphIndex * pIndex, const CSphConfigSection & hInde
 
 		if ( hIndex ( "html_strip" ) )
 		{
-			tSettings.m_bHtmlStrip			= hIndex.GetInt ( "html_strip" )!=0;
-			tSettings.m_sHtmlIndexAttrs		= hIndex.GetStr ( "html_index_attrs" );
-			tSettings.m_sHtmlRemoveElements	= hIndex.GetStr ( "html_remove_elements" );
+			tSettings.m_bHtmlStrip = hIndex.GetInt ( "html_strip" )!=0;
+			tSettings.m_sHtmlIndexAttrs = hIndex.GetStr ( "html_index_attrs" );
+			tSettings.m_sHtmlRemoveElements = hIndex.GetStr ( "html_remove_elements" );
 		}
 
 		pIndex->Setup ( tSettings );
@@ -875,12 +951,12 @@ const char * sphLoadConfig ( const char * sOptConfig, bool bQuiet, CSphConfigPar
 	{
 #ifdef SYSCONFDIR
 		sOptConfig = SYSCONFDIR "/sphinx.conf";
-		if ( sphIsReadable(sOptConfig) )
+		if ( sphIsReadable ( sOptConfig ) )
 			break;
 #endif
 
 		sOptConfig = "./sphinx.conf";
-		if ( sphIsReadable(sOptConfig) )
+		if ( sphIsReadable ( sOptConfig ) )
 			break;
 
 		sOptConfig = NULL;
@@ -908,6 +984,80 @@ const char * sphLoadConfig ( const char * sOptConfig, bool bQuiet, CSphConfigPar
 	return sOptConfig;
 }
 
+//////////////////////////////////////////////////////////////////////////
+
+#if USE_WINDOWS
+
+void sphSetupSignals ()
+{
+}
+
+#else
+
+static void DummyHandler ( int )
+{
+}
+
+void sphSetupSignals ()
+{
+	struct sigaction tAction;
+
+	sigfillset ( &tAction.sa_mask );
+	tAction.sa_flags = SA_NOCLDSTOP;
+	tAction.sa_handler = DummyHandler;
+	if ( sigaction ( SIGCHLD, &tAction, NULL )==-1 )
+		sphDie ( "sigaction() failed: [%d] %s", errno, strerror(errno) );
+}
+
+#endif
+
+typedef void ( * pLogger ) ( ESphLogLevel, const char *, va_list );
+static pLogger g_pLogger = NULL;
+
+inline void Log ( ESphLogLevel eLevel, const char * sFmt, va_list ap )
+{
+	if ( !g_pLogger ) return;
+	( *g_pLogger ) ( eLevel, sFmt, ap );
+}
+
+void sphWarning ( const char * sFmt, ... )
+{
+	va_list ap;
+	va_start ( ap, sFmt );
+	Log ( LOG_WARNING, sFmt, ap );
+	va_end ( ap );
+}
+
+
+void sphInfo ( const char * sFmt, ... )
+{
+	va_list ap;
+	va_start ( ap, sFmt );
+	Log ( LOG_INFO, sFmt, ap );
+	va_end ( ap );
+}
+
+void sphLogFatal ( const char * sFmt, ... )
+{
+	va_list ap;
+	va_start ( ap, sFmt );
+	Log ( LOG_FATAL, sFmt, ap );
+	va_end ( ap );
+}
+
+void sphLogDebug ( const char * sFmt, ... )
+{
+	va_list ap;
+	va_start ( ap, sFmt );
+	Log ( LOG_DEBUG, sFmt, ap );
+	va_end ( ap );
+}
+
+void sphSetLogger ( const void * pVoid )
+{
+	g_pLogger = (pLogger) pVoid;
+}
+
 //
-// $Id: sphinxutils.cpp 2114 2009-12-02 13:25:04Z shodan $
+// $Id: sphinxutils.cpp 2395 2010-07-13 13:31:13Z shodan $
 //

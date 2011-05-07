@@ -1,7 +1,7 @@
 dnl Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.59)
-AC_INIT([sphinx], [0.9.9], [shodan(at)shodan.ru])
+AC_INIT([sphinx], [1.10], [shodan(at)shodan.ru])
 
 dnl --------------------------------------------------------------------------
 
@@ -57,6 +57,9 @@ AC_PROG_CC
 AC_PROG_CXX
 AC_PROG_RANLIB
 
+AC_DEFINE_UNQUOTED([COMPILER],"$CC `$CC -dumpversion`",[Define to be the name of the compiler.])
+AC_DEFINE_UNQUOTED([OS_UNAME],"`uname -a`",[Full name OS])
+
 dnl --------------------------------------------------------------------------
 
 SPHINX_CONFIGURE_PART([checking for header files])
@@ -64,7 +67,7 @@ SPHINX_CONFIGURE_PART([checking for header files])
 # Checks for header files.
 AC_HEADER_STDC
 AC_HEADER_SYS_WAIT
-AC_CHECK_HEADERS([fcntl.h limits.h netdb.h netinet/in.h stdlib.h string.h sys/file.h sys/socket.h sys/time.h unistd.h pthread.h])
+AC_CHECK_HEADERS([fcntl.h limits.h netdb.h netinet/in.h stdlib.h string.h sys/file.h sys/socket.h sys/time.h unistd.h pthread.h execinfo.h])
 AC_CHECK_HEADER(expat.h,[have_expat_h=yes],[have_expat_h=no])
 AC_CHECK_HEADER(iconv.h,[have_iconv_h=yes],[have_iconv_h=no])
 AC_CHECK_HEADER(zlib.h,[have_zlib_h=yes],[have_zlib_h=no])
@@ -100,8 +103,8 @@ AC_SEARCH_LIBS([XML_Parse],[expat],[have_libexpat=yes],[have_libexpat=no])
 AC_SEARCH_LIBS([iconv],[iconv],[have_libiconv=yes],[have_libiconv=no])
 AC_SEARCH_LIBS([inflate],[z],[have_lz=yes],[have_lz=no])
 AC_SEARCH_LIBS([logf],[m])
-AC_SEARCH_LIBS([SQLConnect],[odbc],[have_libodbc=yes],[have_libodbc=no])
 AC_CHECK_FUNCS([dup2 gethostbyname gettimeofday memmove memset select socket strcasecmp strchr strerror strncasecmp strstr strtol logf pread])
+AC_CHECK_FUNCS([backtrace backtrace_symbols])
 
 # most systems require the program be linked with librt library to use
 # the function clock_gettime 
@@ -156,43 +159,43 @@ fi
 ])
 
 # check for needed cflags
-AC_CACHE_CHECK([for CFLAGS needed for pthreads], [pthreads_cflags],
+AC_CACHE_CHECK([for CFLAGS needed for pthreads], [sphinx_cv_pthreads_cflags],
 [
 	save_cflags=$CFLAGS
 	for flag in none -kthread -pthread -pthreads -mt -mthreads -Kthread -threads; do
 		CFLAGS=$save_cflags
 	test "x$flag" != "xnone" && CFLAGS="$CFLAGS $flag"
 		PTHREADS_TRY_RUN([
-			pthreads_cflags="$flag"
+			sphinx_cv_pthreads_cflags="$flag"
 			break
 		])
 	done
 	CFLAGS=$save_cflags
 ])
 
-if test -n "$pthreads_cflags"; then
+if test -n "$sphinx_cv_pthreads_cflags"; then
 	have_pthreads=yes
-	if test "x$pthreads_cflags" != "xnone"; then
-		CPPFLAGS="$CPPFLAGS $pthreads_cflags"
+	if test "x$sphinx_cv_pthreads_cflags" != "xnone"; then
+		CPPFLAGS="$CPPFLAGS $sphinx_cv_pthreads_cflags"
 	fi
 fi
 
 # check for needed libs
-AC_CACHE_CHECK([for LIBS needed for pthreads], [pthreads_libs], [
+AC_CACHE_CHECK([for LIBS needed for pthreads], [sphinx_cv_pthreads_libs], [
 	save_libs=$LIBS
 	for lib in -lpthread -lpthreads -lc_r; do
 	LIBS="$save_libs $lib"
 	PTHREADS_TRY_RUN([
-		pthreads_libs=$lib
+		sphinx_cv_pthreads_libs=$lib
 		break
 	])
 	done
 	LIBS=$save_libs
 ])
 
-if test -n "$pthreads_libs"; then
+if test -n "$sphinx_cv_pthreads_libs"; then
 	have_pthreads=yes
-	LIBS="$LIBS $pthreads_libs"
+	LIBS="$LIBS $sphinx_cv_pthreads_libs"
 fi
 
 # final check
@@ -222,6 +225,22 @@ else
 fi
 AM_CONDITIONAL(USE_MYSQL, test x$ac_cv_use_mysql != xno)
 
+# check if we should statically link the mysql library
+AC_ARG_WITH([static-mysql], 
+            AC_HELP_STRING([--with-static-mysql], [link statically with MySQL library (default is no)]),
+            [ac_cv_use_static_mysql=$withval], [ac_cv_use_static_mysql=no]
+)
+AC_MSG_CHECKING([whether to link statically with MySQL support])
+if test x$ac_cv_use_mysql != xno; then
+if test x$ac_cv_use_static_mysql != xno; then
+	AC_CHECK_MYSQL([$ac_cv_use_static_mysql])
+	MYSQL_LIBS=`echo $MYSQL_LIBS | sed -e 's/\-Bdynamic/\-Bstatic/g'`
+	MYSQL_LIBS="-Wl,-Bstatic $MYSQL_LIBS -Wl,-Bdynamic"
+	AC_MSG_RESULT([yes])
+else
+	AC_MSG_RESULT([no])
+fi
+fi
 
 # check if we should compile with PostgreSQL support
 AC_ARG_WITH([pgsql],
@@ -364,12 +383,15 @@ AC_ARG_WITH([unixodbc],
 )
 AC_MSG_CHECKING([for UnixODBC])
 if test [ $ac_cv_use_unixodbc != no ]; then
-	if test [ $have_sql_h = yes -a $have_libodbc = yes ]; then
-		AC_DEFINE([USE_ODBC],1,[define to use ODBC library])
-		AC_MSG_RESULT([found])
-	else
-		AC_MSG_RESULT([not found])
-		AC_MSG_WARN([ODBC source support will NOT be available])
+	if test [ $have_sql_h = yes ]; then
+		AC_SEARCH_LIBS([SQLConnect],[odbc iodbc],[have_libodbc=yes],[have_libodbc=no])
+		if test [ $have_libodbc = yes ]; then
+			AC_DEFINE([USE_ODBC],1,[define to use ODBC library])
+			AC_MSG_RESULT([found])
+		else
+			AC_MSG_RESULT([not found])
+			AC_MSG_WARN([ODBC source support will NOT be available])
+		fi
 	fi
 else
 	AC_MSG_RESULT([disabled])
@@ -430,6 +452,11 @@ dnl --------------------------------------------------------------------------
 
 SPHINX_CONFIGURE_PART([configuration done])
 
-echo You can now run \'make\' to build Sphinx binaries,
-echo and then run \'make install\' to install them.
+echo "You can now run 'make install' to build and install Sphinx binaries."
+echo "On a multi-core machine, try 'make -j4 install' to speed up the build."
+echo
+echo "Updates, articles, help forum, and commercial support, consulting, training,"
+echo "and development services are available at http://sphinxsearch.com/"
+echo
+echo "Thank you for choosing Sphinx!"
 echo

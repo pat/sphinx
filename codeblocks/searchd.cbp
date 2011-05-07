@@ -3,26 +3,41 @@
 	<FileVersion major="1" minor="6" />
 	<Project>
 		<Option title="searchd" />
+		<Option execution_dir="/media/bigstore/work/sphinx/src/" />
 		<Option pch_mode="2" />
 		<Option compiler="gcc" />
+		<MakeCommands>
+			<Build command="$make -f $makefile" />
+			<CompileFile command="$make -f $makefile $file" />
+			<Clean command="$make -f $makefile clean$target" />
+			<DistClean command="$make -f $makefile distclean$target" />
+			<AskRebuildNeeded command="$make -q -f $makefile $target" />
+			<SilentBuild command="$make -s -f $makefile $target" />
+		</MakeCommands>
 		<Build>
 			<Target title="Debug">
-				<Option output="./bin/Debug/searchd" prefix_auto="1" extension_auto="1" />
+				<Option output="../src/searchd" prefix_auto="1" extension_auto="1" />
+				<Option working_dir="../test" />
 				<Option object_output="./junk/Debug" />
 				<Option type="1" />
 				<Option compiler="gcc" />
+				<Option parameters="-c test_201/Conf/config_0.conf --nodetach" />
 				<Compiler>
 					<Add option="-Wall" />
 					<Add option="-g" />
 					<Add option="-O0" />
-					<Add option="-D_DEBUG" />
-					<Add option="-D_CONSOLE" />
 				</Compiler>
 				<Linker>
 					<Add library="bin/Debug/libsphinx.a" />
-					<Add directory="./libstemmer_c/lib/Debug" />
-					<Add directory="./libexpat/lib/Debug" />
 				</Linker>
+				<MakeCommands>
+					<Build command="$make -f $makefile" />
+					<CompileFile command="$make -f $makefile $file" />
+					<Clean command="$make -f $makefile clean$target" />
+					<DistClean command="$make -f $makefile distclean$target" />
+					<AskRebuildNeeded command="$make -q -f $makefile $target" />
+					<SilentBuild command="$make -s -f $makefile $target" />
+				</MakeCommands>
 			</Target>
 			<Target title="Release">
 				<Option output="./bin/Release/searchd" prefix_auto="1" extension_auto="1" />
@@ -30,23 +45,35 @@
 				<Option type="1" />
 				<Option compiler="gcc" />
 				<Compiler>
+					<Add option="-O3" />
 					<Add option="-Wall" />
 					<Add option="-DNDEBUG" />
-					<Add option="-D_CONSOLE" />
 				</Compiler>
 				<Linker>
 					<Add option="-s" />
 					<Add library="bin/Release/libsphinx.a" />
-					<Add directory="./libstemmer_c/lib/Release" />
-					<Add directory="./libexpat/lib/Release" />
 				</Linker>
+				<MakeCommands>
+					<Build command="$make -f $makefile" />
+					<CompileFile command="$make -f $makefile $file" />
+					<Clean command="$make -f $makefile clean$target" />
+					<DistClean command="$make -f $makefile distclean$target" />
+					<AskRebuildNeeded command="$make -q -f $makefile $target" />
+					<SilentBuild command="$make -s -f $makefile $target" />
+				</MakeCommands>
 			</Target>
 		</Build>
 		<Compiler>
 			<Add option="-D_FILE_OFFSET_BITS=64" />
+			<Add option="-DHAVE_CONFIG_H" />
+			<Add directory="../config/" />
 		</Compiler>
 		<Linker>
 			<Add library="pthread" />
+			<Add library="rt" />
+			<Add library="expat" />
+			<Add library="mysqlclient" />
+			<Add library="odbc" />
 		</Linker>
 		<Unit filename="../src/searchd.cpp" />
 		<Extensions>
@@ -54,11 +81,13 @@
 				<Scheme minor_max="10" build_max="0" rev_max="0" rev_rand_max="10" build_times_to_increment_minor="100" />
 				<Settings autoincrement="1" date_declarations="1" do_auto_increment="0" ask_to_increment="0" language="C++" svn="0" svn_directory="" header_path="version.h" />
 				<Changes_Log show_changes_editor="0" app_title="released version %M.%m.%b of %p" changeslog_path="ChangesLog.txt" />
+				<Code header_guard="VERSION_H" namespace="AutoVersion" prefix="" />
 			</AutoVersioning>
 			<envvars />
 			<code_completion />
-			<debugger />
-			<lib_finder disable_auto="1" />
+			<debugger>
+				<search_path add="/media/bigstore/work/sphinx/src/" />
+			</debugger>
 		</Extensions>
 	</Project>
 </CodeBlocks_project_file>

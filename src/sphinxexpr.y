@@ -22,8 +22,8 @@
 
 %token	TOK_ID
 %token	TOK_WEIGHT
-
 %token	TOK_CONST_LIST
+%token	TOK_ATTR_SINT
 
 %type <iNode>			attr
 %type <iNode>			expr
@@ -31,12 +31,15 @@
 %type <iNode>			constlist
 %type <iNode>			function
 
-%left TOK_AND TOK_OR
-%nonassoc TOK_NOT
+%left TOK_OR
+%left TOK_AND
+%left '|'
+%left '&'
 %left TOK_EQ TOK_NE
 %left '<' '>' TOK_LTE TOK_GTE
 %left '+' '-'
 %left '*' '/'
+%nonassoc TOK_NOT
 %nonassoc TOK_NEG
 
 %%
@@ -66,6 +69,8 @@ expr:
 	| expr '/' expr					{ $$ = pParser->AddNodeOp ( '/', $1, $3 ); }
 	| expr '<' expr					{ $$ = pParser->AddNodeOp ( '<', $1, $3 ); }
 	| expr '>' expr					{ $$ = pParser->AddNodeOp ( '>', $1, $3 ); }
+	| expr '&' expr					{ $$ = pParser->AddNodeOp ( '&', $1, $3 ); }
+	| expr '|' expr					{ $$ = pParser->AddNodeOp ( '|', $1, $3 ); }
 	| expr TOK_LTE expr				{ $$ = pParser->AddNodeOp ( TOK_LTE, $1, $3 ); }
 	| expr TOK_GTE expr				{ $$ = pParser->AddNodeOp ( TOK_GTE, $1, $3 ); }
 	| expr TOK_EQ expr				{ $$ = pParser->AddNodeOp ( TOK_EQ, $1, $3 ); }
@@ -83,8 +88,8 @@ arglist:
 constlist:
 	TOK_CONST_INT					{ $$ = pParser->AddNodeConstlist ( $1 ); }
 	| TOK_CONST_FLOAT				{ $$ = pParser->AddNodeConstlist ( $1 ); }
-	| constlist',' TOK_CONST_INT	{ pParser->AppendToConstlist ( $$, $3 ); }
-	| constlist',' TOK_CONST_FLOAT	{ pParser->AppendToConstlist ( $$, $3 ); }
+	| constlist ',' TOK_CONST_INT	{ pParser->AppendToConstlist ( $$, $3 ); }
+	| constlist ',' TOK_CONST_FLOAT	{ pParser->AppendToConstlist ( $$, $3 ); }
 	;
 
 function:

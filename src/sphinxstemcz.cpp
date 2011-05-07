@@ -1,9 +1,11 @@
 //
-// $Id: sphinxstemcz.cpp 824 2007-09-21 11:02:17Z shodan $
+// $Id: sphinxstemcz.cpp 2246 2010-03-08 18:11:05Z shodan $
 //
 
 //
-// Copyright (c) 2001-2007, Andrew Aksyonoff. All rights reserved.
+// Copyright (c) 2001-2010, Andrew Aksyonoff
+// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License. You should have
@@ -18,7 +20,7 @@
 struct ClampRule_t
 {
 	int		m_iMinLength;
-	BYTE	m_szSuffix [10];
+	BYTE	m_szSuffix[10];
 	int		m_iCheckLength;
 	int		m_nRemove;
 	bool	m_bPalatalize;
@@ -89,9 +91,9 @@ static ClampRule_t g_dPosessiveRules [] =
 
 struct ReplaceRule_t
 {
-	BYTE	m_szSuffix [4];
+	BYTE	m_szSuffix[4];
 	int		m_iRemoveLength;
-	BYTE	m_szAppend [4];
+	BYTE	m_szAppend[4];
 };
 
 
@@ -119,16 +121,16 @@ static void Palatalize ( BYTE * word )
 	if ( !word )
 		return;
 
-	int nRules = sizeof ( g_dPalatalizeRules ) / sizeof ( g_dPalatalizeRules [0] );
+	int nRules = sizeof ( g_dPalatalizeRules ) / sizeof ( g_dPalatalizeRules[0] );
 	int iWordLength = strlen ( (char*)word );
 
 	for ( int i = 0; i < nRules; ++i )
 	{
-		const ReplaceRule_t & Rule = g_dPalatalizeRules [i];
-		if ( iWordLength >= Rule.m_iRemoveLength && !strncmp ( (char*)word + iWordLength - Rule.m_iRemoveLength, (char*)Rule.m_szSuffix, Rule.m_iRemoveLength ) )
+		const ReplaceRule_t & Rule = g_dPalatalizeRules[i];
+		if ( iWordLength>=Rule.m_iRemoveLength && !strncmp ( (char*)word + iWordLength - Rule.m_iRemoveLength, (char*)Rule.m_szSuffix, Rule.m_iRemoveLength ) )
 		{
 			word [iWordLength - Rule.m_iRemoveLength] = '\0';
-			strcat ( (char*)word, (char*)Rule.m_szAppend );
+			strcat ( (char*)word, (char*)Rule.m_szAppend ); // NOLINT strcat
 			return;
 		}
 	}
@@ -140,14 +142,14 @@ static void Palatalize ( BYTE * word )
 
 static void ApplyRules ( BYTE * word, const ClampRule_t * pRules, int nRules )
 {
-	if ( !word || ! pRules )
+	if ( !word || !pRules )
 		return;
 
 	int iWordLength = strlen ( (char *)word );
 
 	for ( int i = 0; i < nRules; ++i )
 	{
-		const ClampRule_t & Rule = pRules [i];
+		const ClampRule_t & Rule = pRules[i];
 		if ( iWordLength > Rule.m_iMinLength && !strncmp ( (char*)word + iWordLength - Rule.m_iCheckLength, (char*)Rule.m_szSuffix, Rule.m_iCheckLength ))
 		{
 			word [iWordLength - Rule.m_nRemove] = '\0';
@@ -161,47 +163,47 @@ static void RemoveChars ( char * szString, char cChar )
 {
 	char * szPos;
 	int iLength = strlen ( szString );
-	while ( ( szPos = strchr ( szString, cChar ) ) != NULL )
+	while ( ( szPos = strchr ( szString, cChar ) )!=NULL )
 		memmove ( szPos, szPos + 1, iLength - ( szPos - szString ) );
 }
 
 
 static void PreprocessRules ( ClampRule_t * pRules, int nRules )
 {
-	if ( ! pRules )
+	if ( !pRules )
 		return;
 
 	for ( int i = 0; i < nRules; ++i )
-		RemoveChars ( (char *) pRules [i].m_szSuffix, '!' );
+		RemoveChars ( (char *) pRules[i].m_szSuffix, '!' );
 }
 
 static void PreprocessReplace ()
 {
-	int nRules = sizeof ( g_dPalatalizeRules ) / sizeof ( g_dPalatalizeRules [0] );
+	int nRules = sizeof ( g_dPalatalizeRules ) / sizeof ( g_dPalatalizeRules[0] );
 
 	for ( int i = 0; i < nRules; ++i )
 	{
-		RemoveChars ( (char *) g_dPalatalizeRules [i].m_szSuffix, '!' );
-		RemoveChars ( (char *) g_dPalatalizeRules [i].m_szAppend, '!' );
+		RemoveChars ( (char *) g_dPalatalizeRules[i].m_szSuffix, '!' );
+		RemoveChars ( (char *) g_dPalatalizeRules[i].m_szAppend, '!' );
 	}
 }
 
 
 void stem_cz_init ()
 {
-	PreprocessRules ( g_dCaseRules, sizeof ( g_dCaseRules ) / sizeof ( g_dCaseRules [0] ) );
-	PreprocessRules ( g_dPosessiveRules, sizeof ( g_dPosessiveRules ) / sizeof ( g_dPosessiveRules [0] ) );
+	PreprocessRules ( g_dCaseRules, sizeof ( g_dCaseRules ) / sizeof ( g_dCaseRules[0] ) );
+	PreprocessRules ( g_dPosessiveRules, sizeof ( g_dPosessiveRules ) / sizeof ( g_dPosessiveRules[0] ) );
 	PreprocessReplace ();
 }
 
 
 void stem_cz ( BYTE * word )
 {
-	ApplyRules ( word, g_dCaseRules, sizeof ( g_dCaseRules ) / sizeof ( g_dCaseRules [0] ) );
-	ApplyRules ( word, g_dPosessiveRules, sizeof ( g_dPosessiveRules ) / sizeof ( g_dPosessiveRules [0] ) );
+	ApplyRules ( word, g_dCaseRules, sizeof ( g_dCaseRules ) / sizeof ( g_dCaseRules[0] ) );
+	ApplyRules ( word, g_dPosessiveRules, sizeof ( g_dPosessiveRules ) / sizeof ( g_dPosessiveRules[0] ) );
 }
 
 
 //
-// $Id: sphinxstemcz.cpp 824 2007-09-21 11:02:17Z shodan $
+// $Id: sphinxstemcz.cpp 2246 2010-03-08 18:11:05Z shodan $
 //

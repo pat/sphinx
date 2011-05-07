@@ -1,9 +1,11 @@
 //
-// $Id: search.cpp 1784 2009-04-07 11:32:02Z shodan $
+// $Id: search.cpp 2408 2010-07-18 15:49:01Z shodan $
 //
 
 //
-// Copyright (c) 2001-2008, Andrew Aksyonoff. All rights reserved.
+// Copyright (c) 2001-2010, Andrew Aksyonoff
+// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License. You should have
@@ -28,7 +30,7 @@ const char * myctime ( DWORD uStamp )
 {
 	static char sBuf[256];
 	time_t tStamp = uStamp; // for 64-bit
-	strncpy ( sBuf, ctime(&tStamp), sizeof(sBuf) );
+	strncpy ( sBuf, ctime ( &tStamp ), sizeof(sBuf) );
 
 	char * p = sBuf;
 	while ( (*p) && (*p)!='\n' && (*p)!='\r' ) p++;
@@ -114,7 +116,7 @@ int main ( int argc, char ** argv )
 			OPT ( "-c", "--config" )	sOptConfig = argv[++i];
 			OPT ( "-i", "--index" )		sIndex = argv[++i];
 			OPT ( "-g", "--group" )		{ tQuery.m_eGroupFunc = SPH_GROUPBY_ATTR; tQuery.m_sGroupBy = argv[++i]; }
-			OPT ( "-gs","--groupsort" )	{ tQuery.m_sGroupSortBy = argv[++i]; }
+			OPT ( "-gs","--groupsort" )	{ tQuery.m_sGroupSortBy = argv[++i]; } // NOLINT
 			OPT ( "-s", "--sortby" )	{ tQuery.m_eSort = SPH_SORT_EXTENDED; tQuery.m_sSortBy = argv[++i]; }
 			OPT ( "-S", "--sortexpr" )	{ tQuery.m_eSort = SPH_SORT_EXPR; tQuery.m_sSortBy = argv[++i]; }
 
@@ -129,15 +131,13 @@ int main ( int argc, char ** argv )
 				tQuery.m_dFilters[0].m_dValues.Add ( uVal );
 				tQuery.m_dFilters[0].m_sAttrName = argv[i+1];
 				i += 2;
-			}
-
-			else break; // unknown option
+			} else						break; // unknown option
 
 		} else if ( strlen(sQuery) + strlen(argv[i]) + 1 < sizeof(sQuery) )
 		{
 			// this is a search term
-			strcat ( sQuery, argv[i] );
-			strcat ( sQuery, " " );
+			strcat ( sQuery, argv[i] ); // NOLINT
+			strcat ( sQuery, " " ); // NOLINT
 		}
 	}
 	iStart = Max ( iStart, 0 );
@@ -165,7 +165,8 @@ int main ( int argc, char ** argv )
 				iLeft -= iLen;
 			} else
 			{
-				fread ( sThrowaway, 1, sizeof(sThrowaway), stdin );
+				int iDummy; // to avoid gcc unused result warning
+				iDummy = fread ( sThrowaway, 1, sizeof(sThrowaway), stdin );
 			}
 		}
 
@@ -255,7 +256,7 @@ int main ( int argc, char ** argv )
 		CSphQueryResult * pResult = NULL;
 
 		CSphIndex * pIndex = sphCreateIndexPhrase ( hIndex["path"].cstr() );
-		pIndex->SetStar ( hIndex.GetInt("enable_star")!=0 );
+		pIndex->m_bEnableStar = ( hIndex.GetInt("enable_star")!=0 );
 		pIndex->SetWordlistPreload ( hIndex.GetInt("ondisk_dict")==0 );
 
 		CSphString sWarning;
@@ -263,13 +264,12 @@ int main ( int argc, char ** argv )
 		sError = "could not create index (check that files exist)";
 		for ( ; pIndex; )
 		{
-			const CSphSchema * pSchema = pIndex->Prealloc ( false, sWarning );
-
-			if ( !pSchema || !pIndex->Preread() )
+			if ( !pIndex->Prealloc ( false, false, sWarning ) || !pIndex->Preread() )
 			{
 				sError = pIndex->GetLastError ();
 				break;
 			}
+			const CSphSchema * pSchema = &pIndex->GetMatchSchema();
 
 			if ( !sWarning.IsEmpty () )
 				fprintf ( stdout, "WARNING: index '%s': %s\n", sIndexName, sWarning.cstr () );
@@ -297,11 +297,30 @@ int main ( int argc, char ** argv )
 				}
 			}
 
-			pResult = pIndex->Query ( &tQuery );
+			// do querying
+			ISphMatchSorter * pTop = sphCreateQueue ( &tQuery, pIndex->GetMatchSchema(), sError );
+			if ( !pTop )
+			{
+				sError.SetSprintf ( "failed to create sorting queue: %s", sError.cstr() );
+				break;
+			}
 
-			if ( !pResult )
-				sError = pIndex->GetLastError ();
+			pResult = new CSphQueryResult();
+			if ( !pIndex->MultiQuery ( &tQuery, pResult, 1, &pTop, NULL ) )
+			{
+				// failure; pull that error message
+				sError = pIndex->GetLastError();
+				SafeDelete ( pResult );
+			} else
+			{
+				// success; fold them matches
+				pResult->m_dMatches.Reset ();
+				pResult->m_iTotalMatches += pTop->GetTotalCount();
+				pResult->m_tSchema = pTop->GetSchema();
+				sphFlattenQueue ( pTop, pResult, 0 );
+			}
 
+			SafeDelete ( pTop );
 			break;
 		}
 
@@ -357,11 +376,18 @@ int main ( int argc, char ** argv )
 						case SPH_ATTR_BOOL:			fprintf ( stdout, "%u", (DWORD)tMatch.GetAttr ( tAttr.m_tLocator ) ); break;
 						case SPH_ATTR_TIMESTAMP:	fprintf ( stdout, "%s", myctime ( (DWORD)tMatch.GetAttr ( tAttr.m_tLocator ) ) ); break;
 						case SPH_ATTR_FLOAT:		fprintf ( stdout, "%f", tMatch.GetAttrFloat ( tAttr.m_tLocator ) ); break;
-						case SPH_ATTR_BIGINT:		fprintf ( stdout, "%"PRIu64, tMatch.GetAttr ( tAttr.m_tLocator ) ); break;
+						case SPH_ATTR_BIGINT:		fprintf ( stdout, INT64_FMT, tMatch.GetAttr ( tAttr.m_tLocator ) ); break;
+						case SPH_ATTR_STRING:
+							{
+								const BYTE * pStr;
+								int iLen = sphUnpackStr ( pResult->m_pStrings + tMatch.GetAttr ( tAttr.m_tLocator ), &pStr );
+								fwrite ( pStr, 1, iLen, stdout );
+								break;
+							}
 						default:					fprintf ( stdout, "(unknown-type-%d)", tAttr.m_eAttrType );
 					}
 				}
-				fprintf ( stdout,"\n" );
+				fprintf ( stdout, "\n" );
 
 				#if USE_MYSQL
 				if ( sQueryInfo )
@@ -405,13 +431,16 @@ int main ( int argc, char ** argv )
 		}
 
 		fprintf ( stdout, "\nwords:\n" );
-		ARRAY_FOREACH ( i, pResult->m_dWordStats )
+		pResult->m_hWordStats.IterateStart();
+		int iWord = 1;
+		while ( pResult->m_hWordStats.IterateNext() )
 		{
 			fprintf ( stdout, "%d. '%s': %d documents, %d hits\n",
-				1+i,
-				pResult->m_dWordStats[i].m_sWord.cstr(),
-				pResult->m_dWordStats[i].m_iDocs,
-				pResult->m_dWordStats[i].m_iHits );
+				iWord,
+				pResult->m_hWordStats.IterateGetKey().cstr(),
+				pResult->m_hWordStats.IterateGet().m_iDocs,
+				pResult->m_hWordStats.IterateGet().m_iHits );
+			iWord++;
 		}
 		fprintf ( stdout, "\n" );
 
@@ -426,5 +455,5 @@ int main ( int argc, char ** argv )
 }
 
 //
-// $Id: search.cpp 1784 2009-04-07 11:32:02Z shodan $
+// $Id: search.cpp 2408 2010-07-18 15:49:01Z shodan $
 //

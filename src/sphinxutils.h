@@ -1,9 +1,11 @@
 //
-// $Id: sphinxutils.h 1593 2008-12-04 23:24:30Z shodan $
+// $Id: sphinxutils.h 2293 2010-05-06 08:15:52Z tomat $
 //
 
 //
-// Copyright (c) 2001-2008, Andrew Aksyonoff. All rights reserved.
+// Copyright (c) 2001-2010, Andrew Aksyonoff
+// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License. You should have
@@ -31,21 +33,6 @@ inline bool sphIsSpace ( int iCode )
 {
 	return iCode==' ' || iCode=='\t' || iCode=='\n' || iCode=='\r';
 }
-
-/////////////////////////////////////////////////////////////////////////////
-
-/// string hash function
-struct CSphStrHashFunc
-{
-	static inline int Hash ( const CSphString & sKey )
-	{
-		return sKey.IsEmpty() ? 0 : sphCRC32 ( (const BYTE *)sKey.cstr() );
-	}
-};
-
-/// small hash with string keys
-template < typename T >
-class SmallStringHash_T : public CSphOrderedHash < T, CSphString, CSphStrHashFunc, 256, 13 > {};
 
 /////////////////////////////////////////////////////////////////////////////
 
@@ -121,9 +108,9 @@ protected:
 
 enum
 {
-	 TOKENIZER_SBCS		= 1
-	,TOKENIZER_UTF8		= 2
-	,TOKENIZER_NGRAM	= 3
+	TOKENIZER_SBCS		= 1,
+	TOKENIZER_UTF8		= 2,
+	TOKENIZER_NGRAM	= 3
 };
 
 /// load config file
@@ -141,8 +128,25 @@ void			sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSet
 /// try to set dictionary, tokenizer and misc settings for an index (if not already set)
 bool			sphFixupIndexSettings ( CSphIndex * pIndex, const CSphConfigSection & hIndex, CSphString & sError );
 
+void			sphSetupSignals ();
+
+enum ESphLogLevel
+{
+	LOG_FATAL	= 0,
+	LOG_WARNING	= 1,
+	LOG_INFO	= 2,
+	LOG_DEBUG	= 3
+};
+
+
+void sphWarning ( const char * sFmt, ... );
+void sphInfo ( const char * sFmt, ... );
+void sphLogFatal ( const char * sFmt, ... );
+void sphLogDebug ( const char * sFmt, ... );
+void sphSetLogger ( const void * );
+
 #endif // _sphinxutils_
 
 //
-// $Id: sphinxutils.h 1593 2008-12-04 23:24:30Z shodan $
+// $Id: sphinxutils.h 2293 2010-05-06 08:15:52Z tomat $
 //

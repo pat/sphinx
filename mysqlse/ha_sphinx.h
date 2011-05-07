@@ -1,5 +1,5 @@
 //
-// $Id: ha_sphinx.h 1428 2008-09-05 18:06:30Z xale $
+// $Id: ha_sphinx.h 2379 2010-06-29 22:48:24Z shodan $
 //
 
 #ifdef USE_PRAGMA_INTERFACE
@@ -82,9 +82,9 @@ public:
 	int				open ( const char * name, int mode, uint test_if_locked );
 	int				close ();
 
-	int				write_row ( uchar * buf );
-	int				update_row ( const uchar * old_data, uchar * new_data );
-	int				delete_row ( const uchar * buf );
+	int				write_row ( byte * buf );
+	int				update_row ( const byte * old_data, byte * new_data );
+	int				delete_row ( const byte * buf );
 
 	int				index_init ( uint keynr, bool sorted ); // 5.1.x
 	int				index_init ( uint keynr ) { return index_init ( keynr, false ); } // 5.0.x
@@ -121,7 +121,7 @@ public:
 	int				rename_table ( const char * from, const char * to );
 	int				create ( const char * name, TABLE * form, HA_CREATE_INFO * create_info );
 
-	THR_LOCK_DATA **store_lock ( THD * thd, THR_LOCK_DATA ** to, enum thr_lock_type lock_type );
+	THR_LOCK_DATA **		store_lock ( THD * thd, THR_LOCK_DATA ** to, enum thr_lock_type lock_type );
 
 public:
 	virtual const COND *	cond_push ( const COND *cond );
@@ -138,7 +138,9 @@ private:
 	int *			m_dUnboundFields;
 
 private:
-	int				ConnectToSearchd ( const char * sQueryHost, int iQueryPort );
+	int				Connect ( const char * sQueryHost, ushort uPort );
+	int				ConnectAPI ( const char * sQueryHost, int iQueryPort );
+	int				HandleMysqlError ( struct st_mysql * pConn, int iErrCode );
 
 	uint32			UnpackDword ();
 	char *			UnpackString ();
@@ -160,5 +162,5 @@ int sphinx_showfunc_word_count ( THD *, SHOW_VAR *, char * );
 int sphinx_showfunc_words ( THD *, SHOW_VAR *, char * );
 
 //
-// $Id: ha_sphinx.h 1428 2008-09-05 18:06:30Z xale $
+// $Id: ha_sphinx.h 2379 2010-06-29 22:48:24Z shodan $
 //

@@ -1,9 +1,11 @@
 //
-// $Id: sphinxsoundex.cpp 1042 2007-12-31 22:25:36Z shodan $
+// $Id: sphinxsoundex.cpp 2193 2010-01-17 00:17:11Z shodan $
 //
 
 //
-// Copyright (c) 2001-2008, Andrew Aksyonoff. All rights reserved.
+// Copyright (c) 2001-2010, Andrew Aksyonoff
+// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License. You should have
@@ -15,7 +17,7 @@
 
 void stem_soundex ( BYTE * pWord )
 {
-	static BYTE dLetter2Code [ 27 ] = "01230120022455012623010202";
+	static BYTE dLetter2Code[27] = "01230120022455012623010202";
 
 	// check if the word only contains lowercase English letters
 	BYTE * p = pWord;
@@ -42,5 +44,5 @@ void stem_soundex ( BYTE * pWord )
 }
 
 //
-// $Id: sphinxsoundex.cpp 1042 2007-12-31 22:25:36Z shodan $
+// $Id: sphinxsoundex.cpp 2193 2010-01-17 00:17:11Z shodan $
 //

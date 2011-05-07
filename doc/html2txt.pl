@@ -1,5 +1,5 @@
 #
-# $Id: html2txt.pl 1125 2008-02-04 06:08:30Z shodan $
+# $Id: html2txt.pl 2381 2010-07-01 22:10:00Z shodan $
 #
 
 use Text::Wrap;
@@ -168,7 +168,7 @@ while ( $html =~ s/^(.*?)<([\/]*\w+)(\s+.*?)*>//ms )
 	if ( $tag eq "h1" ) { $hdr = "="; next; }
 	if ( $tag eq "h2" ) { $hdr = "="; next; }
 	if ( $tag eq "h3" ) { $hdr = "-"; next; }
-	if ( $tag eq "h4" ) { $hdr = "-"; next; }
+	if ( $tag eq "h4" ) { $hdr = ""; next; }
 
 	die ( "unknown tag='$tag' attrs='$attrs'\n" );
 }
@@ -180,5 +180,5 @@ $res =~ s/$MAGIC_NBSP/ /g;
 print $res;
 
 #
-# $Id: html2txt.pl 1125 2008-02-04 06:08:30Z shodan $
+# $Id: html2txt.pl 2381 2010-07-01 22:10:00Z shodan $
 #

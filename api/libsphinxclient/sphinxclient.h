@@ -1,9 +1,11 @@
 //
-// $Id: sphinxclient.h 2067 2009-11-13 23:23:06Z shodan $
+// $Id: sphinxclient.h 2376 2010-06-29 14:08:19Z shodan $
 //
 
 //
-// Copyright (c) 2008, Andrew Aksyonoff. All rights reserved.
+// Copyright (c) 2001-2010, Andrew Aksyonoff
+// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU Library General Public License. You should
@@ -74,6 +76,8 @@ enum
 	SPH_ATTR_ORDINAL		= 3,
 	SPH_ATTR_BOOL			= 4,
 	SPH_ATTR_FLOAT			= 5,
+	SPH_ATTR_BIGINT			= 6,
+	SPH_ATTR_STRING			= 7,
 	SPH_ATTR_MULTI			= 0x40000000UL
 };
 
@@ -143,14 +147,22 @@ typedef struct st_sphinx_excerpt_options
 	const char *			before_match;
 	const char *			after_match;
 	const char *			chunk_separator;
+	const char *			html_strip_mode;
 
 	int						limit;
+	int						limit_passages;
+	int						limit_words;
 	int						around;
+	int						start_passage_id;
 
 	sphinx_bool				exact_phrase;
 	sphinx_bool				single_passage;
 	sphinx_bool				use_boundaries;
 	sphinx_bool				weight_order;
+	sphinx_bool				query_mode;
+	sphinx_bool				force_all_words;
+	sphinx_bool				load_files;
+	sphinx_bool				allow_empty;
 } sphinx_excerpt_options;
 
 
@@ -165,6 +177,7 @@ typedef struct st_sphinx_keyword_info
 //////////////////////////////////////////////////////////////////////////
 
 sphinx_client *				sphinx_create	( sphinx_bool copy_args );
+void						sphinx_cleanup	( sphinx_client * client );
 void						sphinx_destroy	( sphinx_client * client );
 
 const char *				sphinx_error	( sphinx_client * client );
@@ -207,10 +220,12 @@ int							sphinx_get_weight				( sphinx_result * result, int match );
 sphinx_int64_t				sphinx_get_int					( sphinx_result * result, int match, int attr );
 float						sphinx_get_float				( sphinx_result * result, int match, int attr );
 unsigned int *				sphinx_get_mva					( sphinx_result * result, int match, int attr );
+const char *				sphinx_get_string				( sphinx_result * result, int match, int attr );
 
 void						sphinx_init_excerpt_options		( sphinx_excerpt_options * opts );
 char **						sphinx_build_excerpts			( sphinx_client * client, int num_docs, const char ** docs, const char * index, const char * words, sphinx_excerpt_options * opts );
 int							sphinx_update_attributes		( sphinx_client * client, const char * index, int num_attrs, const char ** attrs, int num_docs, const sphinx_uint64_t * docids, const sphinx_int64_t * values );
+int							sphinx_update_attributes_mva	( sphinx_client * client, const char * index, const char * attr, sphinx_uint64_t docid, int num_values, const unsigned int * values );
 sphinx_keyword_info *		sphinx_build_keywords			( sphinx_client * client, const char * query, const char * index, sphinx_bool hits, int * out_num_keywords );
 char **						sphinx_status					( sphinx_client * client, int * num_rows, int * num_cols );
 void						sphinx_status_destroy			( char ** status, int num_rows, int num_cols );
@@ -224,5 +239,5 @@ void						sphinx_status_destroy			( char ** status, int num_rows, int num_cols )
 #endif // _sphinxclient_
 
 //
-// $Id: sphinxclient.h 2067 2009-11-13 23:23:06Z shodan $
+// $Id: sphinxclient.h 2376 2010-06-29 14:08:19Z shodan $
 //

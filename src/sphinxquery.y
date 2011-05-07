@@ -24,6 +24,7 @@
 };
 
 %token <pNode>			TOK_KEYWORD
+%token <tInt>			TOK_NEAR
 %token <tInt>			TOK_INT
 %token <tFieldLimit>	TOK_FIELDLIMIT
 %token					TOK_BEFORE
@@ -38,6 +39,8 @@
 %type <pNode>			beforelist
 %type <pNode>			expr
 
+%left TOK_BEFORE TOK_NEAR
+
 %%
 
 query:
@@ -51,9 +54,9 @@ rawkeyword:
 
 keyword:
 	rawkeyword
-	| rawkeyword '$'					{ $$ = $1; assert ( $$->IsPlain() && $$->m_dWords.GetLength()==1 ); $$->m_dWords[0].m_bFieldEnd = true; }
-	| '^' rawkeyword					{ $$ = $2; assert ( $$->IsPlain() && $$->m_dWords.GetLength()==1 ); $$->m_dWords[0].m_bFieldStart = true; }
-	| '^' rawkeyword '$'				{ $$ = $2; assert ( $$->IsPlain() && $$->m_dWords.GetLength()==1 ); $$->m_dWords[0].m_bFieldStart = true; $$->m_dWords[0].m_bFieldEnd = true; }
+	| rawkeyword '$'			{ $$ = $1; assert ( $$->m_dWords.GetLength()==1 ); $$->m_dWords[0].m_bFieldEnd = true; }
+	| '^' rawkeyword			{ $$ = $2; assert ( $$->m_dWords.GetLength()==1 ); $$->m_dWords[0].m_bFieldStart = true; }
+	| '^' rawkeyword '$'		{ $$ = $2; assert ( $$->m_dWords.GetLength()==1 ); $$->m_dWords[0].m_bFieldStart = true; $$->m_dWords[0].m_bFieldEnd = true; }
 	;
 
 phrasetoken:
@@ -77,10 +80,10 @@ atom:
 	| '"' '"'							{ $$ = NULL; }
 	| '"' '"' '~' TOK_INT				{ $$ = NULL; }
 	| '"' '"' '/' TOK_INT				{ $$ = NULL; }
-	| '"' phrase '"'					{ $$ = $2; if ( $$ ) { assert ( $$->IsPlain() ); $$->m_iMaxDistance = 0; } }
-	| '"' phrase '"' '~' TOK_INT		{ $$ = $2; if ( $$ ) { assert ( !$$ || $$->IsPlain() ); $$->m_iMaxDistance = $5.iValue; $$->m_bQuorum = false; } }
-	| '"' phrase '"' '/' TOK_INT		{ $$ = $2; if ( $$ ) { assert ( !$$ || $$->IsPlain() ); $$->m_iMaxDistance = $5.iValue; $$->m_bQuorum = true; } }
-	| '(' expr ')'						{ $$ = $2; $2->m_bFieldSpec = false; }
+	| '"' phrase '"'					{ $$ = $2; if ( $$ ) { assert ( $$->m_dWords.GetLength() ); $$->SetOp ( SPH_QUERY_PHRASE); } }
+	| '"' phrase '"' '~' TOK_INT		{ $$ = $2; if ( $$ ) { assert ( $$->m_dWords.GetLength() ); $$->SetOp ( SPH_QUERY_PROXIMITY ); $$->m_iOpArg = $5.iValue; } }
+	| '"' phrase '"' '/' TOK_INT		{ $$ = $2; if ( $$ ) { assert ( $$->m_dWords.GetLength() ); $$->SetOp ( SPH_QUERY_QUORUM ); $$->m_iOpArg = $5.iValue; } }
+	| '(' expr ')'						{ $$ = $2; if ( $$ ) $$->m_bFieldSpec = false; }
 	;
 
 atomf:
@@ -102,6 +105,7 @@ orlistf:
 beforelist:
 	orlistf
 	| beforelist TOK_BEFORE orlistf		{ $$ = pParser->AddOp ( SPH_QUERY_BEFORE, $1, $3 ); }
+	| beforelist TOK_NEAR orlistf		{ $$ = pParser->AddOp ( SPH_QUERY_NEAR, $1, $3 ); $$->m_iOpArg = $2.iValue; }
 	;
 
 expr:

@@ -1,5 +1,5 @@
 /*
- * $Id: test.java 2055 2009-11-06 23:09:58Z shodan $
+ * $Id: test.java 2081 2009-11-18 18:13:43Z shodan $
  */
 
 package org.sphx.api;
@@ -137,7 +137,8 @@ public class test
 						case SphinxClient.SPH_ATTR_ORDINAL:
 						case SphinxClient.SPH_ATTR_FLOAT:
 						case SphinxClient.SPH_ATTR_BIGINT:
-							/* longs or floats; print as is */
+						case SphinxClient.SPH_ATTR_STRING:
+							/* ints, longs, floats, strings.. print as is */
 							System.out.print ( info.attrValues.get(a) );
 							break;
 
@@ -159,5 +160,5 @@ public class test
 }
 
 /*
- * $Id: test.java 2055 2009-11-06 23:09:58Z shodan $
+ * $Id: test.java 2081 2009-11-18 18:13:43Z shodan $
  */

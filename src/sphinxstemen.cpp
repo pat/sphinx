@@ -1,9 +1,11 @@
 //
-// $Id: sphinxstemen.cpp 1709 2009-02-27 10:30:10Z klirichek $
+// $Id: sphinxstemen.cpp 2153 2010-01-04 19:17:57Z shodan $
 //
 
 //
-// Copyright (c) 2001-2008, Andrew Aksyonoff. All rights reserved.
+// Copyright (c) 2001-2010, Andrew Aksyonoff
+// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License. You should have
@@ -337,5 +339,5 @@ void stem_en ( BYTE * word )
 }
 
 //
-// $Id: sphinxstemen.cpp 1709 2009-02-27 10:30:10Z klirichek $
+// $Id: sphinxstemen.cpp 2153 2010-01-04 19:17:57Z shodan $
 //
