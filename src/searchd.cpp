@@ -179,6 +179,8 @@ static int				g_iMaxFilters		= 256;
 static int				g_iMaxFilterValues	= 4096;
 static int				g_iMaxBatchQueries	= 32;
 
+static const char *	g_sClientKey = NULL;
+
 enum Mpm_e
 {
 	MPM_NONE,		///< process queries in a loop one by one (eg. in --console)
@@ -5609,6 +5611,22 @@ bool CheckCommandVersion ( int iVer, int iDaemonVersion, InputBuffer_c & tReq )
 }
 
 
+bool CheckClientKey ( InputBuffer_c & tReq )
+{
+	if ( g_sClientKey == NULL )
+		return true;
+	
+	const char * sClientKey = tReq.GetString().cstr();
+	if ( strcasecmp( g_sClientKey, sClientKey ) != 0 )
+	{
+		tReq.SendErrorReply ( "invalid client key '%s'", sClientKey );
+		return false;
+	} else {
+		return true;
+	}
+}
+
+
 void SendSearchResponse ( SearchHandler_c & tHandler, InputBuffer_c & tReq, int iSock, int iVer )
 {
 	// serve the response
@@ -7014,6 +7032,9 @@ void HandleClientSphinx ( int iSock, const char * sClientIP, int iPipeFD )
 			g_pCrashLog_LastQuery = tBuf.GetBufferPtr();
 			g_iCrashLog_LastQuerySize = iLength;
 		}
+		
+		if ( !CheckClientKey ( tBuf ) )
+			break;
 
 		// handle known commands
 		assert ( iCommand>=0 && iCommand<SEARCHD_COMMAND_TOTAL );
@@ -11273,6 +11294,9 @@ int WINAPI ServiceMain ( int argc, char **argv )
 			g_sQueryLogFile = hSearchd["query_log"].cstr();
 		}
 	}
+	
+	if ( hSearchd.Exists ( "client_key" ) )
+		g_sClientKey = hSearchd["client_key"].cstr();
 
 	// almost ready, time to start listening
 	int iBacklog = hSearchd.GetInt ( "listen_backlog", SEARCHD_BACKLOG );
