@@ -488,6 +488,7 @@ static KeyDesc_t g_dKeysSearchd[] =
 	{ "ha_period_karma",		0, NULL },
 	{ "predicted_time_costs",	0, NULL },
 	{ "persistent_connections_limit",	0, NULL },
+	{ "client_key",				0, NULL },
 	{ NULL,						0, NULL }
 };
 

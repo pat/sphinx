@@ -280,6 +280,9 @@ static CSphString		g_sSnippetsFilePrefix;
 #if !USE_WINDOWS
 static CSphProcessSharedVariable<bool> g_tHaveTTY ( true );
 #endif
+
+static const char *	g_sClientKey = NULL;
+
 enum Mpm_e
 {
 	MPM_NONE,		///< process queries in a loop one by one (eg. in --console)
@@ -10386,7 +10389,6 @@ void SearchHandler_c::RunSubset ( int iStart, int iEnd )
 		m_pProfile->Switch ( SPH_QSTATE_UNKNOWN );
 }
 
-
 bool CheckCommandVersion ( int iVer, int iDaemonVersion, InputBuffer_c & tReq )
 {
 	if ( (iVer>>8)!=(iDaemonVersion>>8) )
@@ -10404,6 +10406,20 @@ bool CheckCommandVersion ( int iVer, int iDaemonVersion, InputBuffer_c & tReq )
 	return true;
 }
 
+bool CheckClientKey ( InputBuffer_c & tReq )
+{
+	if ( g_sClientKey == NULL )
+		return true;
+
+	const char * sClientKey = tReq.GetString().cstr();
+	if ( strcasecmp( g_sClientKey, sClientKey ) != 0 )
+	{
+		tReq.SendErrorReply ( "invalid client key '%s'", sClientKey );
+		return false;
+	} else {
+		return true;
+	}
+}
 
 void SendSearchResponse ( SearchHandler_c & tHandler, InputBuffer_c & tReq, int iSock, int iVer, int iMasterVer )
 {
@@ -13286,6 +13302,9 @@ void HandleClientSphinx ( int iSock, const char * sClientIP, ThdDesc_t * pThd )
 		tCrashQuery.m_uCMD = (WORD)iCommand;
 		tCrashQuery.m_uVer = (WORD)iCommandVer;
 		SphCrashLogger_c::SetLastQuery ( tCrashQuery );
+
+		if ( !CheckClientKey ( tBuf ) )
+			break;
 
 		// handle known commands
 		assert ( iCommand>=0 && iCommand<SEARCHD_COMMAND_TOTAL );
@@ -20585,6 +20604,9 @@ int WINAPI ServiceMain ( int argc, char **argv )
 		g_sSnippetsFilePrefix = hSearchd["snippets_file_prefix"].cstr();
 	else
 		g_sSnippetsFilePrefix = "";
+
+	if ( hSearchd.Exists ( "client_key" ) )
+		g_sClientKey = hSearchd["client_key"].cstr();
 
 	if ( !strcmp ( hSearchd.GetStr ( "query_log_format", "plain" ), "sphinxql" ) )
 		g_eLogFormat = LOG_FORMAT_SPHINXQL;
