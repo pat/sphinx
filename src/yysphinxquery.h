@@ -31,12 +31,14 @@
    enum yytokentype {
      TOK_KEYWORD = 258,
      TOK_INT = 259,
-     TOK_FIELDLIMIT = 260
+     TOK_FIELDLIMIT = 260,
+     TOK_BEFORE = 261
    };
 #endif
 #define TOK_KEYWORD 258
 #define TOK_INT 259
 #define TOK_FIELDLIMIT 260
+#define TOK_BEFORE 261
 
 
 
@@ -48,7 +50,7 @@ typedef union YYSTYPE {
 	struct
 	{
 		int			iValue;
-		bool		bKeyword;
+		int			iStrIndex;
 	} tInt;
 	struct							// field spec
 	{

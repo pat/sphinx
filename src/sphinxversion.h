@@ -1,4 +1,4 @@
-#define SPH_SVN_TAG ""
-#define SPH_SVN_REV 1566
-#define SPH_SVN_REVSTR "1566"
-#define SPH_SVN_TAGREV "r1566"
+#define SPH_SVN_TAG "rel099"
+#define SPH_SVN_REV 2117
+#define SPH_SVN_REVSTR "2117"
+#define SPH_SVN_TAGREV "rel099-r2117"

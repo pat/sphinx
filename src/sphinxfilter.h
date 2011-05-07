@@ -1,5 +1,5 @@
 //
-// $Id: sphinxfilter.h 1543 2008-10-31 23:05:56Z shodan $
+// $Id: sphinxfilter.h 1848 2009-06-21 13:46:56Z shodan $
 //
 
 //
@@ -14,7 +14,6 @@
 #ifndef _sphinxfilter_
 #define _sphinxfilter_
 
-#include "sphinxstd.h"
 #include "sphinx.h"
 
 struct ISphFilter
@@ -42,12 +41,11 @@ struct ISphFilter
 	virtual ISphFilter * Join ( ISphFilter * pFilter );
 };
 
-ISphFilter * sphCreateFilter ( CSphFilterSettings &, const CSphSchema &, const DWORD * pMva );
-ISphFilter * sphCreateFilters ( CSphVector<CSphFilterSettings> &, const CSphSchema &, const DWORD * pMva );
+ISphFilter * sphCreateFilter ( CSphFilterSettings &, const CSphSchema &, const DWORD * pMva, CSphString & sError );
 ISphFilter * sphJoinFilters ( ISphFilter *, ISphFilter * );
 
 #endif // _sphinxfilter_
 
 //
-// $Id: sphinxfilter.h 1543 2008-10-31 23:05:56Z shodan $
+// $Id: sphinxfilter.h 1848 2009-06-21 13:46:56Z shodan $
 //

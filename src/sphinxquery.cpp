@@ -1,5 +1,5 @@
 //
-// $Id: sphinxquery.cpp 1457 2008-09-20 17:32:19Z shodan $
+// $Id: sphinxquery.cpp 1851 2009-06-21 23:41:00Z shodan $
 //
 
 #include "sphinx.h"
@@ -8,11 +8,10 @@
 #include <stdarg.h>
 
 //////////////////////////////////////////////////////////////////////////
-// EXTENEDED PARSER RELOADED
+// EXTENDED PARSER RELOADED
 //////////////////////////////////////////////////////////////////////////
 
-typedef CSphExtendedQueryNode XQNode_t;
-#include "sphinxqueryyy.hpp"
+#include "yysphinxquery.h"
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -23,7 +22,7 @@ public:
 					~XQParser_t () {}
 
 public:
-	bool			Parse ( CSphExtendedQuery & tQuery, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict );
+	bool			Parse ( XQQuery_t & tQuery, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict );
 
 	bool			Error ( const char * sTemplate, ... );
 	void			Warning ( const char * sTemplate, ... );
@@ -36,16 +35,15 @@ public:
 
 	void			AddQuery ( XQNode_t * pNode );
 	XQNode_t *		AddKeyword ( const char * sKeyword );
-	XQNode_t *		AddKeywordFromInt ( int iValue, bool bKeyword );
 	XQNode_t *		AddKeyword ( XQNode_t * pLeft, XQNode_t * pRight );
-	XQNode_t *		AddOp ( ESphExtendedQueryOperator eOp, XQNode_t * pLeft, XQNode_t * pRight );
+	XQNode_t *		AddOp ( XQOperator_e eOp, XQNode_t * pLeft, XQNode_t * pRight );
 
 	void			Cleanup ();
 	XQNode_t *		SweepNulls ( XQNode_t * pNode );
 	bool			FixupNots ( XQNode_t * pNode );
 
 public:
-	CSphExtendedQuery *		m_pParsed;
+	XQQuery_t *				m_pParsed;
 
 	BYTE *					m_sQuery;
 	int						m_iQueryLen;
@@ -67,7 +65,9 @@ public:
 	int						m_iPendingType;
 	YYSTYPE					m_tPendingToken;
 
-	int						m_iGotTokens;
+	bool					m_bEmpty;
+
+	CSphVector<CSphString>	m_dIntTokens;
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -79,14 +79,15 @@ int yylex ( YYSTYPE * lvalp, XQParser_t * pParser )
 
 void yyerror ( XQParser_t * pParser, const char * sMessage )
 {
-	pParser->m_pParsed->m_sParseError.SetSprintf ( "%s near '%s'", sMessage, pParser->m_pLastTokenStart );
+	if ( pParser->m_pParsed->m_sParseError.IsEmpty() )
+		pParser->m_pParsed->m_sParseError.SetSprintf ( "%s near '%s'", sMessage, pParser->m_pLastTokenStart );
 }
 
-#include "sphinxqueryyy.cpp"
+#include "yysphinxquery.c"
 
 //////////////////////////////////////////////////////////////////////////
 
-void CSphExtendedQueryNode::SetFieldSpec ( DWORD uMask, int iMaxPos )
+void XQNode_t::SetFieldSpec ( DWORD uMask, int iMaxPos )
 {
 	// set it, if we do not yet have one
 	if ( !m_bFieldSpec )
@@ -94,12 +95,6 @@ void CSphExtendedQueryNode::SetFieldSpec ( DWORD uMask, int iMaxPos )
 		m_bFieldSpec = true;
 		m_uFieldMask = uMask;
 		m_iFieldMaxPos = iMaxPos;
-
-		if ( IsPlain() )
-		{
-			m_tAtom.m_uFields = uMask;
-			m_tAtom.m_iMaxFieldPos = iMaxPos;
-		}
 	}
 
 	// some of the children might not yet have a spec, even if the node itself has
@@ -372,9 +367,16 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 			m_pTokenizer->SetBuffer ( m_sQuery, m_iQueryLen );
 			m_pTokenizer->SetBufferPtr ( p );
 
-			m_tPendingToken.tInt.bKeyword = ( sToken && m_pDict->GetWordID((BYTE*)sToken) );
+			m_tPendingToken.tInt.iStrIndex = -1;
 			if ( sToken )
+			{
+				m_dIntTokens.Add ( sToken );
+				if ( m_pDict->GetWordID((BYTE*)sToken) )
+					m_tPendingToken.tInt.iStrIndex = m_dIntTokens.GetLength()-1;
+				else
+					m_dIntTokens.Pop();
 				m_iAtomPos++;
+			}
 
 			m_iPendingNulls = 0;
 			m_iPendingType = TOK_INT;
@@ -385,6 +387,7 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 		sToken = (const char *) m_pTokenizer->GetToken ();
 		if ( !sToken )
 			return 0;
+		m_bEmpty = false;
 
 		m_iPendingNulls = m_pTokenizer->GetOvershortCount ();
 		m_iAtomPos += 1+m_iPendingNulls;
@@ -394,27 +397,51 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 			// specials must not affect pos
 			m_iAtomPos--;
 
-			// return special token
-			if ( sToken[0]!='@' )
+			// some specials are especially special
+			if ( sToken[0]=='@' )
 			{
-				m_iPendingType = sToken[0];
+				// parse fields operator
+				if ( !ParseFields ( m_tPendingToken.tFieldLimit.uMask, m_tPendingToken.tFieldLimit.iMaxPos ) )
+					return -1;
+
+				if ( m_pSchema->m_dFields.GetLength()!=32 )
+					m_tPendingToken.tFieldLimit.uMask &= ( 1UL<<m_pSchema->m_dFields.GetLength() )-1;
+
+				m_iPendingType = TOK_FIELDLIMIT;
+				break;
+
+			} else if ( sToken[0]=='<' )
+			{
+				if ( *m_pTokenizer->GetBufferPtr()=='<' )
+				{
+					// got "<<", aka operator BEFORE
+					m_iPendingType = TOK_BEFORE;
+					break;
+				} else
+				{
+					// got stray '<', ignore
+					continue;
+				}
+
+			} else
+			{
+				// all the other specials are passed to parser verbtaim
+				m_iPendingType = sToken[0]=='!' ? '-' : sToken[0];
 				break;
 			}
-
-			// parse fields operator
-			if ( !ParseFields ( m_tPendingToken.tFieldLimit.uMask, m_tPendingToken.tFieldLimit.iMaxPos ) )
-				return -1;
-
-			if ( m_pSchema->m_dFields.GetLength()!=32 )
-				m_tPendingToken.tFieldLimit.uMask &= ( 1UL<<m_pSchema->m_dFields.GetLength() )-1;
-
-			m_iPendingType = TOK_FIELDLIMIT;
-			break;
 		}
 
 		// check for stopword, and create that node
-		CSphString sTmp ( sToken );
-		if ( !m_pDict->GetWordID ( (BYTE*)sTmp.cstr() ) ) sToken = NULL;
+		// temp buffer is required, because GetWordID() might expand (!) the keyword in-place
+		const int MAX_BYTES = 3*SPH_MAX_WORD_LEN + 16;
+		BYTE sTmp [ MAX_BYTES ];
+
+		strncpy ( (char*)sTmp, sToken, MAX_BYTES );
+		sTmp[MAX_BYTES-1] = '\0';
+
+		if ( !m_pDict->GetWordID ( sTmp ) )
+			sToken = NULL;
+
 		m_tPendingToken.pNode = AddKeyword ( sToken );
 		m_iPendingType = TOK_KEYWORD;
 		break;
@@ -422,7 +449,7 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 
 	// someone must be pending now!
 	assert ( m_iPendingType );
-	m_iGotTokens++;
+	m_bEmpty = false;
 
 	// ladies first, though
 	if ( m_iPendingNulls>0 )
@@ -432,7 +459,7 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 		return TOK_KEYWORD;
 	}
 
-	// pending the offending 
+	// pending the offending
 	int iRes = m_iPendingType;
 	m_iPendingType = 0;
 
@@ -449,25 +476,15 @@ void XQParser_t::AddQuery ( XQNode_t * pNode )
 
 XQNode_t * XQParser_t::AddKeyword ( const char * sKeyword )
 {
-	CSphExtendedQueryAtomWord tAW ( sKeyword, m_iAtomPos );
+	XQKeyword_t tAW ( sKeyword, m_iAtomPos );
 
 	XQNode_t * pNode = new XQNode_t();
-	pNode->m_tAtom.m_dWords.Add ( tAW );
+	pNode->m_dWords.Add ( tAW );
 
 	m_dSpawned.Add ( pNode );
 	return pNode;
 }
 
-
-XQNode_t * XQParser_t::AddKeywordFromInt ( int iValue, bool bKeyword )
-{
-	if ( !bKeyword )
-		return AddKeyword ( NULL );
-
-	char sBuf[16];
-	snprintf ( sBuf, sizeof(sBuf), "%d", iValue );
-	return AddKeyword ( sBuf );
-}
 
 XQNode_t * XQParser_t::AddKeyword ( XQNode_t * pLeft, XQNode_t * pRight )
 {
@@ -476,16 +493,16 @@ XQNode_t * XQParser_t::AddKeyword ( XQNode_t * pLeft, XQNode_t * pRight )
 
 	assert ( pLeft->IsPlain() );
 	assert ( pRight->IsPlain() );
-	assert ( pRight->m_tAtom.m_dWords.GetLength()==1 );
+	assert ( pRight->m_dWords.GetLength()==1 );
 
-	pLeft->m_tAtom.m_dWords.Add ( pRight->m_tAtom.m_dWords[0] );
+	pLeft->m_dWords.Add ( pRight->m_dWords[0] );
 	m_dSpawned.RemoveValue ( pRight );
 	SafeDelete ( pRight );
 	return pLeft;
 }
 
 
-XQNode_t * XQParser_t::AddOp ( ESphExtendedQueryOperator eOp, XQNode_t * pLeft, XQNode_t * pRight )
+XQNode_t * XQParser_t::AddOp ( XQOperator_e eOp, XQNode_t * pLeft, XQNode_t * pRight )
 {
 	/////////
 	// unary
@@ -504,7 +521,7 @@ XQNode_t * XQParser_t::AddOp ( ESphExtendedQueryOperator eOp, XQNode_t * pLeft, 
 	//////////
 
 	if ( !pLeft || !pRight )
-		return pLeft ? pLeft : pRight;	
+		return pLeft ? pLeft : pRight;
 
 	// left spec always tries to infect the nodes to the right, only brackets can stop it
 	// eg. '@title hello' vs 'world'
@@ -547,11 +564,11 @@ XQNode_t * XQParser_t::SweepNulls ( XQNode_t * pNode )
 	// sweep plain node
 	if ( pNode->IsPlain() )
 	{
-		ARRAY_FOREACH ( i, pNode->m_tAtom.m_dWords )
-			if ( pNode->m_tAtom.m_dWords[i].m_sWord.cstr()==NULL )
-				pNode->m_tAtom.m_dWords.Remove ( i-- );
+		ARRAY_FOREACH ( i, pNode->m_dWords )
+			if ( pNode->m_dWords[i].m_sWord.cstr()==NULL )
+				pNode->m_dWords.Remove ( i-- );
 
-		if ( pNode->m_tAtom.m_dWords.GetLength()==0 )
+		if ( pNode->m_dWords.GetLength()==0 )
 		{
 			m_dSpawned.RemoveValue ( pNode ); // OPTIMIZE!
 			SafeDelete ( pNode );
@@ -563,7 +580,7 @@ XQNode_t * XQParser_t::SweepNulls ( XQNode_t * pNode )
 
 	// sweep op node
 	ARRAY_FOREACH ( i, pNode->m_dChildren )
-	{	
+	{
 		pNode->m_dChildren[i] = SweepNulls ( pNode->m_dChildren[i] );
 		if ( pNode->m_dChildren[i]==NULL )
 			pNode->m_dChildren.Remove ( i-- );
@@ -630,6 +647,13 @@ bool XQParser_t::FixupNots ( XQNode_t * pNode )
 		return false;
 	}
 
+	// NOT used in before operator
+	if ( pNode->m_eOp==SPH_QUERY_BEFORE )
+	{
+		m_pParsed->m_sParseError.SetSprintf ( "query is non-computable (NOT cannot be used as before operand)" );
+		return false;
+	}
+
 	// must be some NOTs within AND at this point, convert this node to ANDNOT
 	assert ( pNode->m_eOp==SPH_QUERY_AND && pNode->m_dChildren.GetLength() && dNots.GetLength() );
 
@@ -658,14 +682,14 @@ bool XQParser_t::FixupNots ( XQNode_t * pNode )
 }
 
 
-static void DeleteNodesWOFields ( CSphExtendedQueryNode * pNode )
+static void DeleteNodesWOFields ( XQNode_t * pNode )
 {
 	if ( !pNode )
 		return;
 
 	for ( int i = 0; i < pNode->m_dChildren.GetLength (); )
 	{
-		if ( pNode->m_dChildren [i]->m_tAtom.m_uFields == 0 )
+		if ( pNode->m_dChildren [i]->m_uFieldMask==0 )
 		{
 			// this should be a leaf node
 			assert ( pNode->m_dChildren [i]->m_dChildren.GetLength () == 0 );
@@ -681,12 +705,24 @@ static void DeleteNodesWOFields ( CSphExtendedQueryNode * pNode )
 }
 
 
-bool XQParser_t::Parse ( CSphExtendedQuery & tParsed, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict )
+bool XQParser_t::Parse ( XQQuery_t & tParsed, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict )
 {
 	CSphScopedPtr<ISphTokenizer> pMyTokenizer ( pTokenizer->Clone ( true ) );
-	pMyTokenizer->AddSpecials ( "()|-!@~\"/" );
+	pMyTokenizer->AddSpecials ( "()|-!@~\"/^$<" );
 	pMyTokenizer->EnableQueryParserMode ( true );
 
+	// check for relaxed syntax
+	const char * OPTION_RELAXED = "@@relaxed";
+	const int OPTION_RELAXED_LEN = strlen ( OPTION_RELAXED );
+
+	m_bStopOnInvalid = true;
+	if ( strncmp ( sQuery, OPTION_RELAXED, OPTION_RELAXED_LEN )==0 && !sphIsAlpha ( sQuery[OPTION_RELAXED_LEN]) )
+	{
+		sQuery += OPTION_RELAXED_LEN;
+		m_bStopOnInvalid = false;
+	}
+
+	// setup parser
 	m_pParsed = &tParsed;
 	m_sQuery = (BYTE*) sQuery;
 	m_iQueryLen = strlen(sQuery);
@@ -698,12 +734,12 @@ bool XQParser_t::Parse ( CSphExtendedQuery & tParsed, const char * sQuery, const
 	m_iPendingNulls = 0;
 	m_iPendingType = 0;
 	m_pRoot = NULL;
-	m_iGotTokens = 0;
+	m_bEmpty = true;
 
 	m_pTokenizer->SetBuffer ( m_sQuery, m_iQueryLen );
 	int iRes = yyparse ( this );
 
-	if ( iRes && m_iGotTokens )
+	if ( iRes && !m_bEmpty )
 	{
 		Cleanup ();
 		return false;
@@ -746,9 +782,9 @@ static void xqIndent ( int iIndent )
 }
 
 
-static void xqDump ( CSphExtendedQueryNode * pNode, const CSphSchema & tSch, int iIndent )
+static void xqDump ( XQNode_t * pNode, const CSphSchema & tSch, int iIndent )
 {
-	if ( pNode->m_tAtom.IsEmpty() )
+	if ( !pNode->IsPlain() )
 	{
 		xqIndent ( iIndent );
 		switch ( pNode->m_eOp )
@@ -757,25 +793,33 @@ static void xqDump ( CSphExtendedQueryNode * pNode, const CSphSchema & tSch, int
 			case SPH_QUERY_OR: printf ( "OR:\n" ); break;
 			case SPH_QUERY_NOT: printf ( "NOT:\n" ); break;
 			case SPH_QUERY_ANDNOT: printf ( "ANDNOT:\n" ); break;
+			case SPH_QUERY_BEFORE: printf ( "BEFORE:\n" ); break;
+			default: printf ( "unknown-op-%d:\n", pNode->m_eOp ); break;
 		}
 		ARRAY_FOREACH ( i, pNode->m_dChildren )
 			xqDump ( pNode->m_dChildren[i], tSch, iIndent+1 );
 	} else
 	{
-		const CSphExtendedQueryAtom & tAtom = pNode->m_tAtom;
 		xqIndent ( iIndent );
-		printf ( "MATCH(%d,%d):",
-			tAtom.m_uFields,
-			tAtom.m_iMaxDistance );
-		ARRAY_FOREACH ( i, tAtom.m_dWords )
-			printf ( " %s (pos %d)", tAtom.m_dWords[i].m_sWord.cstr(), tAtom.m_dWords[i].m_iAtomPos );
+		printf ( "MATCH(%d,%d):", pNode->m_uFieldMask, pNode->m_iMaxDistance );
+
+		ARRAY_FOREACH ( i, pNode->m_dWords )
+		{
+			const XQKeyword_t & tWord = pNode->m_dWords[i];
+
+			const char * sLocTag = "";
+			if ( tWord.m_bFieldStart ) sLocTag = ", start";
+			if ( tWord.m_bFieldEnd ) sLocTag = ", end";
+
+			printf ( " %s (qpos %d%s)", tWord.m_sWord.cstr(), tWord.m_iAtomPos, sLocTag );
+		}
 		printf ( "\n" );
 	}
 }
 #endif
 
 
-bool sphParseExtendedQuery ( CSphExtendedQuery & tParsed, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict )
+bool sphParseExtendedQuery ( XQQuery_t & tParsed, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict )
 {
 	XQParser_t qp;
 	bool bRes = qp.Parse ( tParsed, sQuery, pTokenizer, pSchema, pDict );
@@ -783,10 +827,8 @@ bool sphParseExtendedQuery ( CSphExtendedQuery & tParsed, const char * sQuery, c
 #if XQDEBUG
 	if ( bRes )
 	{
-		printf ( "--- accept ---\n" );
-		xqDump ( tParsed.m_pAccept, *pSchema, 0 );
-		printf ( "--- reject ---\n" );
-		xqDump ( tParsed.m_pReject, *pSchema, 0 );
+		printf ( "--- query ---\n" );
+		xqDump ( tParsed.m_pRoot, *pSchema, 0 );
 		printf ( "---\n" );
 	}
 #endif
@@ -795,5 +837,5 @@ bool sphParseExtendedQuery ( CSphExtendedQuery & tParsed, const char * sQuery, c
 }
 
 //
-// $Id: sphinxquery.cpp 1457 2008-09-20 17:32:19Z shodan $
+// $Id: sphinxquery.cpp 1851 2009-06-21 23:41:00Z shodan $
 //

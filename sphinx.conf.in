@@ -13,7 +13,7 @@
 source src1
 {
 	# data source type. mandatory, no default value
-	# known types are 'mysql', 'pgsql', 'mssql', 'xmlpipe', 'xmlpipe2'
+	# known types are mysql, pgsql, mssql, xmlpipe, xmlpipe2, odbc
 	type					= mysql
 
 	#####################################################################
@@ -40,6 +40,12 @@ source src1
 	#
 	# mysql_connect_flags	= 32 # enable compression
 
+	# MySQL specific SSL certificate settings
+	# optional, defaults are empty
+	#
+	# mysql_ssl_cert		= /etc/ssl/client-cert.pem
+	# mysql_ssl_key		= /etc/ssl/client-key.pem
+	# mysql_ssl_ca		= /etc/ssl/cacert.pem
 
 	# MS SQL specific Windows authentication mode flag
 	# MUST be in sync with charset_type index-level setting
@@ -52,6 +58,13 @@ source src1
 	# optional, default is 0 (request SBCS data)
 	#
 	# mssql_unicode			= 1 # request Unicode data from server
+
+
+	# ODBC specific DSN (data source name)
+	# mandatory for odbc source type, no default value
+	#
+	# odbc_dsn				= DBQ=C:\data;DefaultDir=C:\data;Driver={Microsoft Text Driver (*.txt; *.csv)};
+	# sql_query				= SELECT id, data FROM documents.csv
 
 
 	# pre-query, executed before the main fetch query
@@ -226,6 +239,13 @@ source src1
 	#
 	# xmlpipe_attr_timestamp	= published
 	# xmlpipe_attr_uint			= author_id
+
+
+	# perform UTF-8 validation, and filter out incorrect codes
+	# avoids XML parser choking on non-UTF-8 documents
+	# optional, default is 0
+	#
+	# xmlpipe_fixup_utf8		= 1
 }
 
 
@@ -439,6 +459,18 @@ index test1
 	# optional, default is 0
 	#
 	# index_exact_words		= 1
+
+
+	# position increment on overshort (less that min_word_len) words
+	# optional, allowed values are 0 and 1, default is 1
+	#
+	# overshort_step			= 1
+
+
+	# position increment on stopword
+	# optional, allowed values are 0 and 1, default is 1
+	#
+	# stopword_step			= 1
 }
 
 
@@ -471,14 +503,14 @@ index dist1
 	# multiple remote agents may be specified
 	# syntax for TCP connections is 'hostname:port:index1,[index2[,...]]'
 	# syntax for local UNIX connections is '/path/to/socket:index1,[index2[,...]]'
-	agent				= localhost:3313:remote1
-	agent				= localhost:3314:remote2,remote3
+	agent				= localhost:9313:remote1
+	agent				= localhost:9314:remote2,remote3
 	# agent				= /var/run/searchd.sock:remote4
 
 	# blackhole remote agent, for debugging/testing
 	# network errors and search results will be ignored
 	#
-	# agent_blackhole		= testbox:3312:testindex1,testindex2
+	# agent_blackhole		= testbox:9312:testindex1,testindex2
 
 
 	# remote agent connection timeout, milliseconds
@@ -510,6 +542,20 @@ indexer
 	# optional, default is 0 (unlimited)
 	#
 	# max_iosize		= 1048576
+
+
+	# maximum xmlpipe2 field length, bytes
+	# optional, default is 2M
+	#
+	# max_xmlpipe2_field	= 4M
+
+
+	# write buffer size, bytes
+	# several (currently up to 4) buffers will be allocated
+	# write buffers are allocated in addition to mem_limit
+	# optional, default is 1M
+	#
+	# write_buffer		= 1M
 }
 
 #############################################################################
@@ -520,11 +566,11 @@ searchd
 {
 	# hostname, port, or hostname:port, or /unix/socket/path to listen on
 	# multi-value, multiple listen points are allowed
-	# optional, default is 0.0.0.0:3312 (listen on all interfaces, port 3312)
+	# optional, default is 0.0.0.0:9312 (listen on all interfaces, port 9312)
 	#
 	# listen				= 127.0.0.1
-	# listen				= 192.168.0.1:3312
-	# listen				= 3312
+	# listen				= 192.168.0.1:9312
+	# listen				= 9312
 	# listen				= /var/run/searchd.sock
 
 
@@ -606,6 +652,24 @@ searchd
 	# max allowed per-filter values count
 	# optional, default is 4096
 	max_filter_values	= 4096
+
+
+	# socket listen queue length
+	# optional, default is 5
+	#
+	# listen_backlog		= 5
+
+
+	# per-keyword read buffer size
+	# optional, default is 256K
+	#
+	# read_buffer			= 256K
+
+
+	# unhinted read size (currently used when reading hits)
+	# optional, default is 32K
+	#
+	# read_unhinted		= 32K
 }
 
 # --eof--

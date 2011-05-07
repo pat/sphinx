@@ -1,5 +1,5 @@
 //
-// $Id: sphinxexcerpt.h 1042 2007-12-31 22:25:36Z shodan $
+// $Id: sphinxexcerpt.h 1725 2009-03-05 07:21:50Z xale $
 //
 
 //
@@ -50,11 +50,11 @@ public:
 };
 
 /// an excerpt generator
-/// returns a newly allocated UTF-8 string
+/// returns a newly allocated string in encoding specified by tokenizer
 char *				sphBuildExcerpt ( const ExcerptQuery_t & q, CSphDict * pDict, ISphTokenizer * pTokenizer );
 
 #endif // _sphinxexcerpt_
 
 //
-// $Id: sphinxexcerpt.h 1042 2007-12-31 22:25:36Z shodan $
+// $Id: sphinxexcerpt.h 1725 2009-03-05 07:21:50Z xale $
 //

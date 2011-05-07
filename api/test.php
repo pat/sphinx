@@ -1,7 +1,7 @@
 <?php
 
 //
-// $Id: test.php 1559 2008-11-11 17:57:35Z shodan $
+// $Id: test.php 2055 2009-11-06 23:09:58Z shodan $
 //
 
 require ( "sphinxapi.php" );
@@ -47,9 +47,10 @@ foreach ( $_SERVER["argv"] as $arg )
 $cl = new SphinxClient ();
 
 $q = "";
+$sql = "";
 $mode = SPH_MATCH_ALL;
 $host = "localhost";
-$port = 3312;
+$port = 9312;
 $index = "*";
 $groupby = "";
 $groupsort = "@group desc";
@@ -88,6 +89,7 @@ for ( $i=0; $i<count($args); $i++ )
 		if ( $arg=="bm25" )		$ranker = SPH_RANK_BM25;
 		if ( $arg=="none" )		$ranker = SPH_RANK_NONE;
 		if ( $arg=="wordcount" )$ranker = SPH_RANK_WORDCOUNT;
+		if ( $arg=="fieldmask" )$ranker = SPH_RANK_FIELDMASK;
 	}
 	else
 		$q .= $args[$i] . " ";
@@ -99,6 +101,7 @@ for ( $i=0; $i<count($args); $i++ )
 
 $cl->SetServer ( $host, $port );
 $cl->SetConnectTimeout ( 1 );
+$cl->SetArrayResult ( true );
 $cl->SetWeights ( array ( 100, 1 ) );
 $cl->SetMatchMode ( $mode );
 if ( count($filtervals) )	$cl->SetFilter ( $filter, $filtervals );
@@ -109,7 +112,6 @@ if ( $distinct )			$cl->SetGroupDistinct ( $distinct );
 if ( $select )				$cl->SetSelect ( $select );
 if ( $limit )				$cl->SetLimits ( 0, $limit, ( $limit>1000 ) ? $limit : 1000 );
 $cl->SetRankingMode ( $ranker );
-$cl->SetArrayResult ( true );
 $res = $cl->Query ( $q, $index );
 
 ////////////////
@@ -159,7 +161,7 @@ if ( $res===false )
 }
 
 //
-// $Id: test.php 1559 2008-11-11 17:57:35Z shodan $
+// $Id: test.php 2055 2009-11-06 23:09:58Z shodan $
 //
 
 ?>

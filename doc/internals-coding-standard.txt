@@ -148,4 +148,9 @@ class SampleInternalClass
 	void SampleCall ( RuleType_e eRule, char cKey, bool bFlag, char * sArg );
 };
 
+- constants, either typed or defined, must be all caps:
+
+	const bool FAIL_ON_NULL_SOURCE = false;
+	#define READ_NO_SIZE_HINT 0
+
 --eof--

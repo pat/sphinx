@@ -1,7 +1,7 @@
 <?php
 
 //
-// $Id: sphinxapi.php 1566 2008-11-17 19:06:44Z shodan $
+// $Id: sphinxapi.php 2055 2009-11-06 23:09:58Z shodan $
 //
 
 //
@@ -23,12 +23,16 @@ define ( "SEARCHD_COMMAND_EXCERPT",	1 );
 define ( "SEARCHD_COMMAND_UPDATE",	2 );
 define ( "SEARCHD_COMMAND_KEYWORDS",3 );
 define ( "SEARCHD_COMMAND_PERSIST",	4 );
+define ( "SEARCHD_COMMAND_STATUS",	5 );
+define ( "SEARCHD_COMMAND_QUERY",	6 );
 
 /// current client-side command implementation versions
 define ( "VER_COMMAND_SEARCH",		0x116 );
 define ( "VER_COMMAND_EXCERPT",		0x100 );
 define ( "VER_COMMAND_UPDATE",		0x102 );
 define ( "VER_COMMAND_KEYWORDS",	0x100 );
+define ( "VER_COMMAND_STATUS",		0x100 );
+define ( "VER_COMMAND_QUERY",		0x100 );
 
 /// known searchd status codes
 define ( "SEARCHD_OK",				0 );
@@ -52,6 +56,7 @@ define ( "SPH_RANK_NONE",			2 );	///< no ranking, all matches get a weight of 1
 define ( "SPH_RANK_WORDCOUNT",		3 );	///< simple word-count weighting, rank is a weighted sum of per-field keyword occurence counts
 define ( "SPH_RANK_PROXIMITY",		4 );
 define ( "SPH_RANK_MATCHANY",		5 );
+define ( "SPH_RANK_FIELDMASK",		6 );
 
 /// known sort modes
 define ( "SPH_SORT_RELEVANCE",		0 );
@@ -339,6 +344,11 @@ function sphUnpackI64 ( $v )
 	$mq = floor($m/10000000.0);
 	$l = $m - $mq*10000000.0 + $c;
 	$h = $q*4294967296.0 + $r*429.0 + $mq;
+	if ( $l==10000000 )
+	{
+		$l = 0;
+		$h += 1;
+	}
 
 	$h = sprintf ( "%.0f", $h );
 	$l = sprintf ( "%07.0f", $l );
@@ -348,11 +358,27 @@ function sphUnpackI64 ( $v )
 }
 
 
+function sphFixUint ( $value )
+{
+	if ( PHP_INT_SIZE>=8 )
+	{
+		// x64 route, workaround broken unpack() in 5.2.2+
+		if ( $value<0 ) $value += (1<<32);
+		return $value;
+	}
+	else
+	{
+		// x32 route, workaround php signed/unsigned braindamage
+		return sprintf ( "%u", $value );
+	}
+}
+
+
 /// sphinx searchd client class
 class SphinxClient
 {
 	var $_host;			///< searchd host (default is "localhost")
-	var $_port;			///< searchd port (default is 3312)
+	var $_port;			///< searchd port (default is 9312)
 	var $_offset;		///< how many records to seek from result-set start (default is 0)
 	var $_limit;		///< how many records to return from result-set starting at offset (default is 20)
 	var $_mode;			///< query matching mode (default is SPH_MATCH_ALL)
@@ -396,7 +422,7 @@ class SphinxClient
 	{
 		// per-client-object settings
 		$this->_host		= "localhost";
-		$this->_port		= 3312;
+		$this->_port		= 9312;
 		$this->_path		= false;
 		$this->_socket		= false;
 
@@ -524,8 +550,16 @@ class SphinxClient
 	/// connect to searchd server
 	function _Connect ()
 	{
-		if ( $this->_socket !== false )
-			return $this->_socket;
+		if ( $this->_socket!==false )
+		{
+			// we are in persistent connection mode, so we have a socket
+			// however, need to check whether it's still alive
+			if ( !@feof ( $this->_socket ) )
+				return $this->_socket;
+
+			// force reopen
+			$this->_socket = false;
+		}
 
 		$errno = 0;
 		$errstr = "";
@@ -560,6 +594,17 @@ class SphinxClient
 			return false;
 		}
 
+		// send my version
+		// this is a subtle part. we must do it before (!) reading back from searchd.
+		// because otherwise under some conditions (reported on FreeBSD for instance)
+		// TCP stack could throttle write-write-read pattern because of Nagle.
+		if ( !$this->_Send ( $fp, pack ( "N", 1 ), 4 ) )
+		{
+			fclose ( $fp );
+			$this->_error = "failed to send client protocol version";
+			return false;
+		}
+
 		// check version
 		list(,$v) = unpack ( "N*", fread ( $fp, 4 ) );
 		$v = (int)$v;
@@ -570,9 +615,6 @@ class SphinxClient
 			return false;
 		}
 
-		// all ok, send my version
-		if ( !$this->_Send ( $fp, pack ( "N", 1 ), 4 ) )
-			return false;
 		return $fp;
 	}
 
@@ -1061,10 +1103,7 @@ class SphinxClient
 			return false;
 		}
 
-		////////////////////////////
 		// send query, get response
-		////////////////////////////
-
 		$nreqs = count($this->_reqs);
 		$req = join ( "", $this->_reqs );
 		$len = 4+strlen($req);
@@ -1077,12 +1116,16 @@ class SphinxClient
 			return false;
 		}
 
+		// query sent ok; we can reset reqs now
 		$this->_reqs = array ();
 
-		//////////////////
-		// parse response
-		//////////////////
+		// parse and return response
+		return $this->_ParseSearchResponse ( $response, $nreqs );
+	}
 
+	/// parse and return search query (or queries) response
+	function _ParseSearchResponse ( $response, $nreqs )
+	{
 		$p = 0; // current position
 		$max = strlen($response); // max position for checks, to protect against broken responses
 
@@ -1157,16 +1200,7 @@ class SphinxClient
 					list ( $doc, $weight ) = array_values ( unpack ( "N*N*",
 						substr ( $response, $p, 8 ) ) );
 					$p += 8;
-
-					if ( PHP_INT_SIZE>=8 )
-					{
-						// x64 route, workaround broken unpack() in 5.2.2+
-						if ( $doc<0 ) $doc += (1<<32);
-					} else
-					{
-						// x32 route, workaround php signed/unsigned braindamage
-						$doc = sprintf ( "%u", $doc );
-					}
+					$doc = sphFixUint($doc);
 				}
 				$weight = sprintf ( "%u", $weight );
 
@@ -1205,11 +1239,11 @@ class SphinxClient
 						while ( $nvalues-->0 && $p<$max )
 						{
 							list(,$val) = unpack ( "N*", substr ( $response, $p, 4 ) ); $p += 4;
-							$attrvals[$attr][] = sprintf ( "%u", $val );
+							$attrvals[$attr][] = sphFixUint($val);
 						}
 					} else
 					{
-						$attrvals[$attr] = sprintf ( "%u", $val );
+						$attrvals[$attr] = sphFixUint($val);
 					}
 				}
 
@@ -1432,8 +1466,8 @@ class SphinxClient
 
 	function EscapeString ( $string )
 	{
-		$from = array ( '(',')','|','-','!','@','~','"','&', '/', '\\' );
-		$to   = array ( '\(','\)','\|','\-','\!','\@','\~','\"', '\&', '\/', '\\\\' );
+		$from = array ( '\\', '(',')','|','-','!','@','~','"','&', '/', '^', '$', '=' );
+		$to   = array ( '\\\\', '\(','\)','\|','\-','\!','\@','\~','\"', '\&', '\/', '\^', '\$', '\=' );
 
 		return str_replace ( $from, $to, $string );
 	}
@@ -1548,8 +1582,45 @@ class SphinxClient
 		
 		return true;
 	}
+
+	//////////////////////////////////////////////////////////////////////////
+	// status
+	//////////////////////////////////////////////////////////////////////////
+
+	function Status ()
+	{
+		$this->_MBPush ();
+		if (!( $fp = $this->_Connect() ))
+		{
+			$this->_MBPop();
+			return false;
+		}
+
+		$req = pack ( "nnNN", SEARCHD_COMMAND_STATUS, VER_COMMAND_STATUS, 4, 1 ); // len=4, body=1
+		if ( !( $this->_Send ( $fp, $req, 12 ) ) ||
+			 !( $response = $this->_GetResponse ( $fp, VER_COMMAND_STATUS ) ) )
+		{
+			$this->_MBPop ();
+			return false;
+		}
+
+		$res = substr ( $response, 4 ); // just ignore length, error handling, etc
+		$p = 0;
+		list ( $rows, $cols ) = array_values ( unpack ( "N*N*", substr ( $response, $p, 8 ) ) ); $p += 8;
+
+		$res = array();
+		for ( $i=0; $i<$rows; $i++ )
+			for ( $j=0; $j<$cols; $j++ )
+		{
+			list(,$len) = unpack ( "N*", substr ( $response, $p, 4 ) ); $p += 4;
+			$res[$i][] = substr ( $response, $p, $len ); $p += $len;
+		}
+
+		$this->_MBPop ();
+		return $res;
+	}
 }
 
 //
-// $Id: sphinxapi.php 1566 2008-11-17 19:06:44Z shodan $
+// $Id: sphinxapi.php 2055 2009-11-06 23:09:58Z shodan $
 //

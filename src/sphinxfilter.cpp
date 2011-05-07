@@ -1,5 +1,5 @@
 //
-// $Id: sphinxfilter.cpp 1544 2008-11-01 00:33:56Z shodan $
+// $Id: sphinxfilter.cpp 1848 2009-06-21 13:46:56Z shodan $
 //
 
 //
@@ -21,7 +21,7 @@
 struct IFilter_Attr: virtual ISphFilter
 {
 	CSphAttrLocator m_tLocator;
-	
+
 	virtual void SetLocator ( const CSphAttrLocator & tLocator )
 	{
 		m_tLocator = tLocator;
@@ -38,7 +38,7 @@ struct IFilter_Values: virtual ISphFilter
 		: m_pValues		( NULL )
 		, m_iValueCount	( 0 )
 	{}
-	
+
 	virtual void SetValues ( const SphAttr_t * pStorage, int iCount )
 	{
 		assert ( pStorage );
@@ -47,7 +47,7 @@ struct IFilter_Values: virtual ISphFilter
 		for ( int i = 1; i < iCount; i++ )
 			assert ( pStorage[i-1] <= pStorage[i] );
 		#endif
-			
+
 		m_pValues = pStorage;
 		m_iValueCount = iCount;
 	}
@@ -57,7 +57,7 @@ struct IFilter_Values: virtual ISphFilter
 		assert ( iIndex >= 0 && iIndex < m_iValueCount );
 		return m_pValues[iIndex];
 	}
-	
+
 	bool EvalValues ( SphAttr_t uValue ) const;
 	bool EvalBlockValues ( SphAttr_t uBlockMin, SphAttr_t uBlockMax ) const;
 };
@@ -70,7 +70,7 @@ bool IFilter_Values::EvalValues ( SphAttr_t uValue ) const
 
 	const SphAttr_t * pA = m_pValues;
 	const SphAttr_t * pB = m_pValues + m_iValueCount - 1;
-	
+
 	if ( uValue==*pA || uValue==*pB ) return true;
 	if ( uValue<(*pA) || uValue>(*pB) ) return false;
 
@@ -124,7 +124,7 @@ struct IFilter_MVA: virtual IFilter_Attr
 	IFilter_MVA ()
 		: m_pMvaStorage ( NULL )
 	{}
-	
+
 	virtual void SetMVAStorage ( const DWORD * pMva )
 	{
 		m_pMvaStorage = pMva;
@@ -133,7 +133,7 @@ struct IFilter_MVA: virtual IFilter_Attr
 	inline bool LoadMVA( const CSphMatch & tMatch, const DWORD ** pMva, const DWORD ** pMvaMax ) const
 	{
 		assert ( m_pMvaStorage );
-		
+
 		*pMva = tMatch.GetAttrMVA ( m_tLocator, m_pMvaStorage );
 		if ( !*pMva )
 			return false;
@@ -159,7 +159,7 @@ struct Filter_Values: public IFilter_Attr, IFilter_Values
 	{
 		if ( m_tLocator.m_iBitOffset >= iSchemaSize )
 			return true; // ignore computed attributes
-		
+
 		SphAttr_t uBlockMin = sphGetRowAttr ( DOCINFO2ATTRS(pMinDocinfo), m_tLocator );
 		SphAttr_t uBlockMax = sphGetRowAttr ( DOCINFO2ATTRS(pMaxDocinfo), m_tLocator );
 
@@ -178,7 +178,7 @@ struct Filter_Range: public IFilter_Attr, IFilter_Range
 	{
 		if ( m_tLocator.m_iBitOffset >= iSchemaSize )
 			return true; // ignore computed attributes
-		
+
 		SphAttr_t uBlockMin = sphGetRowAttr ( DOCINFO2ATTRS(pMinDocinfo), m_tLocator );
 		SphAttr_t uBlockMax = sphGetRowAttr ( DOCINFO2ATTRS(pMaxDocinfo), m_tLocator );
 		return (!( m_uMaxValue<uBlockMin || m_uMinValue>uBlockMax )); // not-reject
@@ -191,7 +191,7 @@ struct Filter_FloatRange: public IFilter_Attr
 {
 	float m_fMinValue;
 	float m_fMaxValue;
-	
+
 	virtual void SetRangeFloat ( float fMin, float fMax )
 	{
 		m_fMinValue = fMin;
@@ -276,7 +276,7 @@ bool Filter_MVAValues::Eval ( const CSphMatch & tMatch ) const
 
 	const SphAttr_t * pFilter = m_pValues;
 	const SphAttr_t * pFilterMax = pFilter + m_iValueCount;
-	
+
 	const DWORD * L = pMva;
 	const DWORD * R = pMvaMax - 1;
 	for ( ; pFilter < pFilterMax; pFilter++ )
@@ -306,7 +306,7 @@ bool Filter_MVARange::Eval ( const CSphMatch & tMatch ) const
 	const DWORD * pMva, * pMvaMax;
 	if ( !LoadMVA ( tMatch, &pMva, &pMvaMax ) )
 		return false;
-	
+
 	const DWORD * L = pMva;
 	const DWORD * R = pMvaMax - 1;
 
@@ -341,7 +341,7 @@ struct Filter_And: public ISphFilter
 	{
 		m_dFilters.Add ( pFilter );
 	}
-	
+
 	virtual bool Eval ( const CSphMatch & tMatch ) const
 	{
 		ARRAY_FOREACH ( i, m_dFilters )
@@ -370,7 +370,7 @@ struct Filter_And: public ISphFilter
 struct Filter_Not: public ISphFilter
 {
 	ISphFilter * m_pFilter;
-	
+
 	explicit Filter_Not ( ISphFilter * pFilter )
 		: m_pFilter(pFilter)
 	{
@@ -437,7 +437,24 @@ static ISphFilter * CreateSpecialFilter ( const CSphString & sName, ESphFilter e
 	return NULL;
 }
 
-static ISphFilter * CreateFilter ( DWORD eAttrType, ESphFilter eFilterType )
+
+static inline ISphFilter * ReportError ( CSphString & sError, const char * sMessage, ESphFilter eFilterType )
+{
+	CSphString sFilterName;
+	switch ( eFilterType )
+	{
+		case SPH_FILTER_VALUES:			sFilterName = "intvalues"; break;
+		case SPH_FILTER_RANGE:			sFilterName = "intrange"; break;
+		case SPH_FILTER_FLOATRANGE:		sFilterName = "floatrange"; break;
+		default:						sFilterName.SetSprintf ( "(filter-type-%d)", eFilterType ); break;
+	}
+
+	sError.SetSprintf ( sMessage, sFilterName.cstr() );
+	return NULL;
+}
+
+
+static ISphFilter * CreateFilter ( DWORD eAttrType, ESphFilter eFilterType, CSphString & sError )
 {
 	// MVA
 	if ( eAttrType & SPH_ATTR_MULTI )
@@ -446,35 +463,29 @@ static ISphFilter * CreateFilter ( DWORD eAttrType, ESphFilter eFilterType )
 		{
 			case SPH_FILTER_VALUES:	return new Filter_MVAValues;
 			case SPH_FILTER_RANGE:	return new Filter_MVARange;
-			default:
-				assert ( 0 && "invalid MVA filter" );
-				return NULL;
+			default:				return ReportError ( sError, "unsupported filter type '%s' on MVA column", eFilterType );
 		}
 	}
 
-	// non-MVA
-	if ( eAttrType == SPH_ATTR_FLOAT )
+	// float
+	if ( eAttrType==SPH_ATTR_FLOAT )
 	{
-		if ( eFilterType == SPH_FILTER_FLOATRANGE )
+		if ( eFilterType==SPH_FILTER_FLOATRANGE )
 			return new Filter_FloatRange;
-		else
-			assert ( 0 && "invalid float filter" );
+
+		return ReportError ( sError, "unsupported filter type '%s' on float column", eFilterType );
 	}
-	else
+
+	// non-float, non-MVA
+	switch ( eFilterType )
 	{
-		switch ( eFilterType )
-		{
-			case SPH_FILTER_VALUES:	return new Filter_Values;
-			case SPH_FILTER_RANGE:	return new Filter_Range;
-			default:
-				assert ( 0 && "invalid attribute filter" );
-		}
+		case SPH_FILTER_VALUES:	return new Filter_Values;
+		case SPH_FILTER_RANGE:	return new Filter_Range;
+		default:				return ReportError ( sError, "unsupported filter type '%s' on int column", eFilterType );
 	}
+}
 
-	return NULL;
-}	
-
-ISphFilter * sphCreateFilter ( CSphFilterSettings & tSettings, const CSphSchema & tSchema, const DWORD * pMvaPool )
+ISphFilter * sphCreateFilter ( CSphFilterSettings & tSettings, const CSphSchema & tSchema, const DWORD * pMvaPool, CSphString & sError )
 {
 	ISphFilter * pFilter = 0;
 
@@ -482,21 +493,24 @@ ISphFilter * sphCreateFilter ( CSphFilterSettings & tSettings, const CSphSchema 
 	const CSphString & sAttrName = tSettings.m_sAttrName;
 	if ( sAttrName.Begins("@") )
 		pFilter = CreateSpecialFilter ( sAttrName, tSettings.m_eType );
-	
+
 	// fetch column info
 	const CSphColumnInfo * pAttr = NULL;
 	const int iAttr = tSchema.GetAttrIndex ( sAttrName.cstr() );
-	if ( iAttr < 0 )
+	if ( iAttr<0 )
 	{
-		if ( !pFilter )
+		if ( !pFilter ) // might be special
+		{
+			sError.SetSprintf ( "no such filter attribute '%s'", sAttrName.cstr() );
 			return NULL; // no such attribute
+		}
 	}
 	else
 	{
 		assert ( !pFilter );
-		
+
 		pAttr = &tSchema.GetAttr(iAttr);
-		pFilter = CreateFilter ( pAttr->m_eAttrType, tSettings.m_eType );
+		pFilter = CreateFilter ( pAttr->m_eAttrType, tSettings.m_eType, sError );
 	}
 
 	// fill filter's properties
@@ -504,7 +518,7 @@ ISphFilter * sphCreateFilter ( CSphFilterSettings & tSettings, const CSphSchema 
 	{
 		if ( pAttr )
 			pFilter->SetLocator ( pAttr->m_tLocator );
-		
+
 		pFilter->SetRange ( tSettings.m_uMinValue, tSettings.m_uMaxValue );
 		pFilter->SetRangeFloat ( tSettings.m_fMinValue, tSettings.m_fMaxValue );
 		pFilter->SetMVAStorage ( pMvaPool );
@@ -522,21 +536,6 @@ ISphFilter * sphCreateFilter ( CSphFilterSettings & tSettings, const CSphSchema 
 	return pFilter;
 }
 
-ISphFilter * sphCreateFilters ( CSphVector<CSphFilterSettings> & dSettings, const CSphSchema & tSchema, const DWORD * pMvaPool )
-{
-	ISphFilter *pResult = NULL;
-	
-	ARRAY_FOREACH ( i, dSettings )
-	{
-		ISphFilter * pFilter = sphCreateFilter ( dSettings[i], tSchema, pMvaPool );
-		if ( !pFilter )
-			continue;
-
-		pResult = sphJoinFilters ( pResult, pFilter );
-	}
-
-	return pResult;
-}
 
 ISphFilter * sphJoinFilters ( ISphFilter * pA, ISphFilter * pB )
 {
@@ -546,5 +545,5 @@ ISphFilter * sphJoinFilters ( ISphFilter * pA, ISphFilter * pB )
 }
 
 //
-// $Id: sphinxfilter.cpp 1544 2008-11-01 00:33:56Z shodan $
+// $Id: sphinxfilter.cpp 1848 2009-06-21 13:46:56Z shodan $
 //

@@ -1,5 +1,5 @@
 /*
- * $Id: SphinxClient.java 1462 2008-09-23 12:34:36Z shodan $
+ * $Id: SphinxClient.java 2055 2009-11-06 23:09:58Z shodan $
  *
  * Java version of Sphinx searchd client (Java API)
  *
@@ -73,6 +73,7 @@ public class SphinxClient
 	private final static int SEARCHD_COMMAND_EXCERPT	= 1;
 	private final static int SEARCHD_COMMAND_UPDATE		= 2;
 	private final static int SEARCHD_COMMAND_KEYWORDS	= 3;
+	private final static int SEARCHD_COMMAND_PERSIST	= 4;
 
 	/* searchd command versions */
 	private final static int VER_MAJOR_PROTO		= 0x1;
@@ -89,6 +90,9 @@ public class SphinxClient
 
 	private String		_host;
 	private int			_port;
+	private String		_path;
+	private Socket		_socket;
+
 	private int			_offset;
 	private int			_limit;
 	private int			_mode;
@@ -112,8 +116,12 @@ public class SphinxClient
 	private String		_longitudeAttr;
 	private float		_latitude;
 	private float		_longitude;
+
 	private String		_error;
 	private String		_warning;
+	private boolean		_connerror;
+	private int			_timeout;
+
 	private ArrayList	_reqs;
 	private Map			_indexWeights;
 	private int			_ranker;
@@ -123,12 +131,10 @@ public class SphinxClient
 	private Map			_overrideValues;
 	private String		_select;
 
-	private static final int SPH_CLIENT_TIMEOUT_MILLISEC	= 30000;
-
 	/** Creates a new SphinxClient instance. */
 	public SphinxClient()
 	{
-		this("localhost", 3312);
+		this("localhost", 9312);
 	}
 
 	/** Creates a new SphinxClient instance, with host:port specification. */
@@ -136,6 +142,9 @@ public class SphinxClient
 	{
 		_host	= host;
 		_port	= port;
+		_path	= null;
+		_socket	= null;
+
 		_offset	= 0;
 		_limit	= 20;
 		_mode	= SPH_MATCH_ALL;
@@ -165,6 +174,8 @@ public class SphinxClient
 
 		_error			= "";
 		_warning		= "";
+		_connerror		= false;
+		_timeout		= 1000;
 
 		_reqs			= new ArrayList();
 		_weights		= null;
@@ -189,6 +200,12 @@ public class SphinxClient
 		return _warning;
 	}
 
+	/** Get last error flag (to tell network connection errors from searchd errors or broken responses). */
+	public boolean IsConnectError()
+	{
+		return _connerror;
+	}
+
 	/** Set searchd host and port to connect to. */
 	public void SetServer(String host, int port) throws SphinxException
 	{
@@ -196,6 +213,12 @@ public class SphinxClient
 		myAssert ( port>0 && port<65536, "port must be in 1..65535 range" );
 		_host = host;
 		_port = port;
+	}
+
+	/** Set server connection timeout (0 to remove), in milliseconds. */
+	public void SetConnectTimeout ( int timeout )
+	{
+		_timeout = Math.max ( timeout, 0 );
 	}
 
 	/** Internal method. Sanity check. */
@@ -227,8 +250,10 @@ public class SphinxClient
 	/** Internal method. String IO helper. */
 	private static String readNetUTF8(DataInputStream istream) throws IOException
 	{
-		istream.readUnsignedShort (); /* searchd emits dword lengths, but Java expects words; lets just skip first 2 bytes */
-		return istream.readUTF ();
+		int iLen = istream.readInt();
+		byte[] sBytes = new byte [ iLen ];
+		istream.readFully ( sBytes );
+		return new String ( sBytes, "UTF-8");
 	}
 
 	/** Internal method. Unsigned int IO helper. */
@@ -243,11 +268,15 @@ public class SphinxClient
 	/** Internal method. Connect to searchd and exchange versions. */
 	private Socket _Connect()
 	{
+		if ( _socket!=null )
+			return _socket;
+
+		_connerror = false;
 		Socket sock = null;
 		try
 		{
 			sock = new Socket ( _host, _port );
-			sock.setSoTimeout ( SPH_CLIENT_TIMEOUT_MILLISEC );
+			sock.setSoTimeout ( _timeout );
 
 			DataInputStream sIn = new DataInputStream ( sock.getInputStream() );
 			int version = sIn.readInt();
@@ -264,6 +293,7 @@ public class SphinxClient
 		} catch ( IOException e )
 		{
 			_error = "connection to " + _host + ":" + _port + " failed: " + e;
+			_connerror = true;
 
 			try
 			{
@@ -361,13 +391,18 @@ public class SphinxClient
 
 		} finally
 		{
-			try
+			if ( _socket==null )
 			{
-				if ( sIn!=null ) sIn.close();
-				if ( sock!=null && !sock.isConnected() ) sock.close();
-			} catch ( IOException e )
-			{
-				/* silently ignore close failures; nothing could be done anyway */
+				try
+				{
+					if ( sIn!=null )
+						sIn.close();
+					if ( sock!=null && !sock.isConnected() )
+						sock.close();
+				} catch ( IOException e )
+				{
+					/* silently ignore close failures; nothing could be done anyway */
+				}
 			}
 		}
 
@@ -395,6 +430,7 @@ public class SphinxClient
 		} catch ( Exception e )
 		{
 			_error = "network error: " + e;
+			_connerror = true;
 			return null;
 		}
 
@@ -449,6 +485,7 @@ public class SphinxClient
 			mode==SPH_MATCH_PHRASE ||
 			mode==SPH_MATCH_BOOLEAN ||
 			mode==SPH_MATCH_EXTENDED ||
+			mode==SPH_MATCH_FULLSCAN ||
 			mode==SPH_MATCH_EXTENDED2, "unknown mode value; use one of the SPH_MATCH_xxx constants" );
 		_mode = mode;
 	}
@@ -471,7 +508,8 @@ public class SphinxClient
 			mode==SPH_SORT_ATTR_DESC ||
 			mode==SPH_SORT_ATTR_ASC ||
 			mode==SPH_SORT_TIME_SEGMENTS ||
-			mode==SPH_SORT_EXTENDED, "unknown mode value; use one of the available SPH_SORT_xxx constants" );
+			mode==SPH_SORT_EXTENDED ||
+			mode==SPH_SORT_EXPR, "unknown mode value; use one of the available SPH_SORT_xxx constants" );
 		myAssert ( mode==SPH_SORT_RELEVANCE || ( sortby!=null && sortby.length()>0 ), "sortby string must not be empty in selected mode" );
 
 		_sort = mode;
@@ -493,7 +531,7 @@ public class SphinxClient
 	 * Bind per-field weights by field name.
 	 * @param fieldWeights hash which maps String index names to Integer weights
 	 */
-	public void SetFieldeights ( Map fieldWeights ) throws SphinxException
+	public void SetFieldWeights ( Map fieldWeights ) throws SphinxException
 	{
 		/* FIXME! implement checks here */
 		_fieldWeights = ( fieldWeights==null ) ? new LinkedHashMap () : fieldWeights;
@@ -607,7 +645,7 @@ public class SphinxClient
 		try
 		{
 			writeNetUTF8 ( _filters, attribute );
-			_filters.writeInt ( SPH_FILTER_RANGE );
+			_filters.writeInt ( SPH_FILTER_FLOATRANGE );
 			_filters.writeFloat ( min );
 			_filters.writeFloat ( max );
 			_filters.writeInt ( exclude ? 1 : 0 );
@@ -747,19 +785,16 @@ public class SphinxClient
 
 		AddQuery ( query, index, comment );
 		SphinxResult[] results = RunQueries();
-		if (results == null || results.length < 1) {
+		_reqs = new ArrayList(); /* just in case it failed too early */
+		if ( results==null || results.length<1 )
 			return null; /* probably network error; error message should be already filled */
-		}
-
 
 		SphinxResult res = results[0];
 		_warning = res.warning;
 		_error = res.error;
-		if (res == null || res.getStatus() == SEARCHD_ERROR) {
+		if ( res==null || res.getStatus()==SEARCHD_ERROR )
 			return null;
-		} else {
-			return res;
-		}
+		return res;
 	}
 
 	/** Add new query with current settings to current search request. */
@@ -1244,12 +1279,61 @@ public class SphinxClient
 	}
 
 	/** Escape the characters with special meaning in query syntax. */
-	public String EscapeString ( String s )
+	static public String EscapeString ( String s )
 	{
-		return s.replaceAll ( "[\\(\\)\\|\\-\\!\\@\\~\\\"\\&\\/]", "\\1" );
+		return s.replaceAll ( "([\\(\\)\\|\\-\\!\\@\\~\\\"\\&\\/\\^\\$\\=])", "\\\\$1" );
+	}
+
+	/** Open persistent connection to searchd. */
+	public boolean Open()
+	{
+		if ( _socket!=null )
+		{
+			_error = "already connected";
+			return false;
+		}
+
+		Socket sock = _Connect();
+		if ( sock==null )
+			return false;
+
+		// command, command version = 0, body length = 4, body = 1
+		try
+		{
+			DataOutputStream sOut = new DataOutputStream ( sock.getOutputStream() );
+			sOut.writeShort ( SEARCHD_COMMAND_PERSIST );
+			sOut.writeShort ( 0 );
+			sOut.writeInt ( 4 );
+			sOut.writeInt ( 1 );
+		} catch ( IOException e )
+		{
+			_error = "network error: " + e;
+			_connerror = true;
+		}
+
+		_socket = sock;
+		return true;
+	}
+
+	/** Close existing persistent connection. */
+	public boolean Close()
+	{
+		if ( _socket==null )
+		{
+			_error = "not connected";
+			return false;
+		}
+
+		try
+		{
+			_socket.close();
+		} catch ( IOException e )
+		{}
+		_socket = null;
+		return true;
 	}
 }
 
 /*
- * $Id: SphinxClient.java 1462 2008-09-23 12:34:36Z shodan $
+ * $Id: SphinxClient.java 2055 2009-11-06 23:09:58Z shodan $
  */

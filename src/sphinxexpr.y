@@ -8,7 +8,6 @@
 	float			fConst;			// constant value
 	int				iAttrLocator;	// attribute locator (rowitem for int/float; offset+size for bits)
 	int				iFunc;			// function id
-	Docinfo_e		eDocinfo;		// docinfo entry id
 	int				iNode;			// node index
 };
 
@@ -17,18 +16,28 @@
 %token <iAttrLocator>	TOK_ATTR_INT
 %token <iAttrLocator>	TOK_ATTR_BITS
 %token <iAttrLocator>	TOK_ATTR_FLOAT
+%token <iAttrLocator>	TOK_ATTR_MVA
 %token <iFunc>			TOK_FUNC
-%token <eDocinfo>		TOK_DOCINFO
-%type <iNode>			function
-%type <iNode>			arglist
-%type <iNode>			expr
+%token <iFunc>			TOK_FUNC_IN
 
+%token	TOK_ID
+%token	TOK_WEIGHT
+
+%token	TOK_CONST_LIST
+
+%type <iNode>			attr
+%type <iNode>			expr
+%type <iNode>			arglist
+%type <iNode>			constlist
+%type <iNode>			function
+
+%left TOK_AND TOK_OR
+%nonassoc TOK_NOT
 %left TOK_EQ TOK_NE
 %left '<' '>' TOK_LTE TOK_GTE
 %left '+' '-'
 %left '*' '/'
 %nonassoc TOK_NEG
-
 
 %%
 
@@ -36,14 +45,21 @@ exprline:
 	expr							{ pParser->m_iParsed = $1; }
 	;
 
-expr:
-	TOK_CONST_INT					{ $$ = pParser->AddNodeInt ( $1 ); }
-	| TOK_CONST_FLOAT				{ $$ = pParser->AddNodeFloat ( $1 ); }
-	| TOK_ATTR_INT					{ $$ = pParser->AddNodeAttr ( TOK_ATTR_INT, $1 ); }
+attr:
+	TOK_ATTR_INT					{ $$ = pParser->AddNodeAttr ( TOK_ATTR_INT, $1 ); }
 	| TOK_ATTR_BITS					{ $$ = pParser->AddNodeAttr ( TOK_ATTR_BITS, $1 ); }
 	| TOK_ATTR_FLOAT				{ $$ = pParser->AddNodeAttr ( TOK_ATTR_FLOAT, $1 ); }
-	| TOK_DOCINFO					{ $$ = pParser->AddNodeDocinfo ( $1 ); }
+	;
+
+expr:
+	attr
+	| function
+	| TOK_CONST_INT					{ $$ = pParser->AddNodeInt ( $1 ); }
+	| TOK_CONST_FLOAT				{ $$ = pParser->AddNodeFloat ( $1 ); }
+	| TOK_ID						{ $$ = pParser->AddNodeID(); }
+	| TOK_WEIGHT					{ $$ = pParser->AddNodeWeight(); }
 	| '-' expr %prec TOK_NEG		{ $$ = pParser->AddNodeOp ( TOK_NEG, $2, -1 ); }
+	| TOK_NOT expr					{ $$ = pParser->AddNodeOp ( TOK_NOT, $2, -1 ); if ( $$<0 ) YYERROR; }
 	| expr '+' expr					{ $$ = pParser->AddNodeOp ( '+', $1, $3 ); }
 	| expr '-' expr					{ $$ = pParser->AddNodeOp ( '-', $1, $3 ); }
 	| expr '*' expr					{ $$ = pParser->AddNodeOp ( '*', $1, $3 ); }
@@ -54,8 +70,9 @@ expr:
 	| expr TOK_GTE expr				{ $$ = pParser->AddNodeOp ( TOK_GTE, $1, $3 ); }
 	| expr TOK_EQ expr				{ $$ = pParser->AddNodeOp ( TOK_EQ, $1, $3 ); }
 	| expr TOK_NE expr				{ $$ = pParser->AddNodeOp ( TOK_NE, $1, $3 ); }
+	| expr TOK_AND expr				{ $$ = pParser->AddNodeOp ( TOK_AND, $1, $3 ); if ( $$<0 ) YYERROR; }
+	| expr TOK_OR expr				{ $$ = pParser->AddNodeOp ( TOK_OR, $1, $3 ); if ( $$<0 ) YYERROR; }
 	| '(' expr ')'					{ $$ = $2; }
-	| function						{ $$ = $1; }
 	;
 
 arglist:
@@ -63,9 +80,29 @@ arglist:
 	| arglist ',' expr				{ $$ = pParser->AddNodeOp ( ',', $1, $3 ); }
 	;
 
+constlist:
+	TOK_CONST_INT					{ $$ = pParser->AddNodeConstlist ( $1 ); }
+	| TOK_CONST_FLOAT				{ $$ = pParser->AddNodeConstlist ( $1 ); }
+	| constlist',' TOK_CONST_INT	{ pParser->AppendToConstlist ( $$, $3 ); }
+	| constlist',' TOK_CONST_FLOAT	{ pParser->AppendToConstlist ( $$, $3 ); }
+	;
+
 function:
 	TOK_FUNC '(' arglist ')'		{ $$ = pParser->AddNodeFunc ( $1, $3 ); if ( $$<0 ) YYERROR; }
 	| TOK_FUNC '(' ')'				{ $$ = pParser->AddNodeFunc ( $1, -1 ); if ( $$<0 ) YYERROR; }
+	| TOK_FUNC_IN '(' attr ',' constlist ')'
+		{
+			$$ = pParser->AddNodeFunc ( $1, $3, $5 );
+		}
+	| TOK_FUNC_IN '(' TOK_ID ',' constlist ')'
+		{
+			$$ = pParser->AddNodeFunc ( $1, pParser->AddNodeID(), $5 );
+		}
+	| TOK_FUNC_IN '(' TOK_ATTR_MVA ',' constlist ')'
+		{
+			$$ = pParser->AddNodeAttr ( TOK_ATTR_MVA, $3 );
+			$$ = pParser->AddNodeFunc ( $1, $$, $5 );
+		}
 	;
 
 %%

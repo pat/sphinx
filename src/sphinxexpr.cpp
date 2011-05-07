@@ -1,5 +1,5 @@
 //
-// $Id$
+// $Id: sphinxexpr.cpp 2026 2009-10-22 00:36:37Z shodan $
 //
 
 //
@@ -175,6 +175,7 @@ struct Expr_Arglist_c : public ISphExpr
 		ISphExpr * m_pFirst; \
 		_classname ( ISphExpr * pFirst ) : m_pFirst ( pFirst ) {}; \
 		~_classname () { SafeRelease ( m_pFirst ); } \
+		virtual void SetMVAPool ( const DWORD * pMvaPool ) { m_pFirst->SetMVAPool ( pMvaPool ); } \
 		virtual float Eval ( const CSphMatch & tMatch ) const { return _expr; } \
 
 #define DECLARE_UNARY_FLT(_classname,_expr) \
@@ -201,6 +202,9 @@ DECLARE_UNARY_FLT ( Expr_Log10_c,	float(log(FIRST)*M_LOG10E) )
 DECLARE_UNARY_FLT ( Expr_Exp_c,		float(exp(FIRST)) )
 DECLARE_UNARY_FLT ( Expr_Sqrt_c,	float(sqrt(FIRST)) )
 
+DECLARE_UNARY_INT ( Expr_NotInt_c,		float(INTFIRST?0:1),	INTFIRST?0:1,	INTFIRST?0:1 );
+DECLARE_UNARY_INT ( Expr_NotInt64_c,	float(INT64FIRST?0:1),	INT64FIRST?0:1,	INT64FIRST?0:1 );
+
 //////////////////////////////////////////////////////////////////////////
 
 #define DECLARE_BINARY_TRAITS(_classname,_expr) \
@@ -210,6 +214,7 @@ DECLARE_UNARY_FLT ( Expr_Sqrt_c,	float(sqrt(FIRST)) )
 		ISphExpr * m_pSecond; \
 		_classname ( ISphExpr * pFirst, ISphExpr * pSecond ) : m_pFirst ( pFirst ), m_pSecond ( pSecond ) {} \
 		~_classname () { SafeRelease ( m_pFirst ); SafeRelease ( m_pSecond ); } \
+		virtual void SetMVAPool ( const DWORD * pMvaPool ) { m_pFirst->SetMVAPool ( pMvaPool ); m_pSecond->SetMVAPool ( pMvaPool ); } \
 		virtual float Eval ( const CSphMatch & tMatch ) const { return _expr; } \
 
 #define DECLARE_BINARY_FLT(_classname,_expr) \
@@ -222,24 +227,33 @@ DECLARE_UNARY_FLT ( Expr_Sqrt_c,	float(sqrt(FIRST)) )
 		virtual int64_t Int64Eval ( const CSphMatch & tMatch ) const { return _expr3; } \
 	};
 
+#define DECLARE_BINARY_POLY(_classname,_expr,_expr2,_expr3) \
+	DECLARE_BINARY_INT ( _classname##Float_c,	_expr,						(int)Eval(tMatch),		(int64_t)Eval(tMatch ) ) \
+	DECLARE_BINARY_INT ( _classname##Int_c,		(float)IntEval(tMatch),		_expr2,					(int64_t)IntEval(tMatch) ) \
+	DECLARE_BINARY_INT ( _classname##Int64_c,	(float)Int64Eval(tMatch),	(int)Int64Eval(tMatch),	_expr3 )
+
 #define IFFLT(_expr)	( (_expr) ? 1.0f : 0.0f )
 #define IFINT(_expr)	( (_expr) ? 1 : 0 )
 
 DECLARE_BINARY_INT ( Expr_Add_c,	FIRST + SECOND,						INTFIRST + INTSECOND,				INT64FIRST + INT64SECOND )
 DECLARE_BINARY_INT ( Expr_Sub_c,	FIRST - SECOND,						INTFIRST - INTSECOND,				INT64FIRST - INT64SECOND )
 DECLARE_BINARY_INT ( Expr_Mul_c,	FIRST * SECOND,						INTFIRST * INTSECOND,				INT64FIRST * INT64SECOND )
-DECLARE_BINARY_FLT ( Expr_Div_c,	FIRST / SECOND )														
+DECLARE_BINARY_FLT ( Expr_Div_c,	FIRST / SECOND )
 DECLARE_BINARY_INT ( Expr_Idiv_c,	(float)(int(FIRST)/int(SECOND)),	INTFIRST / INTSECOND,				INT64FIRST / INT64SECOND )
-DECLARE_BINARY_INT ( Expr_Lt_c,		IFFLT ( FIRST < SECOND ),			IFINT ( INTFIRST < INTSECOND ),		IFINT ( INT64FIRST < INT64SECOND ) )
-DECLARE_BINARY_INT ( Expr_Gt_c,		IFFLT ( FIRST > SECOND ),			IFINT ( INTFIRST > INTSECOND ),		IFINT ( INT64FIRST > INT64SECOND ) )
-DECLARE_BINARY_INT ( Expr_Lte_c,	IFFLT ( FIRST <= SECOND ),			IFINT ( INTFIRST <= INTSECOND ),	IFINT ( INT64FIRST <= INT64SECOND ) )
-DECLARE_BINARY_INT ( Expr_Gte_c,	IFFLT ( FIRST >= SECOND ),			IFINT ( INTFIRST >= INTSECOND ),	IFINT ( INT64FIRST >= INT64SECOND ) )
-DECLARE_BINARY_INT ( Expr_Eq_c,		IFFLT ( fabs(FIRST-SECOND)<=1e-6 ),	IFINT ( INTFIRST == INTSECOND ),	IFINT ( INT64FIRST == INT64SECOND ) )
-DECLARE_BINARY_INT ( Expr_Ne_c,		IFFLT ( fabs(FIRST-SECOND)>1e-6 ),	IFINT ( INTFIRST != INTSECOND ),	IFINT ( INT64FIRST != INT64SECOND ) )
-																											
+
+DECLARE_BINARY_POLY ( Expr_Lt,		IFFLT ( FIRST < SECOND ),			IFINT ( INTFIRST < INTSECOND ),		IFINT ( INT64FIRST < INT64SECOND ) )
+DECLARE_BINARY_POLY ( Expr_Gt,		IFFLT ( FIRST > SECOND ),			IFINT ( INTFIRST > INTSECOND ),		IFINT ( INT64FIRST > INT64SECOND ) )
+DECLARE_BINARY_POLY ( Expr_Lte,		IFFLT ( FIRST <= SECOND ),			IFINT ( INTFIRST <= INTSECOND ),	IFINT ( INT64FIRST <= INT64SECOND ) )
+DECLARE_BINARY_POLY ( Expr_Gte,		IFFLT ( FIRST >= SECOND ),			IFINT ( INTFIRST >= INTSECOND ),	IFINT ( INT64FIRST >= INT64SECOND ) )
+DECLARE_BINARY_POLY ( Expr_Eq,		IFFLT ( fabs(FIRST-SECOND)<=1e-6 ),	IFINT ( INTFIRST == INTSECOND ),	IFINT ( INT64FIRST == INT64SECOND ) )
+DECLARE_BINARY_POLY ( Expr_Ne,		IFFLT ( fabs(FIRST-SECOND)>1e-6 ),	IFINT ( INTFIRST != INTSECOND ),	IFINT ( INT64FIRST != INT64SECOND ) )
+
 DECLARE_BINARY_INT ( Expr_Min_c,	Min(FIRST,SECOND),					Min(INTFIRST,INTSECOND),			Min(INT64FIRST,INT64SECOND) )
 DECLARE_BINARY_INT ( Expr_Max_c,	Max(FIRST,SECOND),					Max(INTFIRST,INTSECOND),			Max(INT64FIRST,INT64SECOND) )
 DECLARE_BINARY_FLT ( Expr_Pow_c,	float(pow(FIRST,SECOND)) )
+
+DECLARE_BINARY_POLY ( Expr_And,		FIRST!=0.0f && SECOND!=0.0f,		IFINT ( INTFIRST && INTSECOND ),	IFINT ( INT64FIRST && INT64SECOND ) )
+DECLARE_BINARY_POLY ( Expr_Or,		FIRST!=0.0f || SECOND!=0.0f,		IFINT ( INTFIRST || INTSECOND ),	IFINT ( INT64FIRST || INT64SECOND ) )
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -251,6 +265,7 @@ DECLARE_BINARY_FLT ( Expr_Pow_c,	float(pow(FIRST,SECOND)) )
 		ISphExpr * m_pThird; \
 		_classname ( ISphExpr * pFirst, ISphExpr * pSecond, ISphExpr * pThird ) : m_pFirst ( pFirst ), m_pSecond ( pSecond ), m_pThird ( pThird ) {} \
 		~_classname () { SafeRelease ( m_pFirst ); SafeRelease ( m_pSecond ); SafeRelease ( m_pThird ); } \
+		virtual void SetMVAPool ( const DWORD * pMvaPool ) { m_pFirst->SetMVAPool ( pMvaPool ); m_pSecond->SetMVAPool ( pMvaPool ); m_pThird->SetMVAPool ( pMvaPool ); } \
 		virtual float Eval ( const CSphMatch & tMatch ) const { return _expr; } \
 		virtual int IntEval ( const CSphMatch & tMatch ) const { return _expr2; } \
 		virtual int64_t Int64Eval ( const CSphMatch & tMatch ) const { return _expr3; } \
@@ -264,16 +279,7 @@ DECLARE_TERNARY ( Expr_Mul3_c,	FIRST*SECOND*THIRD,					INTFIRST*INTSECOND*INTTHI
 // PARSER INTERNALS
 //////////////////////////////////////////////////////////////////////////
 
-/// known docinfo entries list
-enum Docinfo_e
-{
-	DI_ID,
-	DI_WEIGHT
-};
-
-#include "sphinxexpryy.hpp"
-
-//////////////////////////////////////////////////////////////////////////
+#include "yysphinxexpr.h"
 
 /// known functions
 enum Func_e
@@ -302,7 +308,9 @@ enum Func_e
 	FUNC_MUL3,
 
 	FUNC_INTERVAL,
-	FUNC_IN
+	FUNC_IN,
+
+	FUNC_GEODIST
 };
 
 
@@ -340,28 +348,83 @@ static FuncDesc_t g_dFuncs[] =
 	{ "mul3",	3,	FUNC_MUL3 },
 
 	{ "interval",	-2,	FUNC_INTERVAL },
-	{ "in",			-2, FUNC_IN }
+	{ "in",			-1, FUNC_IN },
+
+	{ "geodist",	4,	FUNC_GEODIST }
 };
 
 //////////////////////////////////////////////////////////////////////////
+
+/// check for type based on int value
+static inline DWORD GetIntType ( int64_t iValue )
+{
+	return ( iValue>=(int64_t)INT_MIN && iValue<=(int64_t)INT_MAX ) ? SPH_ATTR_INTEGER : SPH_ATTR_BIGINT;
+}
+
+/// list of constants
+class ConstList_c
+{
+public:
+	CSphVector<int64_t>		m_dInts;		///< dword/int64 storage
+	CSphVector<float>		m_dFloats;		///< float storage
+	DWORD					m_uRetType;		///< SPH_ATTR_INTEGER, SPH_ATTR_BIGINT, or SPH_ATTR_FLOAT
+
+public:
+	ConstList_c ()
+		: m_uRetType ( SPH_ATTR_INTEGER )
+	{}
+
+	void Add ( int64_t iValue )
+	{
+		if ( m_uRetType!=SPH_ATTR_FLOAT )
+		{
+			m_uRetType = GetIntType ( iValue );
+			m_dInts.Add ( iValue );
+		} else
+		{
+			m_dFloats.Add ( (float)iValue );
+		}
+	}
+
+	void Add ( float fValue )
+	{
+		if ( m_uRetType!=SPH_ATTR_FLOAT )
+		{
+			assert ( m_dFloats.GetLength()==0 );
+			ARRAY_FOREACH ( i, m_dInts )
+				m_dFloats.Add ( (float)m_dInts[i] );
+			m_dInts.Reset ();
+			m_uRetType = SPH_ATTR_FLOAT;
+		}
+		m_dFloats.Add ( fValue );
+	}
+};
 
 /// expression tree node
 struct ExprNode_t
 {
 	int				m_iToken;	///< token type, including operators
+	DWORD			m_uRetType;	///< result type
+	DWORD			m_uArgType;	///< args type
 	CSphAttrLocator	m_tLocator;	///< attribute locator, for TOK_ATTR type
 	union
 	{
-		int64_t		m_iConst;		///< constant value, for TOK_CONST_INT type
-		float		m_fConst;		///< constant value, for TOK_CONST_FLOAT type
-		int			m_iFunc;		///< built-in function id, for TOK_FUNC type
-		Docinfo_e	m_eDocinfo;		///< docinfo field id, for TOK_DOCINFO type
-		int			m_iArgs;		///< args count, for arglist (token==',') type
+		int64_t			m_iConst;		///< constant value, for TOK_CONST_INT type
+		float			m_fConst;		///< constant value, for TOK_CONST_FLOAT type
+		int				m_iFunc;		///< built-in function id, for TOK_FUNC type
+		int				m_iArgs;		///< args count, for arglist (token==',') type
+		ConstList_c *	m_pConsts;		///< constants list, for TOK_CONST_LIST type
 	};
 	int				m_iLeft;
 	int				m_iRight;
 
-	ExprNode_t () : m_iToken ( 0 ), m_iLeft ( -1 ), m_iRight ( -1 ) {}
+	ExprNode_t () : m_iToken ( 0 ), m_uRetType ( SPH_ATTR_NONE ), m_uArgType ( SPH_ATTR_NONE ), m_iLeft ( -1 ), m_iRight ( -1 ) {}
+
+	float FloatVal()
+	{
+		assert ( m_iToken==TOK_CONST_INT || m_iToken==TOK_CONST_FLOAT );
+		return  ( m_iToken==TOK_CONST_INT ) ? (float)m_iConst : m_fConst;
+	}
 };
 
 /// expression parser
@@ -371,24 +434,32 @@ class ExprParser_t
 	friend int				yyparse ( ExprParser_t * pParser );
 	friend void				yyerror ( ExprParser_t * pParser, const char * sMessage );
 
-public:	
+public:
 							ExprParser_t () {}
-							~ExprParser_t () {}
+							~ExprParser_t ();
 
-	ISphExpr *				Parse ( const char * sExpr, const CSphSchema & tSchema, DWORD & uAttrType, CSphString & sError );
+	ISphExpr *				Parse ( const char * sExpr, const CSphSchema & tSchema, DWORD * pAttrType, bool * pUsesWeight, CSphString & sError );
 
 protected:
 	int						m_iParsed;	///< filled by yyparse() at the very end
 	CSphString				m_sLexerError;
 	CSphString				m_sParserError;
+	CSphString				m_sCreateError;
 
 protected:
+	DWORD					GetWidestRet ( int iLeft, int iRight );
+
 	int						AddNodeInt ( int64_t iValue );
 	int						AddNodeFloat ( float fValue );
 	int						AddNodeAttr ( int iTokenType, int iAttrLocator );
-	int						AddNodeDocinfo ( Docinfo_e eDocinfo );
+	int						AddNodeID ();
+	int						AddNodeWeight ();
 	int						AddNodeOp ( int iOp, int iLeft, int iRight );
-	int						AddNodeFunc ( int iFunc, int iLeft );
+	int						AddNodeFunc ( int iFunc, int iLeft, int iRight=-1 );
+	int						AddNodeConstlist ( int64_t iValue );
+	int						AddNodeConstlist ( float iValue );
+	void					AppendToConstlist ( int iNode, int64_t iValue );
+	void					AppendToConstlist ( int iNode, float iValue );
 
 private:
 	const char *			m_sExpr;
@@ -403,14 +474,19 @@ private:
 	int						GetToken ( YYSTYPE * lvalp );
 
 	void					GatherArgTypes ( int iNode, CSphVector<int> & dTypes );
-	bool					CheckForConstSet ( int iArgsNode );
+	void					GatherArgNodes ( int iNode, CSphVector<int> & dNodes );
 
-	DWORD					DeduceType ( int iNode );
-	void					Optimize ( int iNode, DWORD uAttrType );
+	bool					CheckForConstSet ( int iArgsNode, int iSkip );
 
-	ISphExpr *				CreateTree ( int iNode, DWORD uAttrType );
-	ISphExpr *				CreateIntervalNode ( int iArgsNode, CSphVector<ISphExpr *> & dArgs, DWORD uAttrType );
-	ISphExpr *				CreateInNode ( int iArgsNode, CSphVector<ISphExpr *> & dArgs, DWORD uAttrType );
+	template < typename T >
+	void					WalkTree ( int iRoot, T & FUNCTOR );
+
+	void					Optimize ( int iNode );
+
+	ISphExpr *				CreateTree ( int iNode );
+	ISphExpr *				CreateIntervalNode ( int iArgsNode, CSphVector<ISphExpr *> & dArgs );
+	ISphExpr *				CreateInNode ( int iNode );
+	ISphExpr *				CreateGeodistNode ( int iArgs );
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -474,7 +550,7 @@ int ExprParser_t::GetToken ( YYSTYPE * lvalp )
 		return ParseNumeric ( lvalp, &m_pCur );
 
 	// check for field, function, or magic name
-	if ( sphIsAttr(m_pCur[0]) 
+	if ( sphIsAttr(m_pCur[0])
 		|| ( m_pCur[0]=='@' && sphIsAttr(m_pCur[1]) && !isdigit(m_pCur[1]) ) )
 	{
 		// get token
@@ -486,8 +562,25 @@ int ExprParser_t::GetToken ( YYSTYPE * lvalp )
 		sTok.ToLower ();
 
 		// check for magic name
-		if ( sTok=="@id" )		{ lvalp->eDocinfo = DI_ID; return TOK_DOCINFO; }
-		if ( sTok=="@weight" )	{ lvalp->eDocinfo = DI_WEIGHT; return TOK_DOCINFO; }
+		if ( sTok=="@id" )		{ return TOK_ID; }
+		if ( sTok=="@weight" )	{ return TOK_WEIGHT; }
+		if ( sTok=="@geodist" )
+		{
+			int iGeodist = m_pSchema->GetAttrIndex("@geodist");
+			if ( iGeodist==-1 )
+			{
+				m_sLexerError = "geoanchor is not set, @geodist expression unavailable";
+				return -1;
+			}
+			const CSphAttrLocator & tLoc = m_pSchema->GetAttr(iGeodist).m_tLocator;
+			lvalp->iAttrLocator = ( tLoc.m_iBitOffset << 16 ) + tLoc.m_iBitCount;
+			return TOK_ATTR_FLOAT;
+		}
+
+		// check for keyword
+		if ( sTok=="and" )		{ return TOK_AND; }
+		if ( sTok=="or" )		{ return TOK_OR; }
+		if ( sTok=="not" )		{ return TOK_NOT; }
 
 		// check for attribute
 		int iAttr = m_pSchema->GetAttrIndex ( sTok.cstr() );
@@ -495,21 +588,18 @@ int ExprParser_t::GetToken ( YYSTYPE * lvalp )
 		{
 			// check attribute type and width
 			const CSphColumnInfo & tCol = m_pSchema->GetAttr ( iAttr );
-			if ( IsNumericAttrType(tCol.m_eAttrType) )
+			if ( IsNumericAttrType(tCol.m_eAttrType) || ( tCol.m_eAttrType & SPH_ATTR_MULTI ) )
 			{
 				lvalp->iAttrLocator = ( tCol.m_tLocator.m_iBitOffset<<16 ) + tCol.m_tLocator.m_iBitCount;
 
-				if ( tCol.m_eAttrType==SPH_ATTR_FLOAT )
-					return TOK_ATTR_FLOAT;
-				else
-					return tCol.m_tLocator.IsBitfield() ? TOK_ATTR_BITS : TOK_ATTR_INT;
+				if ( tCol.m_eAttrType==SPH_ATTR_FLOAT )			return TOK_ATTR_FLOAT;
+				else if ( tCol.m_eAttrType & SPH_ATTR_MULTI )	return TOK_ATTR_MVA;
+				else if ( tCol.m_tLocator.IsBitfield() )		return TOK_ATTR_BITS;
+				else											return TOK_ATTR_INT;
 
 			} else
 			{
-				if ( tCol.m_eAttrType & SPH_ATTR_MULTI )
-					m_sLexerError.SetSprintf ( "attribute '%s' is MVA, can not be used in expressions", sTok.cstr() );
-				else
-					m_sLexerError.SetSprintf ( "attribute '%s' is of unsupported type (type=%d)", sTok.cstr(), tCol.m_eAttrType );
+				m_sLexerError.SetSprintf ( "attribute '%s' is of unsupported type (type=%d)", sTok.cstr(), tCol.m_eAttrType );
 				return -1;
 			}
 		}
@@ -520,7 +610,7 @@ int ExprParser_t::GetToken ( YYSTYPE * lvalp )
 			if ( sTok==g_dFuncs[i].m_sName )
 		{
 			lvalp->iFunc = i;
-			return TOK_FUNC;
+			return g_dFuncs[i].m_eFunc==FUNC_IN ? TOK_FUNC_IN : TOK_FUNC;
 		}
 
 		m_sLexerError.SetSprintf ( "unknown identifier '%s' (not an attribute, not a function)", sTok.cstr() );
@@ -554,6 +644,16 @@ int ExprParser_t::GetToken ( YYSTYPE * lvalp )
 			m_pCur++;
 			if ( *m_pCur=='=' ) m_pCur++;
 			return TOK_EQ;
+
+		// special case for float values without leading zero
+		case '.':
+			char * pEnd = NULL;
+			lvalp->fConst = (float) strtod ( m_pCur, &pEnd );
+			if ( pEnd )
+			{
+				m_pCur = pEnd;
+				return TOK_CONST_FLOAT;
+			}
 	}
 
 	m_sLexerError.SetSprintf ( "unknown operator '%c' near '%s'", *m_pCur, m_pCur );
@@ -573,13 +673,13 @@ static inline bool IsConst ( int iTok )
 }
 
 /// optimize subtree
-void ExprParser_t::Optimize ( int iNode, DWORD uAttrType )
+void ExprParser_t::Optimize ( int iNode )
 {
 	if ( iNode<0 )
 		return;
 
-	Optimize ( m_dNodes[iNode].m_iLeft, uAttrType );
-	Optimize ( m_dNodes[iNode].m_iRight, uAttrType );
+	Optimize ( m_dNodes[iNode].m_iLeft );
+	Optimize ( m_dNodes[iNode].m_iRight );
 
 	ExprNode_t * pRoot = &m_dNodes[iNode];
 
@@ -626,7 +726,7 @@ void ExprParser_t::Optimize ( int iNode, DWORD uAttrType )
 					case '*':	pRoot->m_iConst = tLeft.m_iConst * tRight.m_iConst; break;
 					default:	assert ( 0 && "internal error: unhandled arithmetic token during const-int optimization" );
 				}
-				pRoot->m_iToken = TOK_CONST_INT; 
+				pRoot->m_iToken = TOK_CONST_INT;
 
 			} else
 			{
@@ -640,7 +740,7 @@ void ExprParser_t::Optimize ( int iNode, DWORD uAttrType )
 					case '/':	pRoot->m_fConst = fLeft / fRight; break;
 					default:	assert ( 0 && "internal error: unhandled arithmetic token during const-float optimization" );
 				}
-				pRoot->m_iToken = TOK_CONST_FLOAT; 
+				pRoot->m_iToken = TOK_CONST_FLOAT;
 			}
 			return;
 		}
@@ -688,15 +788,51 @@ void ExprParser_t::Optimize ( int iNode, DWORD uAttrType )
 	}
 }
 
+
+/// fold arglist into array
+static void FoldArglist ( ISphExpr * pLeft, CSphVector<ISphExpr *> & dArgs )
+{
+	if ( !pLeft || !pLeft->IsArglist() )
+	{
+		dArgs.Add ( pLeft );
+		return;
+	}
+
+	Expr_Arglist_c * pArgs = dynamic_cast<Expr_Arglist_c *> ( pLeft );
+	assert ( pLeft );
+
+	Swap ( dArgs, pArgs->m_dArgs );
+	SafeRelease ( pLeft );
+}
+
+
 /// fold nodes subtree into opcodes
-ISphExpr * ExprParser_t::CreateTree ( int iNode, DWORD uAttrType )
+ISphExpr * ExprParser_t::CreateTree ( int iNode )
 {
 	if ( iNode<0 )
 		return NULL;
 
 	const ExprNode_t & tNode = m_dNodes[iNode];
-	ISphExpr * pLeft = CreateTree ( tNode.m_iLeft, uAttrType );
-	ISphExpr * pRight = CreateTree ( tNode.m_iRight, uAttrType );
+	
+	// avoid spawning argument node in some cases
+	bool bSkipLeft = false;
+	bool bSkipRight = false;
+	if ( tNode.m_iToken==TOK_FUNC )
+	{
+		Func_e eFunc = g_dFuncs[tNode.m_iFunc].m_eFunc;
+		if ( eFunc==FUNC_GEODIST || eFunc==FUNC_IN )
+			bSkipLeft = true;
+		if ( eFunc==FUNC_IN )
+			bSkipRight = true;
+	}
+
+	ISphExpr * pLeft = bSkipLeft ? NULL : CreateTree ( tNode.m_iLeft );
+	ISphExpr * pRight = bSkipRight ? NULL : CreateTree ( tNode.m_iRight );
+
+#define LOC_SPAWN_POLY(_classname) \
+	if ( tNode.m_uArgType==SPH_ATTR_INTEGER )		return new _classname##Int_c ( pLeft, pRight ); \
+	else if ( tNode.m_uArgType==SPH_ATTR_BIGINT )	return new _classname##Int64_c ( pLeft, pRight ); \
+	else											return new _classname##Float_c ( pLeft, pRight );
 
 	switch ( tNode.m_iToken )
 	{
@@ -705,60 +841,51 @@ ISphExpr * ExprParser_t::CreateTree ( int iNode, DWORD uAttrType )
 		case TOK_ATTR_FLOAT:	return new Expr_GetFloat_c ( tNode.m_tLocator );
 		case TOK_CONST_FLOAT:	return new Expr_GetConst_c ( tNode.m_fConst );
 		case TOK_CONST_INT:
-			if ( uAttrType==SPH_ATTR_INTEGER )
+			if ( tNode.m_uRetType==SPH_ATTR_INTEGER )
 				return new Expr_GetIntConst_c ( (int)tNode.m_iConst );
-			else if ( uAttrType==SPH_ATTR_BIGINT )
+			else if ( tNode.m_uRetType==SPH_ATTR_BIGINT )
 				return new Expr_GetInt64Const_c ( tNode.m_iConst );
 			else
 				return new Expr_GetConst_c ( float(tNode.m_iConst) );
 			break;
-		case TOK_DOCINFO:
-			switch ( tNode.m_eDocinfo )
-			{
-				case DI_ID:		return new Expr_GetId_c ();
-				case DI_WEIGHT:	return new Expr_GetWeight_c ();
-				default:		assert ( 0 && "unhandled docinfo element id" ); break;
-			}
-			break;
+
+		case TOK_ID:			return new Expr_GetId_c ();
+		case TOK_WEIGHT:		return new Expr_GetWeight_c ();
 
 		case '+':				return new Expr_Add_c ( pLeft, pRight ); break;
 		case '-':				return new Expr_Sub_c ( pLeft, pRight ); break;
 		case '*':				return new Expr_Mul_c ( pLeft, pRight ); break;
 		case '/':				return new Expr_Div_c ( pLeft, pRight ); break;
-		case '<':				return new Expr_Lt_c ( pLeft, pRight ); break;
-		case '>':				return new Expr_Gt_c ( pLeft, pRight ); break;
-		case TOK_LTE:			return new Expr_Lte_c ( pLeft, pRight ); break;
-		case TOK_GTE:			return new Expr_Gte_c ( pLeft, pRight ); break;
-		case TOK_EQ:			return new Expr_Eq_c ( pLeft, pRight ); break;
-		case TOK_NE:			return new Expr_Ne_c ( pLeft, pRight ); break;
+
+		case '<':				LOC_SPAWN_POLY ( Expr_Lt ); break;
+		case '>':				LOC_SPAWN_POLY ( Expr_Gt ); break;
+		case TOK_LTE:			LOC_SPAWN_POLY ( Expr_Lte ); break;
+		case TOK_GTE:			LOC_SPAWN_POLY ( Expr_Gte ); break;
+		case TOK_EQ:			LOC_SPAWN_POLY ( Expr_Eq ); break;
+		case TOK_NE:			LOC_SPAWN_POLY ( Expr_Ne ); break;
+		case TOK_AND:			LOC_SPAWN_POLY ( Expr_And ); break;
+		case TOK_OR:			LOC_SPAWN_POLY ( Expr_Or ); break;
+		case TOK_NOT:			if ( tNode.m_uArgType==SPH_ATTR_BIGINT ) return new Expr_NotInt64_c ( pLeft ); else return new Expr_NotInt_c ( pLeft );  break;
 
 		case ',':				return new Expr_Arglist_c ( pLeft, pRight ); break;
 		case TOK_NEG:			assert ( pRight==NULL ); return new Expr_Neg_c ( pLeft ); break;
 		case TOK_FUNC:
 			{
 				// fold arglist to array
+				Func_e eFunc = g_dFuncs[tNode.m_iFunc].m_eFunc;
+
 				CSphVector<ISphExpr *> dArgs;
-				if ( pLeft && pLeft->IsArglist() )
-				{
-					assert ( !pRight );
-					Expr_Arglist_c * pArgs = (Expr_Arglist_c *) pLeft;
-
-					dArgs = pArgs->m_dArgs;
-					pArgs->m_dArgs.Reset ();
-					SafeRelease ( pLeft );
-
-				} else
-				{
-					dArgs.Add ( pLeft );
-				}
+				if ( !bSkipLeft )
+					FoldArglist ( pLeft, dArgs );
 
 				// spawn proper function
 				assert ( tNode.m_iFunc>=0 && tNode.m_iFunc<int(sizeof(g_dFuncs)/sizeof(g_dFuncs[0])) );
 				assert (
+					( bSkipLeft ) || // function will handle its arglist,
 					( g_dFuncs[tNode.m_iFunc].m_iArgs>=0 && g_dFuncs[tNode.m_iFunc].m_iArgs==dArgs.GetLength() ) || // arg count matches,
 					( g_dFuncs[tNode.m_iFunc].m_iArgs<0 && -g_dFuncs[tNode.m_iFunc].m_iArgs<=dArgs.GetLength() ) ); // or min vararg count reached
 
-				switch ( g_dFuncs[tNode.m_iFunc].m_eFunc )
+				switch ( eFunc )
 				{
 					case FUNC_NOW:		assert ( 0 ); break; // prevent gcc bitching
 
@@ -783,8 +910,10 @@ ISphExpr * ExprParser_t::CreateTree ( int iNode, DWORD uAttrType )
 					case FUNC_MADD:		return new Expr_Madd_c ( dArgs[0], dArgs[1], dArgs[2] );
 					case FUNC_MUL3:		return new Expr_Mul3_c ( dArgs[0], dArgs[1], dArgs[2] );
 
-					case FUNC_INTERVAL:	return CreateIntervalNode ( tNode.m_iLeft, dArgs, uAttrType );
-					case FUNC_IN:		return CreateInNode ( tNode.m_iLeft, dArgs, uAttrType );
+					case FUNC_INTERVAL:	return CreateIntervalNode ( tNode.m_iLeft, dArgs );
+					case FUNC_IN:		return CreateInNode ( iNode );
+
+					case FUNC_GEODIST:	return CreateGeodistNode ( tNode.m_iLeft );
 				}
 				assert ( 0 && "unhandled function id" );
 				break;
@@ -792,6 +921,8 @@ ISphExpr * ExprParser_t::CreateTree ( int iNode, DWORD uAttrType )
 
 		default:				assert ( 0 && "unhandled token type" ); break;
 	}
+
+#undef LOC_SPAWN_POLY
 
 	// fire exit
 	SafeRelease ( pLeft );
@@ -821,6 +952,7 @@ protected:
 };
 
 template<> int Expr_ArgVsSet_c<int>::ExprEval ( ISphExpr * pArg, const CSphMatch & tMatch ) const			{ return pArg->IntEval ( tMatch ); }
+template<> DWORD Expr_ArgVsSet_c<DWORD>::ExprEval ( ISphExpr * pArg, const CSphMatch & tMatch ) const		{ return (DWORD)pArg->IntEval ( tMatch ); }
 template<> float Expr_ArgVsSet_c<float>::ExprEval ( ISphExpr * pArg, const CSphMatch & tMatch ) const		{ return pArg->Eval ( tMatch ); }
 template<> int64_t Expr_ArgVsSet_c<int64_t>::ExprEval ( ISphExpr * pArg, const CSphMatch & tMatch ) const	{ return pArg->Int64Eval ( tMatch ); }
 
@@ -834,14 +966,31 @@ protected:
 
 public:
 	/// take ownership of arg, pre-evaluate and dismiss turn points
-	Expr_ArgVsConstSet_c ( CSphVector<ISphExpr *> & dArgs )
-		: Expr_ArgVsSet_c<T> ( dArgs[0] )
+	Expr_ArgVsConstSet_c ( ISphExpr * pArg, CSphVector<ISphExpr *> & dArgs, int iSkip )
+		: Expr_ArgVsSet_c<T> ( pArg )
 	{
 		CSphMatch tDummy;
-		for ( int i=1; i<dArgs.GetLength(); i++ )
+		for ( int i=iSkip; i<dArgs.GetLength(); i++ )
 		{
 			m_dValues.Add ( Expr_ArgVsSet_c<T>::ExprEval ( dArgs[i], tDummy ) );
 			SafeRelease ( dArgs[i] );
+		}
+	}
+
+	/// take ownership of arg, and copy that constlist
+	Expr_ArgVsConstSet_c ( ISphExpr * pArg, ConstList_c * pConsts )
+		: Expr_ArgVsSet_c<T> ( pArg )
+	{
+		if ( pConsts->m_uRetType==SPH_ATTR_FLOAT )
+		{
+			m_dValues.Reserve ( pConsts->m_dFloats.GetLength() );
+			ARRAY_FOREACH ( i, pConsts->m_dFloats )
+				m_dValues.Add ( (T)pConsts->m_dFloats[i] );
+		} else
+		{
+			m_dValues.Reserve ( pConsts->m_dInts.GetLength() );
+			ARRAY_FOREACH ( i, pConsts->m_dInts  )
+				m_dValues.Add ( (T)pConsts->m_dInts[i] );
 		}
 	}
 };
@@ -855,7 +1004,7 @@ class Expr_IntervalConst_c : public Expr_ArgVsConstSet_c<T>
 public:
 	/// take ownership of arg, pre-evaluate and dismiss turn points
 	Expr_IntervalConst_c ( CSphVector<ISphExpr *> & dArgs )
-		: Expr_ArgVsConstSet_c<T> ( dArgs )
+		: Expr_ArgVsConstSet_c<T> ( dArgs[0], dArgs, 1 )
 	{}
 
 	/// evaluate arg, return interval id
@@ -866,6 +1015,12 @@ public:
 			if ( val<this->m_dValues[i] )
 				return i;
 		return this->m_dValues.GetLength();
+	}
+
+	/// set MVA pool
+	virtual void SetMVAPool ( const DWORD * pMvaPool )
+	{
+		this->m_pArg->SetMVAPool ( pMvaPool );
 	}
 };
 
@@ -895,28 +1050,201 @@ public:
 				return i;
 		return m_dTurnPoints.GetLength();
 	}
+
+	/// set MVA pool
+	virtual void SetMVAPool ( const DWORD * pMvaPool )
+	{
+		this->m_pArg->SetMVAPool ( pMvaPool );
+		ARRAY_FOREACH ( i, m_dTurnPoints )
+			m_dTurnPoints[i]->SetMVAPool ( pMvaPool );
+	}
 };
 
 //////////////////////////////////////////////////////////////////////////
 
-/// IN() evaluator for constant values set
+/// IN() evaluator, arbitrary scalar expression vs. constant values
 template < typename T >
 class Expr_In_c : public Expr_ArgVsConstSet_c<T>
 {
 public:
 	/// pre-sort values for binary search
-	Expr_In_c ( CSphVector<ISphExpr *> & dArgs ) :
-		Expr_ArgVsConstSet_c<T> ( dArgs )
+	Expr_In_c ( ISphExpr * pArg, ConstList_c * pConsts ) :
+		Expr_ArgVsConstSet_c<T> ( pArg, pConsts )
 	{
 		this->m_dValues.Sort();
 	}
 
-	/// evaluate arg, return interval id
+	/// evaluate arg, check if the value is within set
 	virtual int IntEval ( const CSphMatch & tMatch ) const
 	{
 		T val = ExprEval ( this->m_pArg, tMatch ); // 'this' fixes gcc braindamage
 		return this->m_dValues.BinarySearch ( val )!=NULL;
 	}
+
+	/// set MVA pool
+	virtual void SetMVAPool ( const DWORD * pMvaPool )
+	{
+		this->m_pArg->SetMVAPool ( pMvaPool );
+	}
+};
+
+
+/// IN() evaluator, MVA attribute vs. constant values
+class Expr_MVAIn_c : public Expr_ArgVsConstSet_c<DWORD>
+{
+public:
+	/// pre-sort values for binary search
+	Expr_MVAIn_c ( const CSphAttrLocator & tLoc, ConstList_c * pConsts )
+		: Expr_ArgVsConstSet_c<DWORD> ( NULL, pConsts )
+		, m_tLocator ( tLoc )
+		, m_pMvaPool ( NULL )
+	{
+		assert ( tLoc.m_iBitOffset>=0 && tLoc.m_iBitCount>0 );
+		this->m_dValues.Sort();
+	}
+
+	/// evaluate arg, check if any values are within set
+	virtual int IntEval ( const CSphMatch & tMatch ) const
+	{
+		const DWORD * pMva = tMatch.GetAttrMVA ( m_tLocator, m_pMvaPool );
+		if ( !pMva )
+			return 0;
+
+		// OPTIMIZE! FIXME! factor out a common function with Filter_MVAValues::Eval()
+		DWORD uLen = *pMva++;
+		const DWORD * pMvaMax = pMva+uLen;
+
+		const DWORD * pFilter = &m_dValues[0];
+		const DWORD * pFilterMax = pFilter + m_dValues.GetLength();
+
+		const DWORD * L = pMva;
+		const DWORD * R = pMvaMax - 1;
+		for ( ; pFilter < pFilterMax; pFilter++ )
+		{
+			while ( L <= R )
+			{
+				const DWORD * m = L + (R - L) / 2;
+				if ( *pFilter > *m )
+					L = m + 1;
+				else if ( *pFilter < *m )
+					R = m - 1;
+				else
+					return 1;
+			}
+			R = pMvaMax - 1;
+		}
+		return 0;
+	}
+
+	/// set MVA pool
+	virtual void SetMVAPool ( const DWORD * pMvaPool )
+	{
+		m_pMvaPool = pMvaPool; // finally, some real setup work!!!
+	}
+
+protected:
+	CSphAttrLocator	m_tLocator;
+	const DWORD *	m_pMvaPool;
+};
+
+//////////////////////////////////////////////////////////////////////////
+
+static inline double sphSqr ( double v ) { return v * v; }
+
+static inline float CalcGeodist ( float fPointLat, float fPointLon, float fAnchorLat, float fAnchorLon )
+{
+	const double R = 6384000;
+	double dlat = fPointLat - fAnchorLat;
+	double dlon = fPointLon - fAnchorLon;
+	double a = sphSqr(sin(dlat/2)) + cos(fPointLat)*cos(fAnchorLat)*sphSqr(sin(dlon/2));
+	double c = 2*asin ( Min ( 1, sqrt(a) ) );
+	return float(R*c);
+}
+
+/// geodist() - attr point, constant anchor
+class Expr_GeodistAttrConst_c: public ISphExpr
+{
+public:
+	Expr_GeodistAttrConst_c ( CSphAttrLocator tLat, CSphAttrLocator tLon, float fAnchorLat, float fAnchorLon )
+		: m_tLat ( tLat )
+		, m_tLon ( tLon )
+		, m_fAnchorLat ( fAnchorLat )
+		, m_fAnchorLon ( fAnchorLon )
+	{}
+
+	virtual float Eval ( const CSphMatch & tMatch ) const
+	{
+		return CalcGeodist ( tMatch.GetAttrFloat ( m_tLat ), tMatch.GetAttrFloat ( m_tLon ), m_fAnchorLat, m_fAnchorLon );
+	}
+
+private:
+	CSphAttrLocator	m_tLat;
+	CSphAttrLocator	m_tLon;
+	
+	float		m_fAnchorLat;
+	float		m_fAnchorLon;
+};
+
+/// geodist() - expr point, constant anchor
+class Expr_GeodistConst_c: public ISphExpr
+{
+public:
+	Expr_GeodistConst_c ( ISphExpr * pLat, ISphExpr * pLon, float fAnchorLat, float fAnchorLon )
+		: m_pLat ( pLat )
+		, m_pLon ( pLon )
+		, m_fAnchorLat ( fAnchorLat )
+		, m_fAnchorLon ( fAnchorLon )
+	{}
+
+	~Expr_GeodistConst_c ()
+	{
+		SafeRelease ( m_pLon );
+		SafeRelease ( m_pLat );
+	}
+
+	virtual float Eval ( const CSphMatch & tMatch ) const
+	{
+		return CalcGeodist ( m_pLat->Eval(tMatch), m_pLon->Eval(tMatch), m_fAnchorLat, m_fAnchorLon );
+	}
+
+private:
+	ISphExpr *	m_pLat;
+	ISphExpr *	m_pLon;
+	
+	float		m_fAnchorLat;
+	float		m_fAnchorLon;
+};
+
+/// geodist() - expr point, expr anchor
+class Expr_Geodist_c: public ISphExpr
+{
+public:
+	Expr_Geodist_c ( ISphExpr * pLat, ISphExpr * pLon, ISphExpr * pAnchorLat, ISphExpr * pAnchorLon )
+		: m_pLat ( pLat )
+		, m_pLon ( pLon )
+		, m_pAnchorLat ( pAnchorLat )
+		, m_pAnchorLon ( pAnchorLon )
+	{}
+
+	~Expr_Geodist_c ()
+	{
+		SafeRelease ( m_pAnchorLon );
+		SafeRelease ( m_pAnchorLat );
+		SafeRelease ( m_pLon );
+		SafeRelease ( m_pLat );
+	}
+
+	virtual float Eval ( const CSphMatch & tMatch ) const
+	{
+		return CalcGeodist ( m_pLat->Eval(tMatch), m_pLon->Eval(tMatch), m_pAnchorLat->Eval(tMatch), m_pAnchorLon->Eval(tMatch) );
+	}
+
+private:
+	ISphExpr *	m_pLat;
+	ISphExpr *	m_pLon;
+
+	ISphExpr *	m_pAnchorLat;
+	ISphExpr *	m_pAnchorLon;
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -937,26 +1265,52 @@ void ExprParser_t::GatherArgTypes ( int iNode, CSphVector<int> & dTypes )
 	}
 }
 
-
-bool ExprParser_t::CheckForConstSet ( int iArgsNode )
+void ExprParser_t::GatherArgNodes ( int iNode, CSphVector<int> & dNodes )
 {
-	assert ( m_dNodes[iArgsNode].m_iToken==',' );
+	if ( iNode<0 )
+		return;
 
+	const ExprNode_t & tNode = m_dNodes[iNode];
+	if ( tNode.m_iToken==',' )
+	{
+		GatherArgNodes ( tNode.m_iLeft, dNodes );
+		GatherArgNodes ( tNode.m_iRight, dNodes );
+	}
+	else
+		dNodes.Add ( iNode );
+}
+
+bool ExprParser_t::CheckForConstSet ( int iArgsNode, int iSkip )
+{
 	CSphVector<int> dTypes;
 	GatherArgTypes ( iArgsNode, dTypes );
 
-	for ( int i=1; i<dTypes.GetLength(); i++ )
+	for ( int i=iSkip; i<dTypes.GetLength(); i++ )
 		if ( dTypes[i]!=TOK_CONST_INT && dTypes[i]!=TOK_CONST_FLOAT )
 			return false;
 	return true;
 }
 
 
-ISphExpr * ExprParser_t::CreateIntervalNode ( int iArgsNode, CSphVector<ISphExpr *> & dArgs, DWORD uAttrType )
+template < typename T >
+void ExprParser_t::WalkTree ( int iRoot, T & FUNCTOR )
+{
+	if ( iRoot>=0 )
+	{
+		const ExprNode_t & tNode = m_dNodes[iRoot];
+		FUNCTOR.Process ( tNode );
+		WalkTree ( tNode.m_iLeft, FUNCTOR );
+		WalkTree ( tNode.m_iRight, FUNCTOR );
+	}
+}
+
+
+ISphExpr * ExprParser_t::CreateIntervalNode ( int iArgsNode, CSphVector<ISphExpr *> & dArgs )
 {
 	assert ( dArgs.GetLength()>=2 );
 
-	bool bConst = CheckForConstSet ( iArgsNode );
+	bool bConst = CheckForConstSet ( iArgsNode, 1 );
+	DWORD uAttrType = m_dNodes[iArgsNode].m_uArgType;
 	if ( bConst )
 	{
 		switch ( uAttrType )
@@ -977,18 +1331,82 @@ ISphExpr * ExprParser_t::CreateIntervalNode ( int iArgsNode, CSphVector<ISphExpr
 }
 
 
-ISphExpr * ExprParser_t::CreateInNode ( int iArgsNode, CSphVector<ISphExpr *> & dArgs, DWORD uAttrType )
+ISphExpr * ExprParser_t::CreateInNode ( int iNode )
 {
-	assert ( dArgs.GetLength()>=2 );
-	assert ( CheckForConstSet(iArgsNode) );
+	const ExprNode_t & tNode = m_dNodes[iNode];
 
-	// spawn that evaluator
-	switch ( uAttrType )
+	if ( m_dNodes[tNode.m_iRight].m_iToken!=TOK_CONST_LIST )
 	{
-		case SPH_ATTR_INTEGER:	return new Expr_In_c<int> ( dArgs ); break;
-		case SPH_ATTR_BIGINT:	return new Expr_In_c<int64_t> ( dArgs ); break;
-		default:				return new Expr_In_c<float> ( dArgs ); break;
+		m_sCreateError = "IN() arguments must be constants (except the 1st one)";
+		return NULL;
 	}
+
+	assert ( m_dNodes[tNode.m_iRight].m_iToken==TOK_CONST_LIST );
+	ConstList_c * pConst = m_dNodes[tNode.m_iRight].m_pConsts;
+
+	bool bMVA = ( m_dNodes[tNode.m_iLeft].m_iToken==TOK_ATTR_MVA );
+	if ( bMVA )
+	{
+		return new Expr_MVAIn_c ( m_dNodes[tNode.m_iLeft].m_tLocator, pConst );
+
+	} else
+	{
+		ISphExpr * pArg = CreateTree ( tNode.m_iLeft );
+		switch ( pConst->m_uRetType )
+		{
+			case SPH_ATTR_INTEGER:	return new Expr_In_c<int> ( pArg, pConst ); break;
+			case SPH_ATTR_BIGINT:	return new Expr_In_c<int64_t> ( pArg, pConst ); break;
+			default:				return new Expr_In_c<float> ( pArg, pConst ); break;
+		}
+	}
+}
+
+ISphExpr * ExprParser_t::CreateGeodistNode ( int iArgs )
+{
+	CSphVector<int> dArgs;
+	GatherArgNodes ( iArgs, dArgs );
+	assert ( dArgs.GetLength() == 4 );
+
+	bool bConst1 = ( IsConst ( m_dNodes[dArgs[0]].m_iToken ) && IsConst ( m_dNodes[dArgs[1]].m_iToken ) );
+	bool bConst2 = ( IsConst ( m_dNodes[dArgs[2]].m_iToken ) && IsConst ( m_dNodes[dArgs[3]].m_iToken ) );
+
+	if ( bConst1 && bConst2 )
+	{
+		return new Expr_GetConst_c ( CalcGeodist (
+			m_dNodes[dArgs[0]].FloatVal(), m_dNodes[dArgs[1]].FloatVal(),
+			m_dNodes[dArgs[2]].FloatVal(), m_dNodes[dArgs[3]].FloatVal() ) );
+	}
+
+	if ( bConst1 )
+	{
+		Swap ( dArgs[0], dArgs[2] );
+		Swap ( dArgs[1], dArgs[3] );
+		Swap ( bConst1, bConst2 );
+	}
+
+	if ( bConst2 )
+	{
+		// constant anchor
+		if ( m_dNodes[dArgs[0]].m_iToken==TOK_ATTR_FLOAT && m_dNodes[dArgs[1]].m_iToken==TOK_ATTR_FLOAT )
+		{
+			// attr point
+			return new Expr_GeodistAttrConst_c (
+				m_dNodes[dArgs[0]].m_tLocator, m_dNodes[dArgs[1]].m_tLocator,
+				m_dNodes[dArgs[2]].FloatVal(), m_dNodes[dArgs[3]].FloatVal() );
+		} else
+		{
+			// expr point
+			return new Expr_GeodistConst_c (
+				CreateTree ( dArgs[0] ), CreateTree ( dArgs[1] ),
+				m_dNodes[dArgs[2]].FloatVal(), m_dNodes[dArgs[3]].FloatVal() );
+		}
+	}
+
+	// four expressions
+	CSphVector<ISphExpr *> dExpr;
+	FoldArglist ( CreateTree ( iArgs ), dExpr );
+	assert ( dExpr.GetLength() == 4 );
+	return new Expr_Geodist_c ( dExpr[0], dExpr[1], dExpr[2], dExpr[3] );
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -1007,7 +1425,7 @@ void yyerror ( ExprParser_t * pParser, const char * sMessage )
 #pragma warning(push,1)
 #endif
 
-#include "sphinxexpryy.cpp"
+#include "yysphinxexpr.c"
 
 #if USE_WINDOWS
 #pragma warning(pop)
@@ -1015,10 +1433,36 @@ void yyerror ( ExprParser_t * pParser, const char * sMessage )
 
 //////////////////////////////////////////////////////////////////////////
 
+ExprParser_t::~ExprParser_t ()
+{
+	// i kinda own those constlists
+	ARRAY_FOREACH ( i, m_dNodes )
+		if ( m_dNodes[i].m_iToken==TOK_CONST_LIST )
+			SafeDelete ( m_dNodes[i].m_pConsts );
+}
+
+DWORD ExprParser_t::GetWidestRet ( int iLeft, int iRight )
+{
+	DWORD uLeftType = ( iLeft<0 ) ? SPH_ATTR_INTEGER : m_dNodes[iLeft].m_uRetType;
+	DWORD uRightType = ( iRight<0 ) ? SPH_ATTR_INTEGER : m_dNodes[iRight].m_uRetType;
+
+	DWORD uRes = SPH_ATTR_FLOAT; // default is float
+	if ( ( uLeftType==SPH_ATTR_INTEGER || uLeftType==SPH_ATTR_BIGINT ) &&
+		( uRightType==SPH_ATTR_INTEGER || uRightType==SPH_ATTR_BIGINT ) )
+	{
+		// both types are integer (int32 or int64), compute in integers
+		uRes = ( uLeftType==SPH_ATTR_INTEGER && uRightType==SPH_ATTR_INTEGER )
+			? SPH_ATTR_INTEGER
+			: SPH_ATTR_BIGINT;
+	}
+	return uRes;
+}
+
 int ExprParser_t::AddNodeInt ( int64_t iValue )
 {
 	ExprNode_t & tNode = m_dNodes.Add ();
 	tNode.m_iToken = TOK_CONST_INT;
+	tNode.m_uRetType = GetIntType ( iValue );
 	tNode.m_iConst = iValue;
 	return m_dNodes.GetLength()-1;
 }
@@ -1027,25 +1471,39 @@ int ExprParser_t::AddNodeFloat ( float fValue )
 {
 	ExprNode_t & tNode = m_dNodes.Add ();
 	tNode.m_iToken = TOK_CONST_FLOAT;
+	tNode.m_uRetType = SPH_ATTR_FLOAT;
 	tNode.m_fConst = fValue;
 	return m_dNodes.GetLength()-1;
 }
 
 int ExprParser_t::AddNodeAttr ( int iTokenType, int iAttrLocator )
 {
-	assert ( iTokenType==TOK_ATTR_INT || iTokenType==TOK_ATTR_BITS || iTokenType==TOK_ATTR_FLOAT );
+	assert ( iTokenType==TOK_ATTR_INT || iTokenType==TOK_ATTR_BITS || iTokenType==TOK_ATTR_FLOAT || iTokenType==TOK_ATTR_MVA );
 	ExprNode_t & tNode = m_dNodes.Add ();
 	tNode.m_iToken = iTokenType;
 	tNode.m_tLocator.m_iBitOffset = iAttrLocator>>16;
 	tNode.m_tLocator.m_iBitCount = iAttrLocator&0xffff;
+
+	if ( iTokenType==TOK_ATTR_FLOAT )			tNode.m_uRetType = SPH_ATTR_FLOAT;
+	else if ( iTokenType==TOK_ATTR_MVA )		tNode.m_uRetType = SPH_ATTR_MULTI;
+	else if ( tNode.m_tLocator.m_iBitCount>32 )	tNode.m_uRetType = SPH_ATTR_BIGINT;
+	else										tNode.m_uRetType = SPH_ATTR_INTEGER;
 	return m_dNodes.GetLength()-1;
 }
 
-int ExprParser_t::AddNodeDocinfo ( Docinfo_e eDocinfo )
+int ExprParser_t::AddNodeID ()
 {
 	ExprNode_t & tNode = m_dNodes.Add ();
-	tNode.m_iToken = TOK_DOCINFO;
-	tNode.m_eDocinfo = eDocinfo;
+	tNode.m_iToken = TOK_ID;
+	tNode.m_uRetType = USE_64BIT ? SPH_ATTR_BIGINT : SPH_ATTR_INTEGER;
+	return m_dNodes.GetLength()-1;
+}
+
+int ExprParser_t::AddNodeWeight ()
+{
+	ExprNode_t & tNode = m_dNodes.Add ();
+	tNode.m_iToken = TOK_WEIGHT;
+	tNode.m_uRetType = SPH_ATTR_INTEGER;
 	return m_dNodes.GetLength()-1;
 }
 
@@ -1053,6 +1511,50 @@ int ExprParser_t::AddNodeOp ( int iOp, int iLeft, int iRight )
 {
 	ExprNode_t & tNode = m_dNodes.Add ();
 	tNode.m_iToken = iOp;
+
+	// deduce type
+	tNode.m_uRetType = SPH_ATTR_FLOAT; // default to float
+	if ( iOp==TOK_NEG )
+	{
+		// NEG just inherits the type
+		tNode.m_uArgType = m_dNodes[iLeft].m_uRetType;
+		tNode.m_uRetType = tNode.m_uArgType;
+
+	} else if ( iOp==TOK_NOT )
+	{
+		// NOT result is integer, and its argument must be integer
+		tNode.m_uArgType = m_dNodes[iLeft].m_uRetType;
+		tNode.m_uRetType = SPH_ATTR_INTEGER;
+		if (!( tNode.m_uArgType==SPH_ATTR_INTEGER || tNode.m_uArgType==SPH_ATTR_BIGINT ))
+		{
+			m_sParserError.SetSprintf ( "NOT argument must be integer" );
+			return -1;
+		}
+
+	} else if ( iOp==TOK_LTE || iOp==TOK_GTE || iOp==TOK_EQ || iOp==TOK_NE
+		|| iOp=='<' || iOp=='>' || iOp==TOK_AND || iOp==TOK_OR
+		|| iOp=='+' || iOp=='-' || iOp=='*' || iOp==',' )
+	{
+		tNode.m_uArgType = GetWidestRet ( iLeft, iRight );
+
+		// arithmetical operations return arg type, logical return int
+		tNode.m_uRetType = ( iOp=='+' || iOp=='-' || iOp=='*' || iOp==',' )
+			? tNode.m_uArgType
+			: SPH_ATTR_INTEGER;
+
+		// AND/OR can only be over ints
+		if ( ( iOp==TOK_AND || iOp==TOK_OR ) && !( tNode.m_uArgType==SPH_ATTR_INTEGER || tNode.m_uArgType==SPH_ATTR_BIGINT ))
+		{
+			m_sParserError.SetSprintf ( "%s arguments must be integer", ( iOp==TOK_AND ) ? "AND" : "OR" );
+			return -1;
+		}
+
+	} else
+	{
+		// check for unknown op
+		assert ( iOp=='/' && "unknown op in AddNodeOp() type deducer" );
+	}
+
 	tNode.m_iArgs = 0;
 	if ( iOp==',' )
 	{
@@ -1064,150 +1566,116 @@ int ExprParser_t::AddNodeOp ( int iOp, int iLeft, int iRight )
 	return m_dNodes.GetLength()-1;
 }
 
-int ExprParser_t::AddNodeFunc ( int iFunc, int iArgsNode )
+int ExprParser_t::AddNodeFunc ( int iFunc, int iLeft, int iRight )
 {
-	// check args count
 	assert ( iFunc>=0 && iFunc<int(sizeof(g_dFuncs)/sizeof(g_dFuncs[0])) );
-	int iExpectedArgc = g_dFuncs[iFunc].m_iArgs;
-	int iArgc = 0;
-	if ( iArgsNode>=0 )
-		iArgc = ( m_dNodes[iArgsNode].m_iToken==',' ) ? m_dNodes[iArgsNode].m_iArgs : 1;
-	if ( iExpectedArgc<0 )
+
+	// check args count if needed
+	if ( iRight<0 )
 	{
-		if ( iArgc<-iExpectedArgc )
+		int iExpectedArgc = g_dFuncs[iFunc].m_iArgs;
+		int iArgc = 0;
+		if ( iLeft>=0 )
+			iArgc = ( m_dNodes[iLeft].m_iToken==',' ) ? m_dNodes[iLeft].m_iArgs : 1;
+		if ( iExpectedArgc<0 )
 		{
-			m_sParserError.SetSprintf ( "%s() called with %d args, at least %d args expected", g_dFuncs[iFunc].m_sName, iArgc, -iExpectedArgc );
+			if ( iArgc<-iExpectedArgc )
+			{
+				m_sParserError.SetSprintf ( "%s() called with %d args, at least %d args expected", g_dFuncs[iFunc].m_sName, iArgc, -iExpectedArgc );
+				return -1;
+			}
+		} else if ( iArgc!=iExpectedArgc )
+		{
+			m_sParserError.SetSprintf ( "%s() called with %d args, %d args expected", g_dFuncs[iFunc].m_sName, iArgc, iExpectedArgc );
 			return -1;
 		}
-	} else if ( iArgc!=iExpectedArgc )
-	{
-		m_sParserError.SetSprintf ( "%s() called with %d args, %d args expected", g_dFuncs[iFunc].m_sName, iArgc, iExpectedArgc );
-		return -1;
-	}
-
-	// check for set of constants, if needed
-	if ( iFunc==FUNC_IN && !CheckForConstSet ( iArgsNode ) )
-	{
-		m_sParserError.SetSprintf ( "%s() requires constant 2nd and further args", g_dFuncs[iFunc].m_sName );
-		return -1;
 	}
 
 	// do add
 	ExprNode_t & tNode = m_dNodes.Add ();
 	tNode.m_iToken = TOK_FUNC;
 	tNode.m_iFunc = iFunc;
-	tNode.m_iLeft = iArgsNode;
+	tNode.m_iLeft = iLeft;
+	tNode.m_iRight = iRight;
+
+	// deduce type
+	tNode.m_uArgType = ( iLeft>=0 ) ? m_dNodes[iLeft].m_uRetType : SPH_ATTR_INTEGER;
+	tNode.m_uRetType = SPH_ATTR_FLOAT; // by default, functions return floats
+
+	Func_e eFunc = g_dFuncs[iFunc].m_eFunc;
+	if ( eFunc==FUNC_NOW || eFunc==FUNC_INTERVAL || eFunc==FUNC_IN )
+	{
+		tNode.m_uRetType = SPH_ATTR_INTEGER;
+
+	} else if ( eFunc==FUNC_MIN || eFunc==FUNC_MAX || eFunc==FUNC_MADD || eFunc==FUNC_MUL3 || eFunc==FUNC_ABS || eFunc==FUNC_BIGINT || eFunc==FUNC_IDIV )
+	{
+		tNode.m_uRetType = tNode.m_uArgType;
+
+		if ( eFunc==FUNC_BIGINT && tNode.m_uRetType!=SPH_ATTR_FLOAT )
+			tNode.m_uRetType = SPH_ATTR_BIGINT; // enforce if we can; FIXME! silently ignores BIGINT() on floats; should warn or raise an error
+
+	} else if ( eFunc==FUNC_IF )
+	{
+		tNode.m_uRetType = GetWidestRet ( iLeft, iRight );
+	}
+
 	return m_dNodes.GetLength()-1;
 }
 
-
-DWORD ExprParser_t::DeduceType ( int iNode )
+int ExprParser_t::AddNodeConstlist ( int64_t iValue )
 {
-	const ExprNode_t & tNode = m_dNodes[iNode];
-	switch ( tNode.m_iToken )
-	{
-		// variables with unconditionally integer result
-		case TOK_ATTR_INT:
-		case TOK_ATTR_BITS:
-			if ( tNode.m_tLocator.m_iBitCount>32 )
-				return SPH_ATTR_BIGINT;
-			else
-				return SPH_ATTR_INTEGER;
+	ExprNode_t & tNode = m_dNodes.Add();
+	tNode.m_iToken = TOK_CONST_LIST;
+	tNode.m_pConsts = new ConstList_c();
+	tNode.m_pConsts->Add ( iValue );
+	return m_dNodes.GetLength()-1;
+}
 
-		case TOK_CONST_INT:	
-			if ( tNode.m_iConst>=(int64_t)INT_MIN && tNode.m_iConst<=(int64_t)INT_MAX )
-				return SPH_ATTR_INTEGER;
-			else
-				return SPH_ATTR_BIGINT;
+int ExprParser_t::AddNodeConstlist ( float iValue )
+{
+	ExprNode_t & tNode = m_dNodes.Add();
+	tNode.m_iToken = TOK_CONST_LIST;
+	tNode.m_pConsts = new ConstList_c();
+	tNode.m_pConsts->Add ( iValue );
+	return m_dNodes.GetLength()-1;
+}
 
-		case TOK_DOCINFO:
-			return USE_64BIT ? SPH_ATTR_BIGINT : SPH_ATTR_INTEGER;
+void ExprParser_t::AppendToConstlist ( int iNode, int64_t iValue )
+{
+	m_dNodes[iNode].m_pConsts->Add ( iValue );
+}
 
-		// binary ops with unconditionally float result
-		case TOK_ATTR_FLOAT:
-		case TOK_CONST_FLOAT:
-		case '/':
-			return SPH_ATTR_FLOAT;
-
-		// unary ops that can be evaluated in both modes
-		case TOK_NEG:
-			return DeduceType ( tNode.m_iLeft );
-
-		// binary ops that can be evaluated in both modes
-		case TOK_LTE:
-		case TOK_GTE:
-		case TOK_EQ:
-		case TOK_NE:
-		case '<':
-		case '>':
-		case '+':
-		case '-':
-		case '*':
-		case ',':
-			{
-				DWORD iLeftType = DeduceType ( tNode.m_iLeft );
-				DWORD iRightType = DeduceType ( tNode.m_iRight );
-
-				if ( iLeftType==SPH_ATTR_INTEGER && iRightType==SPH_ATTR_INTEGER )
-				{
-					// both types are int32? can compute in int32
-					return SPH_ATTR_INTEGER;
-				} else if (
-					( iLeftType==SPH_ATTR_INTEGER || iLeftType==SPH_ATTR_BIGINT ) &&
-					( iRightType==SPH_ATTR_INTEGER || iRightType==SPH_ATTR_BIGINT ) )
-				{
-					// both types are int32 or int64, but not both int32? can compute in int64
-					return SPH_ATTR_BIGINT;
-				} else
-				{
-					// there must had been a float floating around
-					return SPH_ATTR_FLOAT;
-				}
-			}
-
-		// function calls
-		case TOK_FUNC:
-			{
-				assert ( tNode.m_iFunc>=0 && tNode.m_iFunc<int(sizeof(g_dFuncs)/sizeof(g_dFuncs[0])) );
-				switch ( g_dFuncs[tNode.m_iFunc].m_eFunc )
-				{
-					case FUNC_NOW:
-						return SPH_ATTR_INTEGER;
-
-					case FUNC_MIN:
-					case FUNC_MAX:
-					case FUNC_IF:
-					case FUNC_MADD:
-					case FUNC_MUL3:
-					case FUNC_IDIV:
-					case FUNC_ABS:
-					case FUNC_INTERVAL:
-					case FUNC_IN:
-						return DeduceType ( tNode.m_iLeft );
-
-					case FUNC_BIGINT:
-					{
-						DWORD uArgType = DeduceType ( tNode.m_iLeft );
-						if ( uArgType==SPH_ATTR_FLOAT )
-							return uArgType; // FIXME! silently ignores BIGINT() on floats; should warn or raise an error
-						else
-							return SPH_ATTR_BIGINT;
-					}
-
-					default:
-						return SPH_ATTR_FLOAT; // by default, functions are either on floats and/or return floats
-				}
-			}
-
-		// unknown tokens
-		default:
-			return SPH_ATTR_FLOAT;
-	}
+void ExprParser_t::AppendToConstlist ( int iNode, float iValue )
+{
+	m_dNodes[iNode].m_pConsts->Add ( iValue );
 }
 
 
-ISphExpr * ExprParser_t::Parse ( const char * sExpr, const CSphSchema & tSchema, DWORD & uAttrType, CSphString & sError )
+struct WeightCheck_fn
 {
+	bool * m_pRes;
+
+	WeightCheck_fn ( bool * pRes )
+		: m_pRes ( pRes )
+	{
+		assert ( m_pRes );
+		*m_pRes = false;
+	}
+
+	void Process ( const ExprNode_t & tNode )
+	{
+		if ( tNode.m_iToken==TOK_WEIGHT )
+			*m_pRes = true;
+	}
+};
+
+
+ISphExpr * ExprParser_t::Parse ( const char * sExpr, const CSphSchema & tSchema, DWORD * pAttrType, bool * pUsesWeight, CSphString & sError )
+{
+	m_sLexerError = "";
+	m_sParserError = "";
+	m_sCreateError = "";
+
 	// setup lexer
 	m_sExpr = sExpr;
 	m_pCur = sExpr;
@@ -1229,15 +1697,32 @@ ISphExpr * ExprParser_t::Parse ( const char * sExpr, const CSphSchema & tSchema,
 	}
 
 	// deduce return type
-	uAttrType = DeduceType ( m_iParsed );
+	DWORD uAttrType = m_dNodes[m_iParsed].m_uRetType;
+	assert ( uAttrType==SPH_ATTR_INTEGER || uAttrType==SPH_ATTR_BIGINT || uAttrType==SPH_ATTR_FLOAT );
 
 	// perform optimizations
-	Optimize ( m_iParsed, uAttrType );
+	Optimize ( m_iParsed );
 
 	// create evaluator
-	ISphExpr * pRes = CreateTree ( m_iParsed, uAttrType );
-	if ( !pRes )
+	ISphExpr * pRes = CreateTree ( m_iParsed );
+	if ( !m_sCreateError.IsEmpty() )
+	{
+		sError = m_sCreateError;
+		SafeRelease ( pRes );
+	} else if ( !pRes )
+	{
 		sError.SetSprintf ( "empty expression" );
+	}
+
+	if ( pAttrType )
+		*pAttrType = uAttrType;
+
+	if ( pUsesWeight )
+	{
+		WeightCheck_fn tFunctor ( pUsesWeight );
+		WalkTree ( m_iParsed, tFunctor );
+	}
+
 	return pRes;
 }
 
@@ -1246,14 +1731,13 @@ ISphExpr * ExprParser_t::Parse ( const char * sExpr, const CSphSchema & tSchema,
 //////////////////////////////////////////////////////////////////////////
 
 /// parser entry point
-ISphExpr * sphExprParse ( const char * sExpr, const CSphSchema & tSchema, DWORD * pAttrType, CSphString & sError )
+ISphExpr * sphExprParse ( const char * sExpr, const CSphSchema & tSchema, DWORD * pAttrType, bool * pUsesWeight, CSphString & sError )
 {
 	// parse into opcodes
-	DWORD uTmp;
 	ExprParser_t tParser;
-	return tParser.Parse ( sExpr, tSchema, pAttrType ? (*pAttrType) : uTmp, sError );
+	return tParser.Parse ( sExpr, tSchema, pAttrType, pUsesWeight, sError );
 }
 
 //
-// $Id$
+// $Id: sphinxexpr.cpp 2026 2009-10-22 00:36:37Z shodan $
 //

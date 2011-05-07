@@ -169,7 +169,7 @@ module Sphinx
     def initialize
       # per-client-object settings
       @host          = 'localhost'             # searchd host (default is "localhost")
-      @port          = 3312                    # searchd port (default is 3312)
+      @port          = 9312                    # searchd port (default is 9312)
       
       # per-query settings
       @offset        = 0                       # how many records to seek from result-set start (default is 0)
@@ -1032,9 +1032,9 @@ module Sphinx
         # check response
         read = response.length
         if response.empty? or read != len.to_i
-          @error = len \
-            ? "failed to read searchd response (status=#{status}, ver=#{ver}, len=#{len}, read=#{read})" \
-            : 'received zero-sized searchd response'
+          @error = response.empty? \
+            ? 'received zero-sized searchd response' \
+            : "failed to read searchd response (status=#{status}, ver=#{ver}, len=#{len}, read=#{read})"
           raise SphinxResponseError, @error
         end
         

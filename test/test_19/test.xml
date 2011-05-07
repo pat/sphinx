@@ -49,6 +49,17 @@ index test
 <query mode="extended2">"test program" | basic</query>
 <query mode="extended2">"test that"~3 | basic</query>
 <query mode="extended2">"test that"~3|basic</query>
+<query mode="extended2">@title sample @body -basic</query>
+<query mode="extended2">-basic|perl sample</query>
+<query mode="extended2">-basic|perl sample</query>
+<query mode="extended2">77</query>
+<query mode="extended2">0077</query>
+<query mode="extended2">@title test</query>
+<query mode="extended2" expect_error="1">@ttitle test</query>
+<query mode="extended2" expect_error="1">@@title test</query>
+<query mode="extended2">@@relaxed @ttitle test</query>
+<query mode="extended2">""</query>
+<query mode="extended2">@title ""</query>
 </queries>
 
 <db_create>
@@ -69,7 +80,11 @@ INSERT INTO `test_table` VALUES
 ( 111, '', 'basic query' ),
 ( 222, '', 'phrase query on steroids' ),
 ( 333, 'sample program', 'this is a test program that prints out "hello world" to the console' ),
-( 444, '', 'china 吐我' )
+( 444, '', 'china 吐我' ),
+( 555, 'sample program two', 'something written in basic' ),
+( 666, 'sample program three', 'something written in perl' ),
+( 777, '', '77 lies multiplied by 77' ),
+( 888, '', 'agent 0077' )
 </db_insert>
 
 </test>

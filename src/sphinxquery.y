@@ -14,7 +14,7 @@
 	struct
 	{
 		int			iValue;
-		bool		bKeyword;
+		int			iStrIndex;
 	} tInt;
 	struct							// field spec
 	{
@@ -26,12 +26,16 @@
 %token <pNode>			TOK_KEYWORD
 %token <tInt>			TOK_INT
 %token <tFieldLimit>	TOK_FIELDLIMIT
+%token					TOK_BEFORE
+%type <pNode>			rawkeyword
 %type <pNode>			keyword
 %type <pNode>			phrasetoken
 %type <pNode>			phrase
 %type <pNode>			atom
-%type <pNode>			atom2
+%type <pNode>			atomf
 %type <pNode>			orlist
+%type <pNode>			orlistf
+%type <pNode>			beforelist
 %type <pNode>			expr
 
 %%
@@ -40,9 +44,16 @@ query:
 	expr								{ pParser->AddQuery ( $1 ); }
 	;
 
-keyword:
+rawkeyword:
 	TOK_KEYWORD							{ $$ = $1; }
-	| TOK_INT							{ $$ = pParser->AddKeywordFromInt ( $1.iValue, $1.bKeyword ); }
+	| TOK_INT							{ $$ = pParser->AddKeyword ( ( $1.iStrIndex>=0 ) ? pParser->m_dIntTokens[$1.iStrIndex].cstr() : NULL ); }
+	;
+
+keyword:
+	rawkeyword
+	| rawkeyword '$'					{ $$ = $1; assert ( $$->IsPlain() && $$->m_dWords.GetLength()==1 ); $$->m_dWords[0].m_bFieldEnd = true; }
+	| '^' rawkeyword					{ $$ = $2; assert ( $$->IsPlain() && $$->m_dWords.GetLength()==1 ); $$->m_dWords[0].m_bFieldStart = true; }
+	| '^' rawkeyword '$'				{ $$ = $2; assert ( $$->IsPlain() && $$->m_dWords.GetLength()==1 ); $$->m_dWords[0].m_bFieldStart = true; $$->m_dWords[0].m_bFieldEnd = true; }
 	;
 
 phrasetoken:
@@ -63,27 +74,39 @@ phrase:
 
 atom:
 	keyword								{ $$ = $1; }
-	| '"' phrase '"'					{ $$ = $2; assert ( $$->IsPlain() ); $$->m_tAtom.m_iMaxDistance = 0; }
-	| '"' phrase '"' '~' TOK_INT		{ $$ = $2; assert ( $$->IsPlain() ); $$->m_tAtom.m_iMaxDistance = $5.iValue; $$->m_tAtom.m_bQuorum = false; }
-	| '"' phrase '"' '/' TOK_INT		{ $$ = $2; assert ( $$->IsPlain() ); $$->m_tAtom.m_iMaxDistance = $5.iValue; $$->m_tAtom.m_bQuorum = true; }
+	| '"' '"'							{ $$ = NULL; }
+	| '"' '"' '~' TOK_INT				{ $$ = NULL; }
+	| '"' '"' '/' TOK_INT				{ $$ = NULL; }
+	| '"' phrase '"'					{ $$ = $2; if ( $$ ) { assert ( $$->IsPlain() ); $$->m_iMaxDistance = 0; } }
+	| '"' phrase '"' '~' TOK_INT		{ $$ = $2; if ( $$ ) { assert ( !$$ || $$->IsPlain() ); $$->m_iMaxDistance = $5.iValue; $$->m_bQuorum = false; } }
+	| '"' phrase '"' '/' TOK_INT		{ $$ = $2; if ( $$ ) { assert ( !$$ || $$->IsPlain() ); $$->m_iMaxDistance = $5.iValue; $$->m_bQuorum = true; } }
 	| '(' expr ')'						{ $$ = $2; $2->m_bFieldSpec = false; }
 	;
 
-atom2:
+atomf:
 	atom								{ $$ = $1; }
-	| TOK_FIELDLIMIT atom				{ $$ = $2; $2->SetFieldSpec ( $1.uMask, $1.iMaxPos ); }
+	| TOK_FIELDLIMIT atom				{ $$ = $2; if ( $$ ) $$->SetFieldSpec ( $1.uMask, $1.iMaxPos ); }
 	;
 
 orlist:
-	atom2								{ $$ = $1; }
-	| orlist '|' atom2					{ $$ = pParser->AddOp ( SPH_QUERY_OR, $1, $3 ); }
+	atomf								{ $$ = $1; }
+	| orlist '|' atomf					{ $$ = pParser->AddOp ( SPH_QUERY_OR, $1, $3 ); }
+	;
+
+orlistf:
+	orlist								{ $$ = $1; }
+	| '-' orlist						{ $$ = pParser->AddOp ( SPH_QUERY_NOT, $2, NULL ); }
+	| TOK_FIELDLIMIT '-' orlist			{ $$ = pParser->AddOp ( SPH_QUERY_NOT, $3, NULL ); $$->SetFieldSpec ( $1.uMask, $1.iMaxPos ); }
+	;
+
+beforelist:
+	orlistf
+	| beforelist TOK_BEFORE orlistf		{ $$ = pParser->AddOp ( SPH_QUERY_BEFORE, $1, $3 ); }
 	;
 
 expr:
-	orlist								{ $$ = $1; }
-	| '-' orlist						{ $$ = pParser->AddOp ( SPH_QUERY_NOT, $2, NULL ); }
-	| expr orlist               		{ $$ = pParser->AddOp ( SPH_QUERY_AND, $1, $2 ); }
-	| expr '-' orlist               	{ $$ = pParser->AddOp ( SPH_QUERY_AND, $1, pParser->AddOp ( SPH_QUERY_NOT, $3, NULL ) ); }
+	beforelist							{ $$ = $1; }
+	| expr beforelist					{ $$ = pParser->AddOp ( SPH_QUERY_AND, $1, $2 ); }
 	;
 
 %%

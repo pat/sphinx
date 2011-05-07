@@ -1,5 +1,5 @@
 #
-# $Id: test.py 1136 2008-02-06 01:31:41Z shodan $
+# $Id: test.py 2055 2009-11-06 23:09:58Z shodan $
 #
 
 from sphinxapi import *
@@ -25,7 +25,7 @@ if not sys.argv[1:]:
 q = ''
 mode = SPH_MATCH_ALL
 host = 'localhost'
-port = 3312
+port = 9312
 index = '*'
 filtercol = 'group_id'
 filtervals = []
@@ -120,5 +120,5 @@ if res.has_key('matches'):
 		n += 1
 
 #
-# $Id: test.py 1136 2008-02-06 01:31:41Z shodan $
+# $Id: test.py 2055 2009-11-06 23:09:58Z shodan $
 #

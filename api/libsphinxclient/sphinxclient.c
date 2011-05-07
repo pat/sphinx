@@ -1,5 +1,5 @@
 //
-// $Id: sphinxclient.c 1369 2008-07-15 13:30:36Z shodan $
+// $Id: sphinxclient.c 2067 2009-11-13 23:23:06Z shodan $
 //
 
 //
@@ -61,14 +61,17 @@ enum
 	SEARCHD_COMMAND_SEARCH		= 0,
 	SEARCHD_COMMAND_EXCERPT		= 1,
 	SEARCHD_COMMAND_UPDATE		= 2,
-	SEARCHD_COMMAND_KEYWORDS	= 3
+	SEARCHD_COMMAND_KEYWORDS	= 3,
+	SEARCHD_COMMAND_PERSIST		= 4,
+	SEARCHD_COMMAND_STATUS		= 5
 };
 
 enum
 {
 	VER_COMMAND_EXCERPT			= 0x100,
 	VER_COMMAND_UPDATE			= 0x101,
-	VER_COMMAND_KEYWORDS		= 0x100
+	VER_COMMAND_KEYWORDS		= 0x100,
+	VER_COMMAND_STATUS			= 0x100
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -78,9 +81,9 @@ struct st_filter
 	const char *			attr;
 	int						filter_type;
 	int						num_values;
-	const sphinx_uint64_t *	values;
-	sphinx_uint64_t			umin;
-	sphinx_uint64_t			umax;
+	const sphinx_int64_t *	values;
+	sphinx_int64_t			umin;
+	sphinx_int64_t			umax;
 	float					fmin;
 	float					fmax;
 	int						exclude;
@@ -89,9 +92,18 @@ struct st_filter
 
 union un_attr_value
 {
-	sphinx_uint64_t			int_value;
+	sphinx_int64_t			int_value;
 	float					float_value;
 	unsigned int *			mva_value;
+};
+
+
+struct st_override
+{
+	const char *			attr;
+	const sphinx_uint64_t *	docids;
+	int						num_values;
+	const unsigned int *	uint_values;
 };
 
 
@@ -140,6 +152,10 @@ struct st_sphinx_client
 	int						num_field_weights;
 	const char **			field_weights_names;
 	const int *				field_weights_values;
+	int						num_overrides;
+	int						max_overrides;
+	struct st_override *	overrides;
+	const char *			select_list;
 
 	int						num_reqs;
 	int						req_lens [ MAX_REQS ];
@@ -151,6 +167,8 @@ struct st_sphinx_client
 
 	int						num_results;
 	sphinx_result			results [ MAX_REQS ];
+
+	int						sock;			///< open socket for pconns; -1 if none
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -171,7 +189,7 @@ sphinx_client * sphinx_create ( sphinx_bool copy_args )
 		return NULL;
 
 	// initialize defaults and return
-	client->ver_search				= 0x113; // 0.9.8 compatibility mode
+	client->ver_search				= 0x116; // 0x113 for 0.9.8, 0x116 for 0.9.9rc2
 	client->copy_args				= copy_args;
 	client->head_alloc				= NULL;
 
@@ -180,7 +198,7 @@ sphinx_client * sphinx_create ( sphinx_bool copy_args )
 	client->local_error_buf[0]		= '\0';
 
 	client->host					= strchain ( client, "localhost" );
-	client->port					= 3312;
+	client->port					= 9312;
 	client->timeout					= 0.0f;
 	client->offset					= 0;
 	client->limit					= 20;
@@ -214,6 +232,10 @@ sphinx_client * sphinx_create ( sphinx_bool copy_args )
 	client->num_field_weights		= 0;
 	client->field_weights_names		= NULL;
 	client->field_weights_values	= NULL;
+	client->num_overrides			= 0;
+	client->max_overrides			= 0;
+	client->overrides				= NULL;
+	client->select_list				= NULL;
 
 	client->num_reqs				= 0;
 	client->response_len			= 0;
@@ -229,9 +251,33 @@ sphinx_client * sphinx_create ( sphinx_bool copy_args )
 		client->results[i].attr_types = NULL;
 	}
 
+	client->sock = -1;
 	return client;
 }
 
+
+static void sphinx_free_results ( sphinx_client * client )
+{
+	int i;
+	for ( i=0; i<client->num_results; i++ )
+	{
+		free ( client->results[i].values_pool );
+		free ( client->results[i].words );
+		free ( client->results[i].fields );
+		free ( client->results[i].attr_names );
+		free ( client->results[i].attr_types );
+
+		client->results[i].values_pool = NULL;
+		client->results[i].words = NULL;
+		client->results[i].fields = NULL;
+		client->results[i].attr_names = NULL;
+		client->results[i].attr_types = NULL;
+	}
+	client->num_results = 0;
+}
+
+
+void sock_close ( int sock );
 
 void sphinx_destroy ( sphinx_client * client )
 {
@@ -243,14 +289,7 @@ void sphinx_destroy ( sphinx_client * client )
 	for ( i=0; i<client->num_reqs; i++ )
 		free ( client->reqs[i] );
 
-	for ( i=0; i<client->num_results; i++ )
-	{
-		free ( client->results[i].values_pool );
-		free ( client->results[i].words );
-		free ( client->results[i].fields );
-		free ( client->results[i].attr_names );
-		free ( client->results[i].attr_types );
-	}
+	sphinx_free_results ( client );
 
 	unchain_all ( client );
 
@@ -259,6 +298,9 @@ void sphinx_destroy ( sphinx_client * client )
 
 	if ( client->response_buf )
 		free ( client->response_buf );
+
+	if ( client->sock>=0 )
+		sock_close ( client->sock );
 
 	free ( client );
 }
@@ -289,6 +331,7 @@ static void set_error ( sphinx_client * client, const char * template, ... )
 
 	client->error = client->local_error_buf;
 }
+
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -411,8 +454,10 @@ sphinx_bool sphinx_set_limits ( sphinx_client * client, int offset, int limit, i
 
 	client->offset = offset;
 	client->limit = limit;
-	client->max_matches = max_matches;
-	client->cutoff = cutoff;
+	if ( max_matches>0 )
+		client->max_matches = max_matches;
+	if ( cutoff>0 )
+		client->cutoff = cutoff;
 	return SPH_TRUE;
 }
 
@@ -583,7 +628,7 @@ static struct st_filter * sphinx_add_filter_entry ( sphinx_client * client )
 }
 
 
-sphinx_bool sphinx_add_filter ( sphinx_client * client, const char * attr, int num_values, const sphinx_uint64_t * values, sphinx_bool exclude )
+sphinx_bool sphinx_add_filter ( sphinx_client * client, const char * attr, int num_values, const sphinx_int64_t * values, sphinx_bool exclude )
 {
 	struct st_filter * filter;
 
@@ -603,13 +648,13 @@ sphinx_bool sphinx_add_filter ( sphinx_client * client, const char * attr, int n
 	filter->attr = strchain ( client, attr );
 	filter->filter_type = SPH_FILTER_VALUES;
 	filter->num_values = num_values;
-	filter->values = chain ( client, values, num_values*sizeof(sphinx_uint64_t) );
+	filter->values = chain ( client, values, num_values*sizeof(sphinx_int64_t) );
 	filter->exclude = exclude;
 	return SPH_TRUE;
 }
 
 
-sphinx_bool sphinx_add_filter_range ( sphinx_client * client, const char * attr, sphinx_uint64_t umin, sphinx_uint64_t umax, sphinx_bool exclude )
+sphinx_bool sphinx_add_filter_range ( sphinx_client * client, const char * attr, sphinx_int64_t umin, sphinx_int64_t umax, sphinx_bool exclude )
 {
 	struct st_filter * filter;
 
@@ -738,6 +783,53 @@ sphinx_bool sphinx_set_retries ( sphinx_client * client, int count, int delay )
 }
 
 
+sphinx_bool sphinx_add_override ( sphinx_client * client, const char * attr, const sphinx_uint64_t * docids, int num_values, const unsigned int * values )
+{
+	struct st_override * p;
+
+	if ( !client )
+		return SPH_FALSE;
+
+	if ( client->ver_search<0x115 )
+	{
+		set_error ( client, "sphinx_add_override not supported by chosen protocol version" );
+		return SPH_FALSE;
+	}
+
+	if ( client->num_overrides>=client->max_overrides )
+	{
+		client->max_overrides = ( client->max_overrides<=0 ) ? 8 : 2*client->max_overrides;
+		client->overrides = realloc ( client->overrides, client->max_overrides *sizeof(struct st_override) );
+	}
+
+	p = client->overrides + client->num_overrides;
+	client->num_overrides++;
+
+	p->attr = strchain ( client, attr );
+	p->docids = chain ( client, docids, sizeof(sphinx_uint64_t)*num_values );
+	p->num_values = num_values;
+	p->uint_values = chain ( client, values, sizeof(unsigned int)*num_values );
+	return SPH_TRUE;
+}
+
+
+sphinx_bool sphinx_set_select ( sphinx_client * client, const char * select_list )
+{
+	if ( !client )
+		return SPH_FALSE;
+
+	if ( client->ver_search<0x116 )
+	{
+		set_error ( client, "sphinx_set_select not supported by chosen protocol version" );
+		return SPH_FALSE;
+	}
+
+	unchain ( client, client->select_list );
+	client->select_list = strchain ( client, select_list );
+	return SPH_TRUE;
+}
+
+
 void sphinx_reset_filters ( sphinx_client * client )
 {
 	int i;
@@ -811,7 +903,7 @@ static size_t safestrlen ( const char * s )
 
 static int calc_req_len ( sphinx_client * client, const char * query, const char * index_list, const char * comment )
 {
-	int i;
+	int i, filter_val_size;
 	size_t res;
 
 	res = 96 + 2*(int)sizeof(sphinx_uint64_t) + 4*client->num_weights
@@ -822,6 +914,8 @@ static int calc_req_len ( sphinx_client * client, const char * query, const char
 		+ safestrlen ( client->group_sort )
 		+ safestrlen ( client->group_distinct )
 		+ safestrlen ( comment );
+
+	filter_val_size = ( client->ver_search>=0x114 ) ? 8 : 4;
 	for ( i=0; i<client->num_filters; i++ )
 	{
 		const struct st_filter * filter = &client->filters[i];
@@ -829,9 +923,9 @@ static int calc_req_len ( sphinx_client * client, const char * query, const char
 
 		switch ( filter->filter_type )
 		{
-			case SPH_FILTER_VALUES:		res += 4 + 4*filter->num_values; break; // int values-count; uint32[] values
-			case SPH_FILTER_RANGE:		res += 8; break; // uint32 min-val, max-val
-			case SPH_FILTER_FLOATRANGE:	res += 8; break; // int/float min-val,max-val
+			case SPH_FILTER_VALUES:		res += 4 + filter_val_size*filter->num_values; break; // int values-count; uint32/int64[] values
+			case SPH_FILTER_RANGE:		res += 2*filter_val_size; break; // uint32/int64 min-val, max-val
+			case SPH_FILTER_FLOATRANGE:	res += 8; break; // float min-val,max-val
 		}
 	}
 
@@ -843,6 +937,19 @@ static int calc_req_len ( sphinx_client * client, const char * query, const char
 
 	for ( i=0; i<client->num_field_weights; i++ )
 		res += 8 + safestrlen ( client->field_weights_names[i] ); // string field-name; int field-weight
+
+	if ( client->ver_search>=0x115 )
+	{
+		res += 4; // int overrides-count
+		for ( i=0; i<client->num_overrides; i++ )
+		{
+			res += 8 + safestrlen ( client->overrides[i].attr ); // string attr, int attr-type
+			res += 4 + 12*client->overrides[i].num_values; // int values-count, { uint64 docid, uint32 value }[] override
+		}
+	}
+
+	if ( client->ver_search>=0x116 )
+		res += 4 + safestrlen ( client->select_list ); // string select_list
 
 	return (int)res;
 }
@@ -964,13 +1071,27 @@ int sphinx_add_query ( sphinx_client * client, const char * query, const char * 
 		{
 			case SPH_FILTER_VALUES:
 				send_int ( &req, client->filters[i].num_values );
-				for ( j=0; j<client->filters[i].num_values; j++ )
-					send_int ( &req, (unsigned int)client->filters[i].values[j] );
+				if ( client->ver_search>=0x114 )
+				{
+					for ( j=0; j<client->filters[i].num_values; j++ )
+						send_qword ( &req, client->filters[i].values[j] );
+				} else
+				{
+					for ( j=0; j<client->filters[i].num_values; j++ )
+						send_int ( &req, (unsigned int)client->filters[i].values[j] );
+				}
 				break;
 
 			case SPH_FILTER_RANGE:
-				send_int ( &req, (unsigned int)client->filters[i].umin );
-				send_int ( &req, (unsigned int)client->filters[i].umax );
+				if ( client->ver_search>=0x114 )
+				{
+					send_qword ( &req, client->filters[i].umin );
+					send_qword ( &req, client->filters[i].umax );
+				} else
+				{
+					send_int ( &req, (unsigned int)client->filters[i].umin );
+					send_int ( &req, (unsigned int)client->filters[i].umax );
+				}
 				break;
 
 			case SPH_FILTER_FLOATRANGE:
@@ -1014,6 +1135,25 @@ int sphinx_add_query ( sphinx_client * client, const char * query, const char * 
 		send_int ( &req, client->field_weights_values[i] );
 	}
 	send_str ( &req, comment );
+
+	if ( client->ver_search>=0x115 )
+	{
+		send_int ( &req, client->num_overrides );
+		for ( i=0; i<client->num_overrides; i++ )
+		{
+			send_str ( &req, client->overrides[i].attr );
+			send_int ( &req, SPH_ATTR_INTEGER );
+			send_int ( &req, client->overrides[i].num_values );
+			for ( j=0; j<client->overrides[i].num_values; j++ )
+			{
+				send_qword ( &req, client->overrides[i].docids[j] );
+				send_int ( &req, client->overrides[i].uint_values[j] );
+			}
+		}
+	}
+
+	if ( client->ver_search>=0x116 )
+		send_str ( &req, client->select_list );
 
 	if ( !req )
 	{
@@ -1095,13 +1235,68 @@ void SPH_FD_SET ( int fd, fd_set * fdset ) { FD_SET ( fd, fdset ); }
 #endif
 
 
+static sphinx_bool net_write ( int fd, const char * bytes, int len, sphinx_client * client )
+{
+	int res;
+	res = send ( fd, bytes, len, 0 );
+
+	if ( res<0 )
+	{
+		set_error ( client, "send() error: %s", sock_error() );
+		return SPH_FALSE;
+	}
+
+	if ( res!=len )
+	{
+		set_error ( client, "send() error: incomplete write (len=%d, sent=%d)", len, res );
+		return SPH_FALSE;
+	}
+
+	return SPH_TRUE;
+}
+
+
+static sphinx_bool net_read ( int fd, char * buf, int len, sphinx_client * client )
+{
+	int res, err;
+	for ( ;; )
+	{
+		res = recv ( fd, buf, len, 0 );
+
+		if ( res<0 )
+		{
+			err = sock_errno();
+			if ( err==EINTR || err==EWOULDBLOCK ) // FIXME! remove non-blocking mode here; add timeout
+				continue;
+			set_error ( client, "recv(): read error (error=%s)", sock_error() );
+			return SPH_FALSE;
+		}
+
+		len -= res;
+		buf += res;
+
+		if ( len==0 )
+			return SPH_TRUE;
+
+		if ( res==0 )
+		{
+			set_error ( client, "recv(): incomplete read (len=%d, recv=%d)", len, res );
+			return SPH_FALSE;
+		}
+	}
+}
+
+
 static int net_connect ( sphinx_client * client )
 {
 	struct hostent * hp;
 	struct sockaddr_in sa;
 	struct timeval timeout;
 	fd_set fds_write;
-	int sock, to_wait, res, err;
+	int sock, to_wait, res, err, my_proto;
+
+	if ( client->sock>=0 )
+		return client->sock;
 
 	hp = gethostbyname ( client->host );
 	if ( !hp )
@@ -1158,6 +1353,31 @@ static int net_connect ( sphinx_client * client )
 		if ( res>=0 && FD_ISSET ( sock, &fds_write ) )
 		{
 			sock_set_blocking ( sock );
+
+			// now send major client protocol version
+			my_proto = htonl ( 1 ); 
+			if ( !net_write ( sock, (char*)&my_proto, sizeof(my_proto), client ) )
+			{
+				sock_close ( sock );
+				set_error ( client, "failed to send client protocol version" );
+				return -1;
+			}
+
+			// check daemon version
+			if ( !net_read ( sock, (char*)&my_proto, sizeof(my_proto), client ) )
+			{
+				sock_close ( sock );
+				return -1;
+			}
+
+			my_proto = ntohl ( my_proto );
+			if ( my_proto<1 )
+			{
+				sock_close ( sock );
+				set_error ( client, "expected searchd protocol version 1+, got version %d", my_proto );
+				return -1;
+			}
+
 			return sock;
 		}
 
@@ -1166,58 +1386,6 @@ static int net_connect ( sphinx_client * client )
 		sock_close ( sock );
 		set_error ( client, "connect() timed out" );
 		return -1;
-	}
-}
-
-
-static sphinx_bool net_write ( int fd, const char * bytes, int len, sphinx_client * client )
-{
-	int res;
-	res = send ( fd, bytes, len, 0 );
-
-	if ( res<0 )
-	{
-		set_error ( client, "send() error: %s", sock_error() );
-		return SPH_FALSE;
-	}
-
-	if ( res!=len )
-	{
-		set_error ( client, "send() error: incomplete write (len=%d, sent=%d)", len, res );
-		return SPH_FALSE;
-	}
-
-	return SPH_TRUE;
-}
-
-
-static sphinx_bool net_read ( int fd, char * buf, int len, sphinx_client * client )
-{
-	int res, err;
-	for ( ;; )
-	{
-		res = recv ( fd, buf, len, 0 );
-
-		if ( res<0 )
-		{
-			err = sock_errno();
-			if ( err==EINTR || err==EWOULDBLOCK ) // FIXME! remove non-blocking mode here; add timeout
-				continue;
-			set_error ( client, "recv(): read error (error=%s)", sock_error() );
-			return SPH_FALSE;
-		}
-
-		len -= res;
-		buf += res;
-
-		if ( len==0 )
-			return SPH_TRUE;
-
-		if ( res==0 )
-		{
-			set_error ( client, "recv(): incomplete read (len=%d, recv=%d)", len, res );
-			return SPH_FALSE;
-		}
 	}
 }
 
@@ -1276,7 +1444,7 @@ static float unpack_float ( char ** cur )
 
 static void net_get_response ( int fd, sphinx_client * client )
 {
-	int i, len;
+	int len;
 	char header_buf[32], *cur, *response;
 	unsigned short status, ver;
 
@@ -1289,11 +1457,15 @@ static void net_get_response ( int fd, sphinx_client * client )
 	}
 
 	// read and parse the header
-	if ( !net_read ( fd, header_buf, 12, client ) )
+	if ( !net_read ( fd, header_buf, 8, client ) )
+	{
+		sock_close ( fd );
+		if ( client->sock>0 )
+			client->sock = -1;
 		return;
+	}
 
 	cur = header_buf;
-	i = unpack_int ( &cur ); // major searchd version
 	status = unpack_short ( &cur );
 	ver = unpack_short ( &cur );
 	len = unpack_int ( &cur );
@@ -1316,6 +1488,8 @@ static void net_get_response ( int fd, sphinx_client * client )
 	if ( !net_read ( fd, response, len, client ) )
 	{
 		sock_close ( fd );
+		if ( client->sock>0 )
+			client->sock = -1;
 		free ( response );
 		return;
 	}
@@ -1345,8 +1519,52 @@ static void net_get_response ( int fd, sphinx_client * client )
 			break;
 	}
 
-	// close the socket
-	sock_close ( fd );
+	// close one-time socket on success
+	if ( client->sock<0 )
+		sock_close ( fd );
+}
+
+
+sphinx_bool sphinx_open ( sphinx_client * client )
+{
+	char buf[16], *pbuf;
+
+	if ( client->sock>=0 )
+	{
+		set_error ( client, "already connected" );
+		return SPH_FALSE;
+	}
+
+	client->sock = net_connect ( client );
+	if ( client->sock<0 )
+		return SPH_FALSE;
+
+	pbuf = buf;
+	send_word ( &pbuf, SEARCHD_COMMAND_PERSIST );
+	send_word ( &pbuf, 0 ); // dummy version
+	send_int ( &pbuf, 4 ); // dummy body len
+	send_int ( &pbuf, 1 ); // dummy body
+	if ( !net_write ( client->sock, buf, (int)(pbuf-buf), client ) )
+	{
+		sock_close ( client->sock );
+		client->sock = -1;
+		return SPH_FALSE;
+	}
+	return SPH_TRUE;
+}
+
+
+sphinx_bool sphinx_close ( sphinx_client * client )
+{
+	if ( client->sock<0 )
+	{
+		set_error ( client, "not connected" );
+		return SPH_FALSE;
+	}
+
+	sock_close ( client->sock );
+	client->sock = -1;
+	return SPH_TRUE;
 }
 
 
@@ -1388,13 +1606,15 @@ sphinx_result * sphinx_run_queries ( sphinx_client * client )
 	if ( fd<0 )
 		return NULL;
 
+	// free previous results
+	sphinx_free_results ( client );
+
 	// send query, get response
 	len = 4;
 	for ( i=0; i<client->num_reqs; i++ )
 		len += client->req_lens[i];
 
 	req = req_header;
-	send_int ( &req, 1 ); // major protocol version
 	send_word ( &req, SEARCHD_COMMAND_SEARCH );
 	send_word ( &req, client->ver_search );
 	send_int ( &req, len );
@@ -1563,7 +1783,7 @@ int sphinx_get_weight ( sphinx_result * result, int match )
 }
 
 
-sphinx_uint64_t sphinx_get_int ( sphinx_result * result, int match, int attr )
+sphinx_int64_t sphinx_get_int ( sphinx_result * result, int match, int attr )
 {
 	// FIXME! add safety and type checks
 	union un_attr_value * pval;
@@ -1602,7 +1822,7 @@ static sphinx_bool net_simple_query ( sphinx_client * client, char * buf, int re
 		return SPH_FALSE;
 	}
 
-	if ( !net_write ( fd, buf, 12+req_len, client ) )
+	if ( !net_write ( fd, buf, 8+req_len, client ) )
 	{
 		free ( buf );
 		return SPH_FALSE;
@@ -1690,7 +1910,6 @@ char ** sphinx_build_excerpts ( sphinx_client * client, int num_docs, const char
 	// build request
 	req = buf;
 
-	send_int ( &req, 1 ); // major protocol version
 	send_word ( &req, SEARCHD_COMMAND_EXCERPT );
 	send_word ( &req, VER_COMMAND_EXCERPT );
 	send_int ( &req, req_len );
@@ -1716,7 +1935,7 @@ char ** sphinx_build_excerpts ( sphinx_client * client, int num_docs, const char
 	for ( i=0; i<num_docs; i++ )
 		send_str ( &req, docs[i] );
 
-	if ( (int)(req-buf)!=12+req_len )
+	if ( (int)(req-buf)!=8+req_len )
 	{
 		set_error ( client, "internal error: failed to build request in sphinx_build_excerpts()" );
 		free ( buf );
@@ -1760,7 +1979,7 @@ char ** sphinx_build_excerpts ( sphinx_client * client, int num_docs, const char
 
 //////////////////////////////////////////////////////////////////////////
 
-int sphinx_update_attributes ( sphinx_client * client, const char * index, int num_attrs, const char ** attrs, int num_docs, const sphinx_uint64_t * docids, const sphinx_uint64_t * values )
+int sphinx_update_attributes ( sphinx_client * client, const char * index, int num_attrs, const char ** attrs, int num_docs, const sphinx_uint64_t * docids, const sphinx_int64_t * values )
 {
 	int i, j, req_len;
 	char *buf, *req, *p;
@@ -1791,7 +2010,6 @@ int sphinx_update_attributes ( sphinx_client * client, const char * index, int n
 	// build request
 	req = buf;
 
-	send_int ( &req, 1 ); // major protocol version
 	send_word ( &req, SEARCHD_COMMAND_UPDATE );
 	send_word ( &req, VER_COMMAND_UPDATE );
 	send_int ( &req, req_len );
@@ -1854,7 +2072,6 @@ sphinx_keyword_info * sphinx_build_keywords ( sphinx_client * client, const char
 	// build request
 	req = buf;
 
-	send_int ( &req, 1 ); // major protocol version
 	send_word ( &req, SEARCHD_COMMAND_KEYWORDS );
 	send_word ( &req, VER_COMMAND_KEYWORDS );
 	send_int ( &req, req_len );
@@ -1898,6 +2115,68 @@ sphinx_keyword_info * sphinx_build_keywords ( sphinx_client * client, const char
 	return res;
 }
 
+//////////////////////////////////////////////////////////////////////////
+
+char ** sphinx_status ( sphinx_client * client, int * num_rows, int * num_cols )
+{
+	int i, j, k, n;
+	char *p, *pmax, *req, *buf, **res;
+
+	// check args
+	if ( !client || !num_rows || !num_cols )
+	{
+		if ( !num_rows )		set_error ( client, "invalid arguments (num_rows must not be NULL)" );
+		else if ( !num_cols )	set_error ( client, "invalid arguments (num_cols must not be NULL)" );
+		return NULL;
+	}
+
+	// build request
+	buf = malloc ( 12 );
+	if ( !buf )
+	{
+		set_error ( client, "malloc() failed (bytes=12)" );
+		return NULL;
+	}
+
+	req = buf;
+	send_word ( &req, SEARCHD_COMMAND_STATUS );
+	send_word ( &req, VER_COMMAND_STATUS );
+	send_int ( &req, 4 );
+	send_int ( &req, 1 );
+
+	// send query, get response
+	if ( !net_simple_query ( client, buf, 12 ) )
+		return NULL;
+
+	// parse response
+	p = client->response_start;
+	pmax = client->response_start + client->response_len; // max position for checks, to protect against broken responses
+
+	*num_rows = unpack_int ( &p );
+	*num_cols = unpack_int ( &p );
+	n = (*num_rows)*(*num_cols);
+
+	res = (char**) malloc ( n*sizeof(char*) );
+	for ( i=0; i<n; i++ )
+		res[i] = NULL;
+
+	// FIXME! error checking?
+	k = 0;
+	for ( i=0; i<*num_rows; i++ )
+		for ( j=0; j<*num_cols; j++ )
+			res[k++] = strdup ( unpack_str ( &p ) );
+
+	return res;
+}
+
+void sphinx_status_destroy ( char ** status, int num_rows, int num_cols )
+{
+	int i;
+	for ( i=0; i<num_rows*num_cols; i++ )
+		free ( status[i] );
+	free ( status );
+}
+
 //
-// $Id: sphinxclient.c 1369 2008-07-15 13:30:36Z shodan $
+// $Id: sphinxclient.c 2067 2009-11-13 23:23:06Z shodan $
 //

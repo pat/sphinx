@@ -1,5 +1,5 @@
 //
-// $Id: sphinxstemen.cpp 1042 2007-12-31 22:25:36Z shodan $
+// $Id: sphinxstemen.cpp 1709 2009-02-27 10:30:10Z klirichek $
 //
 
 //
@@ -262,7 +262,7 @@ void stem_en ( BYTE * word )
 		if (len >= 2 && word[len-1] == word[len-2] && stem_en_id(word[len-1])) {
 			len--; break;
 		}
-		if (len == 2 && (stem_en_iv(word[0]) && !stem_en_iv(word[1]))
+		if ((len == 2 && (stem_en_iv(word[0]) && !stem_en_iv(word[1])))
 			|| (len == r1 && !stem_en_iv(word[len-3]) && stem_en_iv(word[len-2]) && !stem_en_ivwxy(word[len-1])))
 		{
 			word[len++] = 'e';
@@ -337,5 +337,5 @@ void stem_en ( BYTE * word )
 }
 
 //
-// $Id: sphinxstemen.cpp 1042 2007-12-31 22:25:36Z shodan $
+// $Id: sphinxstemen.cpp 1709 2009-02-27 10:30:10Z klirichek $
 //

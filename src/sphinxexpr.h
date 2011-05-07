@@ -38,13 +38,16 @@ public:
 
 	/// check for arglist subtype
 	virtual bool IsArglist () const { return false; }
+
+	/// setup MVA pool
+	virtual void SetMVAPool ( const DWORD * ) {}
 };
 
 /// parses given expression, builds evaluator
 /// returns NULL and fills sError on failure
 /// returns pointer to evaluator on success
 /// fills pAttrType with result type (for now, can be SPH_ATTR_SINT or SPH_ATTR_FLOAT)
-ISphExpr * sphExprParse ( const char * sExpr, const CSphSchema & tSchema, DWORD * pAttrType, CSphString & sError );
+ISphExpr * sphExprParse ( const char * sExpr, const CSphSchema & tSchema, DWORD * pAttrType, bool * pUsesWeight, CSphString & sError );
 
 #endif // _sphinxexpr_
 

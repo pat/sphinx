@@ -1,5 +1,5 @@
 //
-// $Id: test.c 1369 2008-07-15 13:30:36Z shodan $
+// $Id: test.c 2067 2009-11-13 23:23:06Z shodan $
 //
 
 //
@@ -47,7 +47,7 @@ void net_init ()
 }
 
 
-void test_query ( sphinx_client * client )
+void test_query ( sphinx_client * client, sphinx_bool test_extras )
 {
 	sphinx_result * res;
 	const char *query, *index;
@@ -55,6 +55,9 @@ void test_query ( sphinx_client * client )
 	unsigned int * mva;
 	const char * field_names[2];
 	int field_weights[2];
+
+	sphinx_uint64_t override_docid = 4;
+	unsigned int override_value = 456;
 
 	query = "test";
 	index = "test1";
@@ -66,6 +69,12 @@ void test_query ( sphinx_client * client )
 	sphinx_set_field_weights ( client, 2, field_names, field_weights );
 	field_weights[0] = 1;
 	field_weights[1] = 1;
+
+	if ( test_extras )
+	{
+		sphinx_add_override ( client, "group_id", &override_docid, 1, &override_value );
+		sphinx_set_select ( client, "*, group_id*1000+@id*10 AS q" );
+	}
 
 	res = sphinx_query ( client, query, index, NULL );
 	if ( !res )
@@ -148,7 +157,7 @@ void test_update ( sphinx_client * client )
 {
 	const char * attr = "group_id";
 	const sphinx_uint64_t id = 2;
-	const sphinx_uint64_t val = 123;
+	const sphinx_int64_t val = 123;
 	int res;
 
 	res = sphinx_update_attributes ( client, "test1", 1, &attr, 1, &id, &val );
@@ -180,6 +189,31 @@ void test_keywords ( sphinx_client * client )
 }
 
 
+void test_status ( sphinx_client * client )
+{
+	int num_rows, num_cols, i, j, k;
+	char ** status;
+
+	status = sphinx_status ( client, &num_rows, &num_cols );
+	if ( !status )
+	{
+		printf ( "status failed: %s\n\n", sphinx_error(client) );
+		return;
+	}
+
+	k = 0;
+	for ( i=0; i<num_rows; i++ )
+	{
+		for ( j=0; j<num_cols; j++, k++ )
+			printf ( ( j==0 ) ? "%s:" : " %s", status[k] );
+		printf ( "\n" );
+	}
+	printf ( "\n" );
+
+	sphinx_status_destroy ( status, num_rows, num_cols );
+}
+
+
 int main ()
 {
 	sphinx_client * client;
@@ -190,16 +224,24 @@ int main ()
 	if ( !client )
 		die ( "failed to create client" );
 
-	test_query ( client );
+	test_query ( client, SPH_FALSE );
 	test_excerpt ( client );
 	test_update ( client );
-	test_query ( client );
+	test_query ( client, SPH_FALSE );
 	test_keywords ( client );
+	test_query ( client, SPH_TRUE );
+
+	sphinx_open ( client );
+	test_update ( client );
+	test_update ( client );
+	sphinx_close ( client );
+
+	test_status ( client );
 
 	sphinx_destroy ( client );
 	return 0;
 }
 
 //
-// $Id: test.c 1369 2008-07-15 13:30:36Z shodan $
+// $Id: test.c 2067 2009-11-13 23:23:06Z shodan $
 //

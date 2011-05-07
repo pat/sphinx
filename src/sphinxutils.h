@@ -1,5 +1,5 @@
 //
-// $Id: sphinxutils.h 1377 2008-07-23 15:37:40Z glook $
+// $Id: sphinxutils.h 1593 2008-12-04 23:24:30Z shodan $
 //
 
 //
@@ -126,20 +126,23 @@ enum
 	,TOKENIZER_NGRAM	= 3
 };
 
+/// load config file
+const char *	sphLoadConfig ( const char * sOptConfig, bool bQuiet, CSphConfigParser & cp );
+
 /// configure tokenizer from index definition section
-bool	sphConfTokenizer ( const CSphConfigSection & hIndex, CSphTokenizerSettings & tSettings, CSphString & sError );
+bool			sphConfTokenizer ( const CSphConfigSection & hIndex, CSphTokenizerSettings & tSettings, CSphString & sError );
 
 /// configure dictionary from index definition section
-void	sphConfDictionary ( const CSphConfigSection & hIndex, CSphDictSettings & tSettings );
+void			sphConfDictionary ( const CSphConfigSection & hIndex, CSphDictSettings & tSettings );
 
 /// configure index from index definition section
-void	sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSettings );
+void			sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSettings );
 
 /// try to set dictionary, tokenizer and misc settings for an index (if not already set)
-bool	sphFixupIndexSettings ( CSphIndex * pIndex, const CSphConfigSection & hIndex, CSphString & sError );
+bool			sphFixupIndexSettings ( CSphIndex * pIndex, const CSphConfigSection & hIndex, CSphString & sError );
 
 #endif // _sphinxutils_
 
 //
-// $Id: sphinxutils.h 1377 2008-07-23 15:37:40Z glook $
+// $Id: sphinxutils.h 1593 2008-12-04 23:24:30Z shodan $
 //

@@ -68,6 +68,7 @@ AC_CHECK_HEADERS([fcntl.h limits.h netdb.h netinet/in.h stdlib.h string.h sys/fi
 AC_CHECK_HEADER(expat.h,[have_expat_h=yes],[have_expat_h=no])
 AC_CHECK_HEADER(iconv.h,[have_iconv_h=yes],[have_iconv_h=no])
 AC_CHECK_HEADER(zlib.h,[have_zlib_h=yes],[have_zlib_h=no])
+AC_CHECK_HEADER(sql.h,[have_sql_h=yes],[have_sql_h=no])
 
 dnl --------------------------------------------------------------------------
 
@@ -99,7 +100,21 @@ AC_SEARCH_LIBS([XML_Parse],[expat],[have_libexpat=yes],[have_libexpat=no])
 AC_SEARCH_LIBS([iconv],[iconv],[have_libiconv=yes],[have_libiconv=no])
 AC_SEARCH_LIBS([inflate],[z],[have_lz=yes],[have_lz=no])
 AC_SEARCH_LIBS([logf],[m])
-AC_CHECK_FUNCS([dup2 gethostbyname gettimeofday memmove memset select socket strcasecmp strchr strerror strncasecmp strstr strtol logf])
+AC_SEARCH_LIBS([SQLConnect],[odbc],[have_libodbc=yes],[have_libodbc=no])
+AC_CHECK_FUNCS([dup2 gethostbyname gettimeofday memmove memset select socket strcasecmp strchr strerror strncasecmp strstr strtol logf pread])
+
+# most systems require the program be linked with librt library to use
+# the function clock_gettime 
+my_save_LIBS="$LIBS"
+LIBS=""
+AC_CHECK_LIB(rt,clock_gettime)
+
+LIBRT=$LIBS
+LIBS="$my_save_LIBS"
+AC_SUBST(LIBRT)
+
+LIBS="$LIBS $LIBRT"
+AC_CHECK_FUNCS(clock_gettime)
 
 SPHINX_CHECK_DEFINE(LOCK_EX,sys/file.h)
 SPHINX_CHECK_DEFINE(F_SETLKW,fcntl.h)
@@ -225,6 +240,10 @@ else
 fi
 AM_CONDITIONAL(USE_PGSQL, test x$ac_cv_use_pgsql != xno)
 
+# add macports include directory
+if (echo $MYSQL_LIBS | grep -q -- -L/opt/local/lib); then
+   MYSQL_CFLAGS="$MYSQL_CFLAGS -I/opt/local/include"
+fi
 
 # we can now set preprocessor flags for both C and C++ compilers
 CPPFLAGS="$CPPFLAGS $MYSQL_CFLAGS $PGSQL_CFLAGS"
@@ -335,6 +354,25 @@ dnl ---
 
 if test [ $have_zlib_h = yes -a $have_lz = yes ]; then
    AC_DEFINE([USE_ZLIB],1,[define to use Zlib])
+fi
+
+dnl ---
+
+AC_ARG_WITH([unixodbc],
+	AC_HELP_STRING([--with-unixodbc], [compile with UnixODBC support (default is autodetect)]),
+	[ac_cv_use_unixodbc=$withval], [ac_cv_use_unixodbc=yes]
+)
+AC_MSG_CHECKING([for UnixODBC])
+if test [ $ac_cv_use_unixodbc != no ]; then
+	if test [ $have_sql_h = yes -a $have_libodbc = yes ]; then
+		AC_DEFINE([USE_ODBC],1,[define to use ODBC library])
+		AC_MSG_RESULT([found])
+	else
+		AC_MSG_RESULT([not found])
+		AC_MSG_WARN([ODBC source support will NOT be available])
+	fi
+else
+	AC_MSG_RESULT([disabled])
 fi
 
 dnl ---

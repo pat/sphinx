@@ -1,5 +1,5 @@
 /*
- * $Id: test.java 1316 2008-06-23 22:51:46Z shodan $
+ * $Id: test.java 2055 2009-11-06 23:09:58Z shodan $
  */
 
 package org.sphx.api;
@@ -41,7 +41,7 @@ public class test
 
 		StringBuffer q = new StringBuffer();
 		String host = "localhost";
-		int port = 3312;
+		int port = 9312;
 		int mode = SphinxClient.SPH_MATCH_ALL;
 		String index = "*";
 		int offset = 0;
@@ -159,5 +159,5 @@ public class test
 }
 
 /*
- * $Id: test.java 1316 2008-06-23 22:51:46Z shodan $
+ * $Id: test.java 2055 2009-11-06 23:09:58Z shodan $
  */

@@ -1,5 +1,8 @@
 /* config/config.h.in.  Generated from configure.ac by autoheader.  */
 
+/* Define to 1 if you have the `clock_gettime' function. */
+#undef HAVE_CLOCK_GETTIME
+
 /* Define to 1 if you don't have `vprintf' but do have `_doprnt.' */
 #undef HAVE_DOPRNT
 
@@ -23,6 +26,9 @@
 
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
+
+/* Define to 1 if you have the `rt' library (-lrt). */
+#undef HAVE_LIBRT
 
 /* Define to 1 if you have the <limits.h> header file. */
 #undef HAVE_LIMITS_H
@@ -51,6 +57,9 @@
 
 /* Define to 1 if you have the <netinet/in.h> header file. */
 #undef HAVE_NETINET_IN_H
+
+/* Define to 1 if you have the `pread' function. */
+#undef HAVE_PREAD
 
 /* Define to 1 if you have the <pthread.h> header file. */
 #undef HAVE_PTHREAD_H
@@ -205,6 +214,9 @@
 /* Define to 1 if you want to compile with MySQL support */
 #undef USE_MYSQL
 
+/* define to use ODBC library */
+#undef USE_ODBC
+
 /* Define to 1 if you want to compile with PostgreSQL support */
 #undef USE_PGSQL
 
@@ -226,7 +238,7 @@
 /* Define to rpl_malloc if the replacement function should be used. */
 #undef malloc
 
-/* Define to `long' if <sys/types.h> does not define. */
+/* Define to `long int' if <sys/types.h> does not define. */
 #undef off_t
 
 /* Define to `int' if <sys/types.h> does not define. */
@@ -235,7 +247,7 @@
 /* Define to rpl_realloc if the replacement function should be used. */
 #undef realloc
 
-/* Define to `unsigned' if <sys/types.h> does not define. */
+/* Define to `unsigned int' if <sys/types.h> does not define. */
 #undef size_t
 
 /* Define as `fork' if `vfork' does not work. */

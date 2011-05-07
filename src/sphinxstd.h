@@ -1,5 +1,5 @@
 //
-// $Id: sphinxstd.h 1545 2008-11-03 22:40:09Z shodan $
+// $Id: sphinxstd.h 2072 2009-11-15 17:11:30Z shodan $
 //
 
 #ifndef _sphinxstd_
@@ -43,6 +43,16 @@ typedef int __declspec("SAL_nokernel") __declspec("SAL_nodriver") __prefast_flag
 #include <sys/types.h>
 #endif
 
+#if USE_WINDOWS
+// for intrinsic __rdtsc()
+// must be included here, otherwise it breaks our assert macro
+#include <intrin.h>
+#else
+#include <sys/mman.h>
+#include <errno.h>
+#include <pthread.h>
+#endif
+
 /////////////////////////////////////////////////////////////////////////////
 // COMPILE-TIME CHECKS
 /////////////////////////////////////////////////////////////////////////////
@@ -72,7 +82,18 @@ typedef int __declspec("SAL_nokernel") __declspec("SAL_nodriver") __prefast_flag
 
 #else
 
+#if USE_ODBC
+// UnixODBC compatible DWORD
+#if defined(__alpha) || defined(__sparcv9) || defined(__LP64__) || (defined(__HOS_AIX__) && defined(_LP64))
 typedef unsigned int		DWORD;
+#else
+typedef unsigned long		DWORD;
+#endif
+#else
+// default DWORD
+typedef unsigned int		DWORD;
+#endif // USE_ODBC
+
 typedef unsigned short		WORD;
 typedef unsigned char		BYTE;
 
@@ -195,6 +216,19 @@ inline DWORD sphF2DW ( float f )	{ union { float f; DWORD d; } u; u.f = f; retur
 
 /// dword vs float conversion
 inline float sphDW2F ( DWORD d )	{ union { float f; DWORD d; } u; u.d = d; return u.f; }
+
+//////////////////////////////////////////////////////////////////////////
+// RANDOM NUMBERS GENERATOR
+//////////////////////////////////////////////////////////////////////////
+
+/// seed RNG
+void		sphSrand ( DWORD uSeed );
+
+/// auto-seed RNG based on time and PID
+void		sphAutoSrand ();
+
+/// generate another random
+DWORD		sphRand ();
 
 /////////////////////////////////////////////////////////////////////////////
 // DEBUGGING
@@ -1107,6 +1141,11 @@ public:
 			m_sValue [ sEnd-sStart+1 ] = '\0';
 		}
 	}
+
+	int Length () const
+	{
+		return m_sValue ? (int)strlen(m_sValue) : 0;
+	}
 };
 
 /// string swapper
@@ -1248,8 +1287,185 @@ protected:
 	T *				m_pPtr;
 };
 
+//////////////////////////////////////////////////////////////////////////
+
+extern bool g_bHeadProcess;
+void sphWarn ( const char *, ... );
+
+/// in-memory buffer shared between processes
+template < typename T > class CSphSharedBuffer
+{
+public:
+	/// ctor
+	CSphSharedBuffer ()
+		: m_pData ( NULL )
+		, m_iLength ( 0 )
+		, m_iEntries ( 0 )
+		, m_bMlock ( false )
+	{}
+
+	/// dtor
+	~CSphSharedBuffer ()
+	{
+		Reset ();
+	}
+
+	/// set locking mode for subsequent Alloc()s
+	void SetMlock ( bool bMlock )
+	{
+		m_bMlock = bMlock;
+	}
+
+public:
+	/// allocate storage
+#if USE_WINDOWS
+	bool Alloc ( DWORD iEntries, CSphString & sError, CSphString & )
+#else
+	bool Alloc ( DWORD iEntries, CSphString & sError, CSphString & sWarning )
+#endif
+	{
+		assert ( !m_pData );
+
+		int64_t uCheck = sizeof(T);
+		uCheck *= (int64_t)iEntries;
+
+		m_iLength = (size_t)uCheck;
+		if ( uCheck!=(int64_t)m_iLength )
+		{
+			sError.SetSprintf ( "impossible to mmap() over 4 GB on 32-bit system" );
+			m_iLength = 0;
+			return false;
+		}
+
+#if USE_WINDOWS
+		m_pData = new T [ iEntries ];
+#else
+		m_pData = (T *) mmap ( NULL, m_iLength, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0 );
+		if ( m_pData==MAP_FAILED )
+		{
+			if ( m_iLength>0x7fffffffUL )
+				sError.SetSprintf ( "mmap() failed: %s (length=%"PRIi64" is over 2GB, impossible on some 32-bit systems)", strerror(errno), (int64_t)m_iLength );
+			else
+				sError.SetSprintf ( "mmap() failed: %s (length=%"PRIi64")", strerror(errno), (int64_t)m_iLength );
+			m_iLength = 0;
+			return false;
+		}
+
+		if ( m_bMlock )
+			if ( -1==mlock ( m_pData, m_iLength ) )
+				sWarning.SetSprintf ( "mlock() failed: %s", strerror(errno) );
+#endif // USE_WINDOWS
+
+		assert ( m_pData );
+		m_iEntries = iEntries;
+		return true;
+	}
+
+
+	/// relock again (for daemonization only)
+#if USE_WINDOWS
+	bool Mlock ( const char *, CSphString & )
+	{
+		return true;
+	}
+#else
+	bool Mlock ( const char * sPrefix, CSphString & sError )
+	{
+		if ( !m_bMlock )
+			return true;
+
+		if ( mlock ( m_pData, m_iLength )!=-1 )
+			return true;
+
+		if ( sError.IsEmpty() )
+			sError.SetSprintf ( "%s mlock() failed: bytes=%"PRIu64", error=%s", sPrefix, (uint64_t)m_iLength, strerror(errno) );
+		else
+			sError.SetSprintf ( "%s; %s mlock() failed: bytes=%"PRIu64", error=%s", sError.cstr(), sPrefix, (uint64_t)m_iLength, strerror(errno) );
+		return false;
+	}
+#endif
+
+
+	/// deallocate storage
+	void Reset ()
+	{
+		if ( !m_pData )
+			return;
+
+#if USE_WINDOWS
+		delete [] m_pData;
+#else
+		if ( g_bHeadProcess )
+		{
+			int iRes = munmap ( m_pData, m_iLength );
+			if ( iRes )
+				sphWarn ( "munmap() failed: %s", strerror(errno) );
+		}
+#endif // USE_WINDOWS
+
+		m_pData = NULL;
+		m_iLength = 0;
+		m_iEntries = 0;
+	}
+
+public:
+	/// accessor
+	inline const T & operator [] ( DWORD iIndex ) const
+	{
+		assert ( iIndex>=0 && iIndex<m_iEntries );
+		return m_pData[iIndex];
+	}
+
+	/// get write address
+	T * GetWritePtr () const
+	{
+		return m_pData;
+	}
+
+	/// check if i'm empty
+	bool IsEmpty () const
+	{
+		return m_pData==NULL;
+	}
+
+	/// get length in bytes
+	size_t GetLength () const
+	{
+		return m_iLength;
+	}
+
+	/// get length in entries
+	DWORD GetNumEntries () const
+	{
+		return m_iEntries;
+	}
+
+protected:
+	T *					m_pData;	///< data storage
+	size_t				m_iLength;	///< data length, bytes
+	DWORD				m_iEntries;	///< data length, entries
+	bool				m_bMlock;	///< whether to lock data in RAM
+};
+
+//////////////////////////////////////////////////////////////////////////
+
+/// process-shared mutex that survives fork
+class CSphProcessSharedMutex
+{
+public:
+	CSphProcessSharedMutex ();
+	void	Lock ();
+	void	Unlock ();
+
+protected:
+#if !USE_WINDOWS
+	CSphSharedBuffer<BYTE>		m_pStorage;
+	pthread_mutex_t *			m_pMutex;
+#endif
+};
+
 #endif // _sphinxstd_
 
 //
-// $Id: sphinxstd.h 1545 2008-11-03 22:40:09Z shodan $
+// $Id: sphinxstd.h 2072 2009-11-15 17:11:30Z shodan $
 //

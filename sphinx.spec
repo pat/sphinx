@@ -1,7 +1,7 @@
 Summary: Sphinx full-text search engine
 Name: sphinx
 Version: 0.9.9
-Release: r1566
+Release: r2117
 License: GPL
 Group: Development
 BuildRoot: /tmp/sphinx-%{version}-svn-%{release}

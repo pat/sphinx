@@ -1,5 +1,5 @@
 //
-// $Id: sphinxstemru.cpp 1042 2007-12-31 22:25:36Z shodan $
+// $Id: sphinxstemru.cpp 1716 2009-03-02 15:42:35Z klirichek $
 //
 
 //
@@ -57,7 +57,7 @@ struct RussianAlphabetWin1251_t
 		YA	= 0xFF
 	};
 };
-	
+
 #define LOC_CHAR_TYPE		unsigned char
 #define LOC_PREFIX(_a)		_a##_cp1251
 #define RUS					RussianAlphabetWin1251_t
@@ -123,5 +123,5 @@ void stem_ru_init ()
 }
 
 //
-// $Id: sphinxstemru.cpp 1042 2007-12-31 22:25:36Z shodan $
+// $Id: sphinxstemru.cpp 1716 2009-03-02 15:42:35Z klirichek $
 //

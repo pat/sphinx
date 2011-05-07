@@ -1,7 +1,7 @@
 <?php
 
 //
-// $Id: ubertest.php 1551 2008-11-05 20:55:21Z shodan $
+// $Id: ubertest.php 1624 2008-12-25 13:19:55Z shodan $
 //
 
 $sd_address 		= "localhost";
@@ -163,12 +163,16 @@ foreach ( $tests as $test )
 
 	if ( file_exists ( $test."/test.xml" ) )
 	{
+		$total_tests++;
 		$res = RunTest ( $test );
 
 		if ( !is_array($res) )
-			continue; // failed to run that test at all
+		{
+			// failed to run that test at all
+			$total_tests_failed++;
+			continue;
+		}
 
-		$total_tests++;
 		$total_subtests += $res["tests_total"];
 		if ( $res["tests_failed"] )
 		{
@@ -228,7 +232,7 @@ if ( $total_tests_failed )
 }
 
 //
-// $Id: ubertest.php 1551 2008-11-05 20:55:21Z shodan $
+// $Id: ubertest.php 1624 2008-12-25 13:19:55Z shodan $
 //
 
 ?>

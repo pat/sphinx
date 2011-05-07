@@ -1,5 +1,5 @@
 //
-// $Id: search.cpp 1470 2008-09-30 15:14:26Z shodan $
+// $Id: search.cpp 1784 2009-04-07 11:32:02Z shodan $
 //
 
 //
@@ -35,13 +35,6 @@ const char * myctime ( DWORD uStamp )
 	*p = '\0';
 
 	return sBuf;
-}
-
-
-void DumpHeader ( const char * sHeaderName )
-{
-	CSphIndex * pIndex = sphCreateIndexPhrase ( "" );
-	pIndex->DumpHeader ( stdout, sHeaderName );
 }
 
 
@@ -124,7 +117,6 @@ int main ( int argc, char ** argv )
 			OPT ( "-gs","--groupsort" )	{ tQuery.m_sGroupSortBy = argv[++i]; }
 			OPT ( "-s", "--sortby" )	{ tQuery.m_eSort = SPH_SORT_EXTENDED; tQuery.m_sSortBy = argv[++i]; }
 			OPT ( "-S", "--sortexpr" )	{ tQuery.m_eSort = SPH_SORT_EXPR; tQuery.m_sSortBy = argv[++i]; }
-			OPT1 ( "--dumpheader" )		{ DumpHeader ( argv[++i] ); exit ( 0 ); } // my secret option
 
 			else if ( (i+2)>=argc )		break;
 			OPT ( "-f", "--filter" )
@@ -187,40 +179,9 @@ int main ( int argc, char ** argv )
 
 	tQuery.m_iMaxMatches = Max ( 1000, iStart + iLimit );
 
-	// fallback to defaults if there was no explicit config specified
-	while ( !sOptConfig )
-	{
-#ifdef SYSCONFDIR
-		sOptConfig = SYSCONFDIR "/sphinx.conf";
-		if ( sphIsReadable(sOptConfig) )
-			break;
-#endif
-
-		sOptConfig = "./sphinx.conf";
-		if ( sphIsReadable(sOptConfig) )
-			break;
-
-		sOptConfig = NULL;
-		break;
-	}
-
-	if ( !sOptConfig )
-		sphDie ( "no readable config file (looked in "
-#ifdef SYSCONFDIR
-			SYSCONFDIR "/sphinx.conf, "
-#endif
-			"./sphinx.conf)" );
-
-	fprintf ( stdout, "using config file '%s'...\n", sOptConfig );
-
-	// load config
 	CSphConfigParser cp;
-	if ( !cp.Parse ( sOptConfig ) )
-		sphDie ( "failed to parse config file '%s'", sOptConfig );
-
 	CSphConfig & hConf = cp.m_tConf;
-	if ( !hConf.Exists ( "index" ) )
-		sphDie ( "no indexes found in config file '%s'", sOptConfig );
+	sphLoadConfig ( sOptConfig, false, cp );
 
 	/////////////////////
 	// search each index
@@ -420,7 +381,10 @@ int main ( int argc, char ** argv )
 
 						MYSQL_ROW tRow = mysql_fetch_row ( pSqlResult );
 						if ( !tRow )
-							LOC_MYSQL_ERROR ( "mysql_fetch_row" );
+						{
+							fprintf ( stdout, "\t(document not found in db)\n" );
+							break;
+						}
 
 						for ( int iField=0; iField<(int)pSqlResult->field_count; iField++ )
 							fprintf ( stdout, "\t%s=%s\n",
@@ -441,13 +405,13 @@ int main ( int argc, char ** argv )
 		}
 
 		fprintf ( stdout, "\nwords:\n" );
-		for ( int i=0; i<pResult->m_iNumWords; i++ )
+		ARRAY_FOREACH ( i, pResult->m_dWordStats )
 		{
 			fprintf ( stdout, "%d. '%s': %d documents, %d hits\n",
 				1+i,
-				pResult->m_tWordStats[i].m_sWord.cstr(),
-				pResult->m_tWordStats[i].m_iDocs,
-				pResult->m_tWordStats[i].m_iHits );
+				pResult->m_dWordStats[i].m_sWord.cstr(),
+				pResult->m_dWordStats[i].m_iDocs,
+				pResult->m_dWordStats[i].m_iHits );
 		}
 		fprintf ( stdout, "\n" );
 
@@ -462,5 +426,5 @@ int main ( int argc, char ** argv )
 }
 
 //
-// $Id: search.cpp 1470 2008-09-30 15:14:26Z shodan $
+// $Id: search.cpp 1784 2009-04-07 11:32:02Z shodan $
 //

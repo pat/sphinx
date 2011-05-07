@@ -1,5 +1,5 @@
 //
-// $Id: ha_sphinx.cc 1428 2008-09-05 18:06:30Z xale $
+// $Id: ha_sphinx.cc 2058 2009-11-07 04:01:57Z shodan $
 //
 
 #ifdef USE_PRAGMA_IMPLEMENTATION
@@ -27,8 +27,11 @@
 	// UNIX-specific
 	#include <my_net.h>
 	#include <netdb.h>
+	#include <sys/un.h>
 
 	#define	RECV_FLAGS	MSG_WAITALL
+
+	#define sphSockClose(_sock)	::close(_sock)
 #else
 	// Windows-specific
 	#include <io.h>
@@ -36,6 +39,8 @@
 	#define snprintf	_snprintf
 
 	#define	RECV_FLAGS	0
+
+	#define sphSockClose(_sock)	::closesocket(_sock)
 #endif
 
 #include <ctype.h>
@@ -108,7 +113,7 @@ void sphUnalignedWrite ( void * pPtr, const T & tVal )
 #define SPHINXSE_MAX_FILTERS		32
 
 #define SPHINXSE_DEFAULT_HOST		"127.0.0.1"
-#define SPHINXSE_DEFAULT_PORT		3312
+#define SPHINXSE_DEFAULT_PORT		9312
 #define SPHINXSE_DEFAULT_INDEX		"*"
 
 #define SPHINXSE_SYSTEM_COLUMNS		3
@@ -123,7 +128,7 @@ enum
 {
 	SPHINX_SEARCHD_PROTO	= 1,
 	SEARCHD_COMMAND_SEARCH	= 0,
-	VER_COMMAND_SEARCH		= 0x113,
+	VER_COMMAND_SEARCH		= 0x116,
 };
 
 /// search query sorting orders
@@ -160,6 +165,9 @@ enum ESphRankMode
 	SPH_RANK_BM25				= 1,	///< statistical mode, BM25 ranking only (faster but worse quality)
 	SPH_RANK_NONE				= 2,	///< no ranking, all matches get a weight of 1
 	SPH_RANK_WORDCOUNT			= 3,	///< simple word-count weighting, rank is a weighted sum of per-field keyword occurence counts
+	SPH_RANK_PROXIMITY			= 4,	///< phrase proximity
+	SPH_RANK_MATCHANY			= 5,	///< emulate old match-any weighting
+	SPH_RANK_FIELDMASK			= 6,	///< sets bits where there were matches
 
 	SPH_RANK_TOTAL,
 	SPH_RANK_DEFAULT			= SPH_RANK_PROXIMITY_BM25
@@ -184,6 +192,7 @@ enum
 	SPH_ATTR_ORDINAL	= 3,			///< this attr is an ordinal string number (integer at search time, specially handled at indexing time)
 	SPH_ATTR_BOOL		= 4,			///< this attr is a boolean bit field
 	SPH_ATTR_FLOAT		= 5,
+	SPH_ATTR_BIGINT		= 6,
 
 	SPH_ATTR_MULTI		= 0x40000000UL	///< this attr has multiple values (0 or more)
 };
@@ -406,12 +415,12 @@ struct CSphSEFilter
 public:
 	ESphFilter		m_eType;
 	char *			m_sAttrName;
-	uint32			m_uMinValue;
-	uint32			m_uMaxValue;
+	longlong		m_uMinValue;
+	longlong		m_uMaxValue;
 	float			m_fMinValue;
 	float			m_fMaxValue;
 	int				m_iValues;
-	uint32 *		m_pValues;
+	longlong *		m_pValues;
 	int				m_bExclude;
 
 public:
@@ -494,6 +503,21 @@ private:
 
 	char *			m_sComment;
 
+	struct Override_t
+	{
+		union Value_t
+		{
+			uint32		m_uValue;
+			longlong	m_iValue64;
+			float		m_fValue;
+		};
+		char *						m_sName; ///< points to query buffer
+		int							m_iType;
+		Dynamic_array<ulonglong>	m_dIds;
+		Dynamic_array<Value_t>		m_dValues;
+	};
+	Dynamic_array<Override_t *> m_dOverrides;
+
 public:
 	char			m_sParseError[256];
 
@@ -510,16 +534,20 @@ protected:
 	int				m_iBufLeft;
 	bool			m_bBufOverrun;
 
-	int				ParseArray ( uint32 ** ppValues, const char * sValue );
+	template < typename T > int ParseArray ( T ** ppValues, const char * sValue );
 	bool			ParseField ( char * sField );
 
 	void			SendBytes ( const void * pBytes, int iBytes );
 	void			SendWord ( short int v )		{ v = ntohs(v); SendBytes ( &v, sizeof(short int) ); }
 	void			SendInt ( int v )				{ v = ntohl(v); SendBytes ( &v, sizeof(int) ); }
 	void			SendDword ( uint v )			{ v = ntohl(v) ;SendBytes ( &v, sizeof(uint) ); }
+	void			SendUint64 ( ulonglong v )		{ SendDword ( uint(v>>32) ); SendDword ( uint(v&0xFFFFFFFFUL) ); }
 	void			SendString ( const char * v )	{ int iLen = strlen(v); SendDword(iLen); SendBytes ( v, iLen ); }
 	void			SendFloat ( float v )			{ SendDword ( sphF2DW(v) ); }
 };
+
+template int CSphSEQuery::ParseArray<uint32> ( uint32 **, const char * );
+template int CSphSEQuery::ParseArray<longlong> ( longlong **, const char * );
 
 //////////////////////////////////////////////////////////////////////////////
 
@@ -900,6 +928,8 @@ static void sphLogError ( const char * sFmt, ... )
 //
 // sphinx://host/index
 // sphinx://host:port/index
+// unix://unix/domain/socket:index
+// unix://unix/domain/socket
 static bool ParseUrl ( CSphSEShare * share, TABLE * table, bool bCreate )
 {
 	SPH_ENTER_FUNC();
@@ -951,11 +981,28 @@ static bool ParseUrl ( CSphSEShare * share, TABLE * table, bool bCreate )
 		if ( !sHost )
 			break;
 		sHost[0] = '\0';
-		sHost += 3;
+		sHost += 2;
 
-		if ( strcmp ( sScheme, "sphinx" )!=0 )
+		if ( !strcmp ( sScheme, "unix" ) )
+		{
+			// unix-domain socket
+			iPort = 0;
+			if (!( sIndex = strrchr ( sHost, ':' ) ))
+				sIndex = SPHINXSE_DEFAULT_INDEX;
+			else
+			{
+				*sIndex++ = '\0';
+				if ( !*sIndex )
+					sIndex = SPHINXSE_DEFAULT_INDEX;
+			}
+			bOk = true;
+			break;
+		}
+		if( strcmp ( sScheme, "sphinx" )!=0 && strcmp ( sScheme, "inet" )!=0 )
 			break;
 
+		// tcp
+		sHost++;
 		char * sPort = strchr ( sHost, ':' );
 		if ( sPort )
 		{
@@ -1149,25 +1196,28 @@ CSphSEQuery::~CSphSEQuery ()
 	SafeDeleteArray ( m_sQueryBuffer );
 	SafeDeleteArray ( m_pWeights );
 	SafeDeleteArray ( m_pBuf );
+	for ( int i=0; i<m_dOverrides.elements(); i++ )
+		SafeDelete ( m_dOverrides.at(i) );
 	SPH_VOID_RET();
 }
 
 
-int CSphSEQuery::ParseArray ( uint32 ** ppValues, const char * sValue )
+template < typename T >
+int CSphSEQuery::ParseArray ( T ** ppValues, const char * sValue )
 {
 	SPH_ENTER_METHOD();
 
-//	assert ( ppValues );
-//	assert ( !(*ppValues) );
+	assert ( ppValues );
+	assert ( !(*ppValues) );
 
-	const char * p;
+	const char * pValue;
 	bool bPrevDigit = false;
 	int iValues = 0;
 
 	// count the values
-	for ( p=sValue; *p; p++ )
+	for ( pValue=sValue; *pValue; pValue++ )
 	{
-		bool bDigit = ( (*p)>='0' && (*p)<='9' );
+		bool bDigit = (*pValue)>='0' && (*pValue)<='9';
 		if ( bDigit && !bPrevDigit )
 			iValues++;
 		bPrevDigit = bDigit;
@@ -1176,33 +1226,34 @@ int CSphSEQuery::ParseArray ( uint32 ** ppValues, const char * sValue )
 		SPH_RET(0);
 
 	// extract the values
-	uint32 * pValues = new uint32 [ iValues ];
+	T * pValues = new T [ iValues ];
 	*ppValues = pValues;
 
-	int iIndex = 0;
-	uint32 uValue = 0;
+	int iIndex = 0, iSign = 1;
+	T uValue = 0;
 
 	bPrevDigit = false;
-	for ( p=sValue; ; p++ )
+	for ( pValue=sValue ;; pValue++ )
 	{
-		bool bDigit = ( (*p)>='0' && (*p)<='9' );
+		bool bDigit = (*pValue)>='0' && (*pValue)<='9';
 
 		if ( bDigit )
 		{
 			if ( !bPrevDigit )
 				uValue = 0;
-			uValue = uValue*10 + ( (*p)-'0' );
+			uValue = uValue*10 + ( (*pValue)-'0' );
 		}
-
-		if ( !bDigit && bPrevDigit )
+		else if ( bPrevDigit )
 		{
 			assert ( iIndex<iValues );
-			pValues [ iIndex++ ] = uValue;
+			pValues [ iIndex++ ] = uValue * iSign;
+			iSign = 1;
 		}
-
+		else if ( *pValue=='-' )
+			iSign = -1;
 		bPrevDigit = bDigit;
 
-		if ( !(*p) )
+		if ( !*pValue )
 			break;
 	}
 
@@ -1253,6 +1304,15 @@ bool CSphSEQuery::ParseField ( char * sField )
 			{
 				m_sQuery = sField;
 				m_bQuery = true;
+
+				// unescape
+				char *s = sField, *d = sField;
+				while ( *s )
+				{
+					if ( *s!='\\' ) *d++ = *s;
+					s++;
+				}
+				*d = '\0';
 			}
 		}
 		SPH_RET(true);
@@ -1272,7 +1332,7 @@ bool CSphSEQuery::ParseField ( char * sField )
 	else if ( !strcmp ( sName, "index" ) )		m_sIndex = sValue;
 	else if ( !strcmp ( sName, "offset" ) )		m_iOffset = iValue;
 	else if ( !strcmp ( sName, "limit" ) )		m_iLimit = iValue;
-	else if ( !strcmp ( sName, "weights" ) )	m_iWeights = ParseArray ( &m_pWeights, sValue );
+	else if ( !strcmp ( sName, "weights" ) )	m_iWeights = ParseArray<uint32> ( &m_pWeights, sValue );
 	else if ( !strcmp ( sName, "minid" ) )		m_iMinID = iValue;
 	else if ( !strcmp ( sName, "maxid" ) )		m_iMaxID = iValue;
 	else if ( !strcmp ( sName, "maxmatches" ) )	m_iMaxMatches = iValue;
@@ -1294,6 +1354,7 @@ bool CSphSEQuery::ParseField ( char * sField )
 		else if ( !strcmp ( sValue, "ext2") )		m_eMode = SPH_MATCH_EXTENDED2;
 		else if ( !strcmp ( sValue, "extended2") )	m_eMode = SPH_MATCH_EXTENDED2;
 		else if ( !strcmp ( sValue, "all") )		m_eMode = SPH_MATCH_ALL;
+		else if ( !strcmp ( sValue, "fullscan") )	m_eMode = SPH_MATCH_FULLSCAN;
 		else
 		{
 			snprintf ( m_sParseError, sizeof(m_sParseError), "unknown matching mode '%s'", sValue );
@@ -1307,6 +1368,9 @@ bool CSphSEQuery::ParseField ( char * sField )
 		else if ( !strcmp ( sValue, "bm25" ) )		m_eRanker = SPH_RANK_BM25;
 		else if ( !strcmp ( sValue, "none" ) )		m_eRanker = SPH_RANK_NONE;
 		else if ( !strcmp ( sValue, "wordcount" ) )	m_eRanker = SPH_RANK_WORDCOUNT;
+		else if ( !strcmp ( sValue, "proximity" ) )	m_eRanker = SPH_RANK_PROXIMITY;
+		else if ( !strcmp ( sValue, "matchany" ) )	m_eRanker = SPH_RANK_MATCHANY;
+		else if ( !strcmp ( sValue, "fieldmask" ) )	m_eRanker = SPH_RANK_FIELDMASK;
 		else
 		{
 			snprintf ( m_sParseError, sizeof(m_sParseError), "unknown ranking mode '%s'", sValue );
@@ -1396,8 +1460,8 @@ bool CSphSEQuery::ParseField ( char * sField )
 
 			if ( tFilter.m_eType==SPH_FILTER_RANGE )
 			{
-				tFilter.m_uMinValue = atoi(sValue);
-				tFilter.m_uMaxValue = atoi(p);
+				tFilter.m_uMinValue = strtoll ( sValue, NULL, 0 );
+				tFilter.m_uMaxValue = strtoll ( p, NULL, 0 );
 			} else
 			{
 				tFilter.m_fMinValue = (float)atof(sValue);
@@ -1432,7 +1496,7 @@ bool CSphSEQuery::ParseField ( char * sField )
 			*sValue++ = '\0';
 
 			// get the values
-			tFilter.m_iValues = ParseArray ( &tFilter.m_pValues, sValue );
+			tFilter.m_iValues = ParseArray<longlong> ( &tFilter.m_pValues, sValue );
 			if ( !tFilter.m_iValues )
 			{
 				assert ( !tFilter.m_pValues );
@@ -1522,8 +1586,96 @@ bool CSphSEQuery::ParseField ( char * sField )
 			snprintf ( m_sParseError, sizeof(m_sParseError), "geoanchor: parse error, not enough comma-separated arguments" );
 			SPH_RET(false);
 		}
+	}
+	else if ( !strcmp ( sName, "override" ) ) // name,type,id:value,id:value,...
+	{
+		char * sName = NULL;
+		int iType = 0;
+		CSphSEQuery::Override_t * pOverride = NULL;
 
-	} else
+		// get name and type
+		char * sRest = sValue;
+		for ( ;; )
+		{
+			sName = sRest;
+			if ( !*sName )
+				break;
+			
+			if (!( sRest = strchr ( sRest, ',' ) )) break; *sRest++ = '\0';
+			char * sType = sRest;
+			if (!( sRest = strchr ( sRest, ',' ) )) break;
+			
+			static const struct
+			{
+				const char *	m_sName;
+				int				m_iType;
+			}
+			dAttrTypes[] =
+			{
+				{ "int",		SPH_ATTR_INTEGER },
+				{ "timestamp",	SPH_ATTR_TIMESTAMP },
+				{ "bool",		SPH_ATTR_BOOL },
+				{ "float",		SPH_ATTR_FLOAT },
+				{ "bigint",		SPH_ATTR_BIGINT }
+			};
+			for ( int i=0; i<sizeof(dAttrTypes)/sizeof(*dAttrTypes); i++ )
+				if ( !strncmp( sType, dAttrTypes[i].m_sName, sRest - sType ) )
+			{
+				iType = dAttrTypes[i].m_iType;
+				break;
+			}
+			break;
+		}
+
+		// fail
+		if ( !sName || !*sName  || !iType )
+		{
+			snprintf ( m_sParseError, sizeof(m_sParseError), "override: malformed query" );
+			SPH_RET(false);
+		}
+
+		// grab id:value pairs
+		sRest++;
+		while ( sRest )
+		{
+			char * sId = sRest;
+			if (!( sRest = strchr ( sRest, ':' ) )) break; *sRest++ = '\0';
+			if (!( sRest - sId )) break;
+
+			char * sValue = sRest;
+			if (( sRest = strchr ( sRest, ',' ) )) *sRest++ = '\0';
+			if ( !*sValue )
+				break;
+
+			if ( !pOverride )
+			{
+				pOverride = new CSphSEQuery::Override_t;
+				pOverride->m_sName = chop(sName);
+				pOverride->m_iType = iType;
+				m_dOverrides.append(pOverride);
+			}
+
+			ulonglong uId = strtoull ( sId, NULL, 10 );
+			CSphSEQuery::Override_t::Value_t tValue;
+			if ( iType == SPH_ATTR_FLOAT )
+				tValue.m_fValue = (float)atof(sValue);
+			else if ( iType == SPH_ATTR_BIGINT )
+				tValue.m_iValue64 = strtoll ( sValue, NULL, 10 );
+			else
+				tValue.m_uValue = (uint32)strtoul ( sValue, NULL, 10 );
+			
+			pOverride->m_dIds.append ( uId );
+			pOverride->m_dValues.append ( tValue );
+		}
+
+		if ( !pOverride )
+		{
+			snprintf ( m_sParseError, sizeof(m_sParseError), "override: id:value mapping expected" );
+			SPH_RET(false);
+		}
+		SPH_RET(true);
+	}
+	else
 	{
 		snprintf ( m_sParseError, sizeof(m_sParseError), "unknown parameter '%s'", sName );
 		SPH_RET(false);
@@ -1586,7 +1738,7 @@ int CSphSEQuery::BuildRequest ( char ** ppBuffer )
 	SPH_ENTER_METHOD();
 
 	// calc request length
-	int iReqSize = 116 + 4*m_iWeights
+	int iReqSize = 124 + 4*m_iWeights
 		+ strlen ( m_sSortBy )
 		+ strlen ( m_sQuery )
 		+ strlen ( m_sIndex )
@@ -1597,8 +1749,13 @@ int CSphSEQuery::BuildRequest ( char ** ppBuffer )
 	for ( int i=0; i<m_iFilters; i++ )
 	{
 		const CSphSEFilter & tFilter = m_dFilters[i];
-		iReqSize += 12 + strlen ( tFilter.m_sAttrName ) // string attr-name; int type; int exclude-flag
-			+ ( ( tFilter.m_eType==SPH_FILTER_VALUES ) ? 4+4*tFilter.m_iValues : 8 );
+		iReqSize += 12 + strlen ( tFilter.m_sAttrName ); // string attr-name; int type; int exclude-flag
+		switch ( tFilter.m_eType )
+		{
+			case SPH_FILTER_VALUES:		iReqSize += 4 + 8*tFilter.m_iValues; break;
+			case SPH_FILTER_RANGE:		iReqSize += 16; break;
+			case SPH_FILTER_FLOATRANGE:	iReqSize += 8; break;
+		}
 	}
 	if ( m_bGeoAnchor ) // 1.14+
 		iReqSize += 16 + strlen ( m_sGeoLatAttr ) + strlen  ( m_sGeoLongAttr );
@@ -1606,7 +1763,17 @@ int CSphSEQuery::BuildRequest ( char ** ppBuffer )
 		iReqSize += 8 + strlen(m_sIndexWeight[i] );
 	for ( int i=0; i<m_iFieldWeights; i++ ) // 1.18+
 		iReqSize += 8 + strlen(m_sFieldWeight[i] );
-
+	// overrides
+	iReqSize += 4;
+	for ( int i=0; i<m_dOverrides.elements(); i++ )
+	{
+		CSphSEQuery::Override_t * pOverride = m_dOverrides.at(i);
+		const uint32 uSize = pOverride->m_iType == SPH_ATTR_BIGINT ? 16 : 12; // id64 + value
+		iReqSize += strlen ( pOverride->m_sName ) + 12 + uSize*pOverride->m_dIds.elements();
+	}
+	// select
+	iReqSize += 4;
+		
 	m_iBufLeft = 0;
 	SafeDeleteArray ( m_pBuf );
 
@@ -1636,9 +1803,9 @@ int CSphSEQuery::BuildRequest ( char ** ppBuffer )
 	for ( int j=0; j<m_iWeights; j++ )
 		SendInt ( m_pWeights[j] ); // weights
 	SendString ( m_sIndex ); // indexes
-	SendInt ( 0 ); // id32 range follows
-	SendInt ( m_iMinID ); // id/ts ranges
-	SendInt ( m_iMaxID );
+	SendInt ( 1 ); // id64 range follows
+	SendUint64 ( m_iMinID ); // id/ts ranges
+	SendUint64 ( m_iMaxID );
 
 	SendInt ( m_iFilters );
 	for ( int j=0; j<m_iFilters; j++ )
@@ -1652,12 +1819,12 @@ int CSphSEQuery::BuildRequest ( char ** ppBuffer )
 			case SPH_FILTER_VALUES:
 				SendInt ( tFilter.m_iValues );
 				for ( int k=0; k<tFilter.m_iValues; k++ )
-					SendInt ( tFilter.m_pValues[k] );
+					SendUint64 ( tFilter.m_pValues[k] );
 				break;
 
 			case SPH_FILTER_RANGE:
-				SendDword ( tFilter.m_uMinValue );
-				SendDword ( tFilter.m_uMaxValue );
+				SendUint64 ( tFilter.m_uMinValue );
+				SendUint64 ( tFilter.m_uMaxValue );
 				break;
 
 			case SPH_FILTER_FLOATRANGE:
@@ -1699,6 +1866,29 @@ int CSphSEQuery::BuildRequest ( char ** ppBuffer )
 		SendInt ( m_iFieldWeight[i] );
 	}
 	SendString ( m_sComment );
+
+	// overrides
+	SendInt ( m_dOverrides.elements() );
+	for ( int i=0; i<m_dOverrides.elements(); i++ )
+	{
+		CSphSEQuery::Override_t * pOverride = m_dOverrides.at(i);
+		SendString ( pOverride->m_sName );
+		SendDword ( pOverride->m_iType );
+		SendInt ( pOverride->m_dIds.elements() );
+		for ( int j=0; j<pOverride->m_dIds.elements(); j++ )
+		{
+			SendUint64 ( pOverride->m_dIds.at(j) );
+			if ( pOverride->m_iType == SPH_ATTR_FLOAT )
+				SendFloat ( pOverride->m_dValues.at(j).m_fValue );
+			else if ( pOverride->m_iType == SPH_ATTR_BIGINT )
+				SendUint64 ( pOverride->m_dValues.at(j).m_iValue64 );
+			else
+				SendDword ( pOverride->m_dValues.at(j).m_uValue );
+		}
+	}
+
+	// select
+	SendString ( "" );
 
 	// detect buffer overruns and underruns, and report internal error
 	if ( m_bBufOverrun || m_iBufLeft!=0 || m_pCur-m_pBuf!=iReqSize )
@@ -1784,7 +1974,15 @@ int ha_sphinx::ConnectToSearchd ( const char * sQueryHost, int iQueryPort )
 {
 	SPH_ENTER_METHOD();
 
-	struct sockaddr_in sa;
+	struct sockaddr_in sin;
+#ifndef __WIN__
+	struct sockaddr_un saun;
+#endif
+
+	int iDomain = 0;
+	int iSockaddrSize = 0;
+	struct sockaddr * pSockaddr = NULL;
+
 	in_addr_t ip_addr;
 	int version;
 	uint uClientVersion = htonl ( SPHINX_SEARCHD_PROTO );
@@ -1792,41 +1990,61 @@ int ha_sphinx::ConnectToSearchd ( const char * sQueryHost, int iQueryPort )
 	const char * sHost = ( sQueryHost && *sQueryHost ) ? sQueryHost : m_pShare->m_sHost;
 	ushort iPort = iQueryPort ? (ushort)iQueryPort : m_pShare->m_iPort;
 
-	memset ( &sa, 0, sizeof(sa) );
-	sa.sin_family = AF_INET;
+	if ( iPort )
+	{
+		iDomain = AF_INET;
+		iSockaddrSize = sizeof(sin);
+		pSockaddr = (struct sockaddr *) &sin;
 
-	// prepare host address
-	if ( (int)( ip_addr=inet_addr(sHost) ) != (int)INADDR_NONE )
-	{ 
-		memcpy ( &sa.sin_addr, &ip_addr, sizeof(ip_addr) );
+		memset ( &sin, 0, sizeof(sin) );
+		sin.sin_family = AF_INET;
+		sin.sin_port = htons(iPort);
+		
+		// prepare host address
+		if ( (int)( ip_addr=inet_addr(sHost) ) != (int)INADDR_NONE )
+		{ 
+			memcpy ( &sin.sin_addr, &ip_addr, sizeof(ip_addr) );
+		} else
+		{
+			int tmp_errno;
+			struct hostent tmp_hostent, *hp;
+			char buff2 [ GETHOSTBYNAME_BUFF_SIZE ];
+			
+			hp = my_gethostbyname_r ( sHost, &tmp_hostent,
+				buff2, sizeof(buff2), &tmp_errno );
+			if ( !hp )
+			{ 
+				my_gethostbyname_r_free();
+				
+				char sError[256];
+				my_snprintf ( sError, sizeof(sError), "failed to resolve searchd host (name=%s)", sHost );
+				
+				my_error ( ER_CONNECT_TO_FOREIGN_DATA_SOURCE, MYF(0), sError );
+				SPH_RET(-1);
+			}
+			
+			memcpy ( &sin.sin_addr, hp->h_addr,
+				Min ( sizeof(sin.sin_addr), (size_t)hp->h_length ) );
+			my_gethostbyname_r_free();
+		}
 	} else
 	{
-		int tmp_errno;
-		struct hostent tmp_hostent, *hp;
-		char buff2 [ GETHOSTBYNAME_BUFF_SIZE ];
+#ifndef __WIN__
+		iDomain = AF_UNIX;
+		iSockaddrSize = sizeof(saun);
+		pSockaddr = (struct sockaddr *) &saun;
 
-		hp = my_gethostbyname_r ( sHost, &tmp_hostent,
-			buff2, sizeof(buff2), &tmp_errno );
-		if ( !hp )
-		{ 
-			my_gethostbyname_r_free();
-
-			char sError[256];
-			my_snprintf ( sError, sizeof(sError), "failed to resolve searchd host (name=%s)", sHost );
-
-			my_error ( ER_CONNECT_TO_FOREIGN_DATA_SOURCE, MYF(0), sError );
-			SPH_RET(-1);
-		}
-
-		memcpy ( &sa.sin_addr, hp->h_addr,
-			Min ( sizeof(sa.sin_addr), (size_t)hp->h_length ) );
-		my_gethostbyname_r_free();
+		memset ( &saun, 0, sizeof(saun) );
+		saun.sun_family = AF_UNIX;
+		strncpy ( saun.sun_path, sHost, sizeof(saun.sun_path)-1 );
+#else
+		my_error ( ER_CONNECT_TO_FOREIGN_DATA_SOURCE, MYF(0), "UNIX sockets are not supported on Windows" );
+		SPH_RET(-1);
+#endif
 	}
 
-	sa.sin_port = htons(iPort);
-
-	char sError[256];
-	int iSocket = socket ( AF_INET, SOCK_STREAM, 0 );
+	char sError[512];
+	int iSocket = socket ( iDomain, SOCK_STREAM, 0 );
 
 	if ( iSocket<0 )
 	{
@@ -1834,17 +2052,18 @@ int ha_sphinx::ConnectToSearchd ( const char * sQueryHost, int iQueryPort )
 		SPH_RET(-1);
 	}
 
-	if ( connect ( iSocket, (struct sockaddr *) &sa, sizeof(sa) )<0 )
+	if ( connect ( iSocket, pSockaddr, iSockaddrSize )<0 )
 	{
-		my_snprintf ( sError, sizeof(sError), "failed to connect to searchd (host=%s, port=%d)",
-			sHost, iPort );
+		sphSockClose ( iSocket );
+		my_snprintf ( sError, sizeof(sError), "failed to connect to searchd (host=%s, errno=%d, port=%d)",
+			sHost, errno, iPort );
 		my_error ( ER_CONNECT_TO_FOREIGN_DATA_SOURCE, MYF(0), sError );
 		SPH_RET(-1);
 	}
 
 	if ( ::recv ( iSocket, (char *)&version, sizeof(version), 0 )!=sizeof(version) )
 	{
-		::closesocket ( iSocket );
+		sphSockClose ( iSocket );
 		my_snprintf ( sError, sizeof(sError), "failed to receive searchd version (host=%s, port=%d)",
 			sHost, iPort );
 		my_error ( ER_CONNECT_TO_FOREIGN_DATA_SOURCE, MYF(0), sError );
@@ -1853,7 +2072,7 @@ int ha_sphinx::ConnectToSearchd ( const char * sQueryHost, int iQueryPort )
 
 	if ( ::send ( iSocket, (char*)&uClientVersion, sizeof(uClientVersion), 0 )!=sizeof(uClientVersion) )
 	{
-		::closesocket ( iSocket );
+		sphSockClose ( iSocket );
 		my_snprintf ( sError, sizeof(sError), "failed to send client version (host=%s, port=%d)",
 			sHost, iPort );
 		my_error ( ER_CONNECT_TO_FOREIGN_DATA_SOURCE, MYF(0), sError );
@@ -2049,7 +2268,13 @@ bool ha_sphinx::UnpackSchema ()
 	}
 
 	m_iMatchesTotal = UnpackDword ();
+
 	m_bId64 = UnpackDword ();
+	if ( m_bId64 && m_pShare->m_eTableFieldType[0] != MYSQL_TYPE_LONGLONG )
+	{
+		my_error ( ER_QUERY_ON_FOREIGN_DATA_SOURCE, MYF(0), "INTERNAL ERROR: 1st column must be bigint to accept 64-bit DOCIDs" );
+		SPH_RET(false);
+	}
 
 	// network packet unpacked; build unbound fields map
 	SafeDeleteArray ( m_dUnboundFields );
@@ -2093,11 +2318,9 @@ bool ha_sphinx::UnpackStats ( CSphSEStats * pStats )
 				// skip MVA list
 				uint32 uCount = UnpackDword ();
 				m_pCur += uCount*4;
-			} else
-			{
-				// skip normal value
-				m_pCur += 4;
 			}
+			else // skip normal value 
+				m_pCur += m_dAttrs[i].m_uType == SPH_ATTR_BIGINT ? 8 : 4;
 		}
 	}
 	
@@ -2399,7 +2622,10 @@ int ha_sphinx::get_rec ( byte * buf, const byte *, uint )
 
 	for ( uint32 i=0; i<m_iAttrs; i++ )
 	{
+		longlong iValue64;
 		uint32 uValue = UnpackDword ();
+		if ( m_dAttrs[i].m_uType == SPH_ATTR_BIGINT )
+			iValue64 = ( (longlong)uValue<<32 ) | UnpackDword();
 		if ( m_dAttrs[i].m_iField<0 )
 		{
 			// skip MVA
@@ -2427,6 +2653,10 @@ int ha_sphinx::get_rec ( byte * buf, const byte *, uint )
 					longstore ( af->ptr, uValue ); // because store() does not accept timestamps
 				else
 					af->store ( uValue, 1 );
+				break;
+
+			case SPH_ATTR_BIGINT:
+				af->store ( iValue64, 0 );
 				break;
 
 			case ( SPH_ATTR_MULTI | SPH_ATTR_INTEGER ):
@@ -2701,9 +2931,9 @@ int ha_sphinx::create ( const char * name, TABLE * table, HA_CREATE_INFO * )
 			break;
 		}
 
-		if ( !IsIntegerFieldType ( table->field[0]->type() ) )
+		if ( !IsIntegerFieldType ( table->field[0]->type() ) || !((Field_num *)table->field[0])->unsigned_flag )
 		{
-			my_snprintf ( sError, sizeof(sError), "%s: 1st column (docid) MUST be integer or bigint", name );
+			my_snprintf ( sError, sizeof(sError), "%s: 1st column (docid) MUST be unsigned integer or bigint", name );
 			break;
 		}
 
@@ -2788,45 +3018,45 @@ CSphSEStats * sphinx_get_stats ( THD * thd, SHOW_VAR * out )
 	return 0;
 }
 
-int sphinx_showfunc_total ( THD * thd, SHOW_VAR * out, char * buf )
+int sphinx_showfunc_total ( THD * thd, SHOW_VAR * out, char * )
 {
 	CSphSEStats * pStats = sphinx_get_stats ( thd, out );
 	if ( pStats )
 	{
-		out->type = SHOW_LONG;
+		out->type = SHOW_INT;
 		out->value = (char *) &pStats->m_iMatchesTotal;
 	}
 	return 0;
 }
 
-int sphinx_showfunc_total_found ( THD * thd, SHOW_VAR * out, char * buf )
+int sphinx_showfunc_total_found ( THD * thd, SHOW_VAR * out, char * )
 {
 	CSphSEStats * pStats = sphinx_get_stats ( thd, out );
 	if ( pStats )
 	{
-		out->type = SHOW_LONG;
+		out->type = SHOW_INT;
 		out->value = (char *) &pStats->m_iMatchesFound;
 	}
 	return 0;
 }
 
-int sphinx_showfunc_time ( THD * thd, SHOW_VAR * out, char * buf )
+int sphinx_showfunc_time ( THD * thd, SHOW_VAR * out, char * )
 {
 	CSphSEStats * pStats = sphinx_get_stats ( thd, out );
 	if ( pStats )
 	{
-		out->type = SHOW_LONG;
+		out->type = SHOW_INT;
 		out->value = (char *) &pStats->m_iQueryMsec;
 	}
 	return 0;
 }
 
-int sphinx_showfunc_word_count ( THD * thd, SHOW_VAR * out, char * buf )
+int sphinx_showfunc_word_count ( THD * thd, SHOW_VAR * out, char * )
 {
 	CSphSEStats * pStats = sphinx_get_stats ( thd, out );
 	if ( pStats )
 	{
-		out->type = SHOW_LONG;
+		out->type = SHOW_INT;
 		out->value = (char *) &pStats->m_iWords;
 	}
 	return 0;
@@ -2889,6 +3119,17 @@ int sphinx_showfunc_words ( THD * thd, SHOW_VAR * out, char * sBuffer )
 	return 0;
 }
 
+int sphinx_showfunc_error ( THD * thd, SHOW_VAR * out, char * )
+{
+	CSphSEStats * pStats = sphinx_get_stats ( thd, out );
+	if ( pStats && pStats->m_bLastError )
+	{
+		out->type = SHOW_CHAR;
+		out->value = pStats->m_sLastMessage;
+	}
+	return 0;
+}
+	
 #if MYSQL_VERSION_ID>50100
 struct st_mysql_storage_engine sphinx_storage_engine =
 {
@@ -2902,6 +3143,7 @@ struct st_mysql_show_var sphinx_status_vars[] =
 	{"sphinx_time",			(char *)sphinx_showfunc_time,			SHOW_FUNC},
 	{"sphinx_word_count",	(char *)sphinx_showfunc_word_count,		SHOW_FUNC},
 	{"sphinx_words",		(char *)sphinx_showfunc_words,			SHOW_FUNC},
+	{"sphinx_error",		(char *)sphinx_showfunc_error,			SHOW_FUNC},
 	{0, 0, (enum_mysql_show_type)0}
 };
 
@@ -2926,5 +3168,5 @@ mysql_declare_plugin_end;
 #endif // >50100
 
 //
-// $Id: ha_sphinx.cc 1428 2008-09-05 18:06:30Z xale $
+// $Id: ha_sphinx.cc 2058 2009-11-07 04:01:57Z shodan $
 //
