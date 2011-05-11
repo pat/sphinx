@@ -7439,10 +7439,10 @@ bool CheckClientKey ( InputBuffer_c & tReq )
 	if ( g_sClientKey == NULL )
 		return true;
 
-	const char * sClientKey = tReq.GetString().cstr();
-	if ( strcasecmp( g_sClientKey, sClientKey ) != 0 )
+	CSphString sClientKey = tReq.GetString();
+	if ( strcasecmp( g_sClientKey, sClientKey.cstr() ) != 0 )
 	{
-		tReq.SendErrorReply ( "invalid client key '%s'", sClientKey );
+		tReq.SendErrorReply ( "invalid client key '%s'", sClientKey.cstr() );
 		return false;
 	} else {
 		return true;
