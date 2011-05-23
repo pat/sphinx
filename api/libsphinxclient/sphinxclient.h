@@ -1,10 +1,10 @@
 //
-// $Id: sphinxclient.h 2376 2010-06-29 14:08:19Z shodan $
+// $Id: sphinxclient.h 2654 2011-01-31 01:20:58Z kevg $
 //
 
 //
-// Copyright (c) 2001-2010, Andrew Aksyonoff
-// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// Copyright (c) 2001-2011, Andrew Aksyonoff
+// Copyright (c) 2008-2011, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -47,7 +47,13 @@ enum
 	SPH_RANK_PROXIMITY_BM25	= 0,
 	SPH_RANK_BM25			= 1,
 	SPH_RANK_NONE			= 2,
-	SPH_RANK_WORDCOUNT		= 3
+	SPH_RANK_WORDCOUNT		= 3,
+	SPH_RANK_PROXIMITY		= 4,
+	SPH_RANK_MATCHANY		= 5,
+	SPH_RANK_FIELDMASK		= 6,
+	SPH_RANK_SPH04			= 7,
+
+	SPH_RANK_DEFAULT		= SPH_RANK_PROXIMITY_BM25
 };
 
 /// known sort modes
@@ -148,6 +154,7 @@ typedef struct st_sphinx_excerpt_options
 	const char *			after_match;
 	const char *			chunk_separator;
 	const char *			html_strip_mode;
+	const char *			passage_boundary;
 
 	int						limit;
 	int						limit_passages;
@@ -163,6 +170,7 @@ typedef struct st_sphinx_excerpt_options
 	sphinx_bool				force_all_words;
 	sphinx_bool				load_files;
 	sphinx_bool				allow_empty;
+	sphinx_bool				emit_zones;
 } sphinx_excerpt_options;
 
 
@@ -239,5 +247,5 @@ void						sphinx_status_destroy			( char ** status, int num_rows, int num_cols )
 #endif // _sphinxclient_
 
 //
-// $Id: sphinxclient.h 2376 2010-06-29 14:08:19Z shodan $
+// $Id: sphinxclient.h 2654 2011-01-31 01:20:58Z kevg $
 //

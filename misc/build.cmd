@@ -1,8 +1,8 @@
 @echo off
 
 
-set URL=svn://sphx.org/sphinx/branches/rel099
-set REL=0.9.9
+set URL=http://sphinxsearch.googlecode.com/svn/trunk
+set REL=1.11
 
 
 set PATH=C:\Program Files\Microsoft Visual Studio 8\Common7\IDE;%PATH%;
@@ -13,7 +13,7 @@ set PGSQLROOT=C:\Program Files\PostgreSQL\8.3
 
 
 if "%1" EQU "" (
-	echo *** FATAL: specify build tag as 1st argument (eg. build.cmd rc2^).
+	echo *** FATAL: specify build tag as 1st argument (eg. build.cmd rc2 or build.cmd r2345^).
 	exit
 ) else (
 	set TAG=-%1
@@ -56,7 +56,7 @@ if %ERRORLEVEL% NEQ 0 (
 	echo *** FATAL: build error.
 	exit
 )
-
+del /q bin\release\test*.*
 
 cd ..
 mkdir common
@@ -71,9 +71,7 @@ for %%i in (COPYING INSTALL sphinx.conf.in sphinx-min.conf.in example.sql) do (
 set BASE=sphinx-%REL%%TAG%-win32
 mkdir %BASE%
 mkdir %BASE%\bin
-for %%i in (indexer.exe search.exe searchd.exe spelldump.exe) do (
-	copy checkout\bin\release\%%i %BASE%\bin
-)
+copy checkout\bin\release\*.exe %BASE%\bin
 copy "%ICONVROOT%\bin\iconv.dll" %BASE%\bin
 copy "%EXPATROOT%\libs\libexpat.dll" %BASE%\bin
 copy "%MYSQLROOT%\bin\libmysql.dll" %BASE%\bin
@@ -81,6 +79,10 @@ xcopy /q /s common\* %BASE%
 pkzip25 -add %BASE%.zip -dir %BASE%\*
 move %BASE%.zip ..
 
+set PDBS=sphinx-%REL%%TAG%-win32-debug
+mkdir %PDBS%
+mkdir %PDBS%\regular
+copy checkout\bin\release\*.pdb %PDBS%\regular
 
 @rem ===================
 @rem === pgsql build ===
@@ -93,24 +95,26 @@ if %ERRORLEVEL% NEQ 0 (
 	echo *** FATAL: build error.
 	exit
 )
+del /q bin\release\test*.*
 
 cd ..
 set BASE=sphinx-%REL%%TAG%-win32-pgsql
 mkdir %BASE%
 mkdir %BASE%\bin
-for %%i in (indexer.exe search.exe searchd.exe spelldump.exe) do (
-	copy checkout\bin\release\%%i %BASE%\bin
-)
+copy checkout\bin\release\*.exe %BASE%\bin
 
 for %%i in (comerr32.dll gssapi32.dll iconv.dll k5sprt32.dll krb5_32.dll libeay32.dll libiconv2.dll libintl3.dll libpq.dll ssleay32.dll) do (
 	copy "%PGSQLROOT%\bin\%%i" %BASE%\bin
 )
 
+copy "%EXPATROOT%\libs\libexpat.dll" %BASE%\bin
 copy "%MYSQLROOT%\bin\libmysql.dll" %BASE%\bin
 xcopy /q /s common\* %BASE%
 pkzip25 -add %BASE%.zip -dir %BASE%\*
 move %BASE%.zip ..
 
+mkdir %PDBS%\pgsql
+copy checkout\bin\release\*.pdb %PDBS%\pgsql
 
 @rem =======================
 @rem === id64-full build ===
@@ -137,20 +141,30 @@ if %ERRORLEVEL% NEQ 0 (
 	echo *** FATAL: build error.
 	exit
 )
+del /q bin\release\test*.*
 
 cd ..
 set BASE=sphinx-%REL%%TAG%-win32-id64-full
 mkdir %BASE%
 mkdir %BASE%\bin
-for %%i in (indexer.exe search.exe searchd.exe spelldump.exe) do (
-	copy checkout\bin\release\%%i %BASE%\bin
-)
+copy checkout\bin\release\*.exe %BASE%\bin
 
 for %%i in (comerr32.dll gssapi32.dll iconv.dll k5sprt32.dll krb5_32.dll libeay32.dll libiconv2.dll libintl3.dll libpq.dll ssleay32.dll) do (
 	copy "%PGSQLROOT%\bin\%%i" %BASE%\bin
 )
 
+copy "%EXPATROOT%\libs\libexpat.dll" %BASE%\bin
 copy "%MYSQLROOT%\bin\libmysql.dll" %BASE%\bin
 xcopy /q /s common\* %BASE%
 pkzip25 -add %BASE%.zip -dir %BASE%\*
 move %BASE%.zip ..
+
+mkdir %PDBS%\id64full
+copy checkout\bin\release\*.pdb %PDBS%\id64full
+
+@rem =============================
+@rem === debug symbols archive ===
+@rem ==============================
+
+pkzip25 -add %PDBS%.zip -dir %PDBS%\*
+move %PDBS%.zip ..

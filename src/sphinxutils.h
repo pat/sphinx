@@ -1,10 +1,10 @@
 //
-// $Id: sphinxutils.h 2293 2010-05-06 08:15:52Z tomat $
+// $Id: sphinxutils.h 2810 2011-05-09 18:59:08Z shodan $
 //
 
 //
-// Copyright (c) 2001-2010, Andrew Aksyonoff
-// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// Copyright (c) 2001-2011, Andrew Aksyonoff
+// Copyright (c) 2008-2011, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -20,21 +20,50 @@
 #define _sphinxutils_
 
 #include <ctype.h>
+#include <stdarg.h>
 
 /////////////////////////////////////////////////////////////////////////////
 
-/// let's build our own theme park!
+/// my own isalpha (let's build our own theme park!)
 inline int sphIsAlpha ( int c )
 {
 	return ( c>='0' && c<='9' ) || ( c>='a' && c<='z' ) || ( c>='A' && c<='Z' ) || c=='-' || c=='_';
 }
 
+
+/// my own isspace
 inline bool sphIsSpace ( int iCode )
 {
 	return iCode==' ' || iCode=='\t' || iCode=='\n' || iCode=='\r';
 }
 
-/////////////////////////////////////////////////////////////////////////////
+
+/// string splitter, extracts sequences of alphas (as in sphIsAlpha)
+inline void sphSplit ( CSphVector<CSphString> & dOut, const char * sIn )
+{
+	if ( !sIn )
+		return;
+
+	const char * p = (char*)sIn;
+	while ( *p )
+	{
+		// skip non-alphas
+		while ( (*p) && !sphIsAlpha(*p) )
+			p++;
+		if ( !(*p) )
+			break;
+
+		// this is my next token
+		assert ( sphIsAlpha(*p) );
+		const char * sNext = p;
+		while ( sphIsAlpha(*p) )
+			p++;
+		if ( sNext!=p )
+			dOut.Add().SetBinary ( sNext, p-sNext );
+	}
+
+}
+
 
 /// config section (hash of variant values)
 class CSphConfigSection : public SmallStringHash_T < CSphVariant >
@@ -81,6 +110,9 @@ public:
 					CSphConfigParser ();
 	bool			Parse ( const char * sFileName, const char * pBuffer = NULL );
 
+	// fail-save loading new config over existing.
+	bool			ReParse ( const char * sFileName, const char * pBuffer = NULL );
+
 protected:
 	CSphString		m_sFileName;
 	int				m_iLine;
@@ -123,30 +155,69 @@ bool			sphConfTokenizer ( const CSphConfigSection & hIndex, CSphTokenizerSetting
 void			sphConfDictionary ( const CSphConfigSection & hIndex, CSphDictSettings & tSettings );
 
 /// configure index from index definition section
-void			sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSettings );
+bool			sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSettings, CSphString & sError );
 
 /// try to set dictionary, tokenizer and misc settings for an index (if not already set)
 bool			sphFixupIndexSettings ( CSphIndex * pIndex, const CSphConfigSection & hIndex, CSphString & sError );
-
-void			sphSetupSignals ();
 
 enum ESphLogLevel
 {
 	LOG_FATAL	= 0,
 	LOG_WARNING	= 1,
 	LOG_INFO	= 2,
-	LOG_DEBUG	= 3
+	LOG_DEBUG	= 3,
+	LOG_VERBOSE_DEBUG = 4,
+	LOG_VERY_VERBOSE_DEBUG = 5
 };
 
+typedef void ( *SphLogger_fn )( ESphLogLevel, const char *, va_list );
 
-void sphWarning ( const char * sFmt, ... );
-void sphInfo ( const char * sFmt, ... );
-void sphLogFatal ( const char * sFmt, ... );
-void sphLogDebug ( const char * sFmt, ... );
-void sphSetLogger ( const void * );
+void sphWarning ( const char * sFmt, ... ) __attribute__((format(printf,1,2)));
+void sphInfo ( const char * sFmt, ... ) __attribute__((format(printf,1,2)));
+void sphLogFatal ( const char * sFmt, ... ) __attribute__((format(printf,1,2)));
+void sphLogDebug ( const char * sFmt, ... ) __attribute__((format(printf,1,2)));
+void sphLogDebugv ( const char * sFmt, ... ) __attribute__((format(printf,1,2)));
+void sphLogDebugvv ( const char * sFmt, ... ) __attribute__((format(printf,1,2)));
+void sphSetLogger ( SphLogger_fn fnLog );
+
+//////////////////////////////////////////////////////////////////////////
+
+/// how do we properly exit from the crash handler?
+#if !USE_WINDOWS
+	#ifndef NDEBUG
+		// UNIX debug build, die and dump core
+		#define CRASH_EXIT { signal ( sig, SIG_DFL ); kill ( getpid(), sig ); }
+	#else
+		// UNIX release build, just die
+		#define CRASH_EXIT exit ( 2 )
+	#endif
+#else
+	#ifndef NDEBUG
+		// Windows debug build, show prompt to attach debugger
+		#define CRASH_EXIT return EXCEPTION_CONTINUE_SEARCH
+	#else
+		// Windows release build, just die
+		#define CRASH_EXIT return EXCEPTION_EXECUTE_HANDLER
+	#endif
+#endif
+
+/// simple write wrapper
+/// simplifies partial write checks, and also supresses "fortified" glibc warnings
+bool sphWrite ( int iFD, const void * pBuf, size_t iSize );
+
+/// async safe, BUT NOT THREAD SAFE, fprintf
+void sphSafeInfo ( int iFD, const char * sFmt, ... );
+
+#if !USE_WINDOWS
+/// UNIX backtrace gets printed out to a stream
+void sphBacktrace ( int iFD, bool bSafe=false );
+#else
+/// Windows minidump gets saved to a file
+void sphBacktrace ( EXCEPTION_POINTERS * pExc, const char * sFile );
+#endif
 
 #endif // _sphinxutils_
 
 //
-// $Id: sphinxutils.h 2293 2010-05-06 08:15:52Z tomat $
+// $Id: sphinxutils.h 2810 2011-05-09 18:59:08Z shodan $
 //

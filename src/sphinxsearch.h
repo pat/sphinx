@@ -1,10 +1,10 @@
 //
-// $Id: sphinxsearch.h 2246 2010-03-08 18:11:05Z shodan $
+// $Id: sphinxsearch.h 2808 2011-05-06 01:44:22Z shodan $
 //
 
 //
-// Copyright (c) 2001-2010, Andrew Aksyonoff
-// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// Copyright (c) 2001-2011, Andrew Aksyonoff
+// Copyright (c) 2008-2011, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -23,21 +23,6 @@
 // PACKED HIT MACROS
 //////////////////////////////////////////////////////////////////////////
 
-/// pack hit
-#define HIT_PACK(_field,_pos)	( ((_field)<<24) | ((_pos)&0x7fffffUL) )
-
-/// extract in-field position from packed hit
-#define HIT2POS(_hit)			((_hit)&0x7fffffUL)
-
-/// extract field number from packed hit
-#define HIT2FIELD(_hit)			((_hit)>>24)
-
-/// prepare hit for LCS counting
-#define HIT2LCS(_hit)			(_hit & 0xff7fffffUL)
-
-/// field end flag
-#define HIT_FIELD_END			0x800000UL
-
 //////////////////////////////////////////////////////////////////////////
 
 /// term modifiers
@@ -46,7 +31,8 @@ enum TermPosFilter_e
 	TERM_POS_FIELD_LIMIT = 1,
 	TERM_POS_FIELD_START,
 	TERM_POS_FIELD_END,
-	TERM_POS_FIELD_STARTEND
+	TERM_POS_FIELD_STARTEND,
+	TERM_POS_ZONES
 };
 
 
@@ -60,6 +46,7 @@ public:
 	SphWordID_t		m_iWordID;		///< word ID, from dictionary
 	int				m_iTermPos;
 	int				m_iAtomPos;		///< word position, from query
+	bool			m_bExpanded;	///< added by prefix expansion
 
 	// setup by QwordSetup()
 	int				m_iDocs;		///< document count, from wordlist
@@ -76,6 +63,7 @@ public:
 		: m_iWordID ( 0 )
 		, m_iTermPos ( 0 )
 		, m_iAtomPos ( 0 )
+		, m_bExpanded ( false )
 		, m_iDocs ( 0 )
 		, m_iHits ( 0 )
 		, m_bHasHitlist ( true )
@@ -87,7 +75,7 @@ public:
 
 	virtual const CSphMatch &	GetNextDoc ( DWORD * pInlineDocinfo ) = 0;
 	virtual void				SeekHitlist ( SphOffset_t uOff ) = 0;
-	virtual DWORD				GetNextHit () = 0;
+	virtual Hitpos_t			GetNextHit () = 0;
 
 	virtual void Reset ()
 	{
@@ -102,6 +90,7 @@ public:
 
 /// term setup, searcher view
 class CSphQueryNodeCache;
+class ISphZoneCheck;
 class ISphQwordSetup : ISphNoncopyable
 {
 public:
@@ -115,6 +104,7 @@ public:
 	CSphString *			m_pWarning;
 	CSphQueryContext *		m_pCtx;
 	CSphQueryNodeCache *	m_pNodeCache;
+	mutable ISphZoneCheck *	m_pZoneChecker;
 
 	ISphQwordSetup ()
 		: m_pDict ( NULL )
@@ -125,10 +115,12 @@ public:
 		, m_iMaxTimer ( 0 )
 		, m_pWarning ( NULL )
 		, m_pCtx ( NULL )
+		, m_pNodeCache ( NULL )
+		, m_pZoneChecker ( NULL )
 	{}
 	virtual ~ISphQwordSetup () {}
 
-	virtual ISphQword *					QwordSpawn ( const XQKeyword_t & ) const = 0;
+	virtual ISphQword *					QwordSpawn ( const XQKeyword_t & tWord ) const = 0;
 	virtual bool						QwordSetup ( ISphQword * pQword ) const = 0;
 };
 
@@ -140,12 +132,12 @@ class ISphRanker
 public:
 	virtual						~ISphRanker () {}
 	virtual CSphMatch *			GetMatchesBuffer() = 0;
-	virtual int					GetMatches ( int iFields, const int * pWeights ) = 0;
+	virtual int					GetMatches () = 0;
 	virtual void				Reset ( const ISphQwordSetup & tSetup ) = 0;
 };
 
 /// factory
-ISphRanker * sphCreateRanker ( const XQNode_t * pRoot, ESphRankMode eRankMode, CSphQueryResult * pResult, const ISphQwordSetup & tTermSetup );
+ISphRanker * sphCreateRanker ( const XQQuery_t & tXQ, ESphRankMode eRankMode, CSphQueryResult * pResult, const ISphQwordSetup & tTermSetup, const CSphQueryContext & tCtx );
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -154,6 +146,11 @@ struct SphHitMark_t
 {
 	DWORD	m_uPosition;
 	DWORD	m_uSpan;
+
+	bool operator == ( const SphHitMark_t & rhs ) const
+	{
+		return m_uPosition==rhs.m_uPosition && m_uSpan==rhs.m_uSpan;
+	}
 };
 
 /// hit marker, used for snippets generation
@@ -169,9 +166,6 @@ public:
 	void					Mark ( CSphVector<SphHitMark_t> & );
 	static CSphHitMarker *	Create ( const XQNode_t * pRoot, const ISphQwordSetup & tSetup );
 };
-
-/// factory for parsed query trees
-ISphRanker * sphCreateRanker ( const XQNode_t * pRoot, ESphRankMode eRankMode, CSphQueryResult * pResult, const ISphQwordSetup & tTermSetup );
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -195,5 +189,5 @@ public:
 #endif // _sphinxsearch_
 
 //
-// $Id: sphinxsearch.h 2246 2010-03-08 18:11:05Z shodan $
+// $Id: sphinxsearch.h 2808 2011-05-06 01:44:22Z shodan $
 //

@@ -1,10 +1,10 @@
 //
-// $Id: search.cpp 2408 2010-07-18 15:49:01Z shodan $
+// $Id: search.cpp 2645 2011-01-22 19:02:42Z shodan $
 //
 
 //
-// Copyright (c) 2001-2010, Andrew Aksyonoff
-// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// Copyright (c) 2001-2011, Andrew Aksyonoff
+// Copyright (c) 2008-2011, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -255,7 +255,7 @@ int main ( int argc, char ** argv )
 		tQuery.m_sQuery = sQuery;
 		CSphQueryResult * pResult = NULL;
 
-		CSphIndex * pIndex = sphCreateIndexPhrase ( hIndex["path"].cstr() );
+		CSphIndex * pIndex = sphCreateIndexPhrase ( NULL, hIndex["path"].cstr() );
 		pIndex->m_bEnableStar = ( hIndex.GetInt("enable_star")!=0 );
 		pIndex->SetWordlistPreload ( hIndex.GetInt("ondisk_dict")==0 );
 
@@ -356,7 +356,7 @@ int main ( int argc, char ** argv )
 					const CSphColumnInfo & tAttr = pResult->m_tSchema.GetAttr(j);
 					fprintf ( stdout, ", %s=", tAttr.m_sName.cstr() );
 
-					if ( tAttr.m_eAttrType & SPH_ATTR_MULTI )
+					if ( tAttr.m_eAttrType==SPH_ATTR_UINT32SET )
 					{
 						fprintf ( stdout, "(" );
 						SphAttr_t iIndex = tMatch.GetAttr ( tAttr.m_tLocator );
@@ -435,11 +435,12 @@ int main ( int argc, char ** argv )
 		int iWord = 1;
 		while ( pResult->m_hWordStats.IterateNext() )
 		{
+			const CSphQueryResultMeta::WordStat_t & tStat = pResult->m_hWordStats.IterateGet();
 			fprintf ( stdout, "%d. '%s': %d documents, %d hits\n",
 				iWord,
 				pResult->m_hWordStats.IterateGetKey().cstr(),
-				pResult->m_hWordStats.IterateGet().m_iDocs,
-				pResult->m_hWordStats.IterateGet().m_iHits );
+				tStat.m_iDocs,
+				tStat.m_iHits );
 			iWord++;
 		}
 		fprintf ( stdout, "\n" );
@@ -455,5 +456,5 @@ int main ( int argc, char ** argv )
 }
 
 //
-// $Id: search.cpp 2408 2010-07-18 15:49:01Z shodan $
+// $Id: search.cpp 2645 2011-01-22 19:02:42Z shodan $
 //

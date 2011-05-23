@@ -1,10 +1,10 @@
 //
-// $Id: indexer.cpp 2325 2010-06-08 18:42:00Z tomat $
+// $Id: indexer.cpp 2810 2011-05-09 18:59:08Z shodan $
 //
 
 //
-// Copyright (c) 2001-2010, Andrew Aksyonoff
-// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// Copyright (c) 2001-2011, Andrew Aksyonoff
+// Copyright (c) 2008-2011, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -14,6 +14,7 @@
 //
 
 #include "sphinx.h"
+#include "sphinxint.h"
 #include "sphinxutils.h"
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -34,10 +35,12 @@
 
 bool			g_bQuiet		= false;
 bool			g_bProgress		= true;
+bool			g_bPrintQueries	= false;
 
 const char *	g_sBuildStops	= NULL;
 int				g_iTopStops		= 100;
 bool			g_bRotate		= false;
+bool			g_bRotateEach	= false;
 bool			g_bBuildFreqs	= false;
 
 int				g_iMemLimit				= 0;
@@ -47,6 +50,10 @@ int				g_iMaxFileFieldBuffer	= 1024*1024;
 
 const int		EXT_COUNT = 8;
 const char *	g_dExt[EXT_COUNT] = { "sph", "spa", "spi", "spd", "spp", "spm", "spk", "sps" };
+
+char			g_sMinidump[256];
+
+#define			ROTATE_MIN_INTERVAL 100000 // rotate interval 100 ms
 
 /////////////////////////////////////////////////////////////////////////////
 
@@ -184,7 +191,7 @@ public:
 	virtual SphWordID_t	GetWordID ( const BYTE * pWord, int iLen, bool );
 
 	virtual void		LoadStopwords ( const char *, ISphTokenizer * ) {}
-	virtual bool		LoadWordforms ( const char *, ISphTokenizer * ) { return true; }
+	virtual bool		LoadWordforms ( const char *, ISphTokenizer *, const char * ) { return true; }
 	virtual bool		SetMorphology ( const char *, bool, CSphString & ) { return true; }
 
 	virtual void		Setup ( const CSphDictSettings & tSettings ) { m_tSettings = tSettings; }
@@ -276,9 +283,23 @@ void ShowProgress ( const CSphIndexProgress * pProgress, bool bPhaseEnd )
 	fflush ( stdout );
 }
 
-static void LogWarning ( const char * sWarning )
+static void Logger ( ESphLogLevel eLevel, const char * sFmt, va_list ap )
 {
-	fprintf ( stdout, "WARNING: %s\n", sWarning );
+	if ( eLevel>=LOG_DEBUG )
+		return;
+
+	switch ( eLevel )
+	{
+		case LOG_FATAL: fprintf ( stdout, "FATAL: " ); break;
+		case LOG_WARNING: fprintf ( stdout, "WARNING: " ); break;
+		case LOG_INFO: fprintf ( stdout, "WARNING: " ); break;
+		case LOG_DEBUG: // yes, I know that this branch will never execute because of the condition above.
+		case LOG_VERBOSE_DEBUG:
+		case LOG_VERY_VERBOSE_DEBUG: fprintf ( stdout, "DEBUG: " ); break;
+	}
+
+	vfprintf ( stdout, sFmt, ap );
+	fprintf ( stdout, "\n" );
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -311,8 +332,8 @@ bool ParseMultiAttr ( const char * sBuf, CSphColumnInfo & tAttr, const char * sS
 
 	// handle ATTR-TYPE
 	LOC_SPACE0(); LOC_TOK();
-	if ( LOC_TOKEQ("uint") )				tAttr.m_eAttrType = SPH_ATTR_INTEGER | SPH_ATTR_MULTI;
-	else if ( LOC_TOKEQ("timestamp") )		tAttr.m_eAttrType = SPH_ATTR_INTEGER | SPH_ATTR_MULTI;
+	if ( LOC_TOKEQ("uint") )				tAttr.m_eAttrType = SPH_ATTR_UINT32SET;
+	else if ( LOC_TOKEQ("timestamp") )		tAttr.m_eAttrType = SPH_ATTR_UINT32SET;
 	else									LOC_ERR ( "attr type ('uint' or 'timestamp')", sTok );
 
 	// handle ATTR-NAME
@@ -383,17 +404,17 @@ bool ParseMultiAttr ( const char * sBuf, CSphColumnInfo & tAttr, const char * sS
 	for ( CSphVariant * pVal = hSource(_key); pVal; pVal = pVal->m_pNext ) \
 		_arg.Add ( pVal->cstr() );
 
-void SqlAttrsConfigure ( CSphSourceParams_SQL & tParams, const CSphVariant * pHead, DWORD uAttrType, const char * sSourceName, bool bIndexedAttr=false )
+void SqlAttrsConfigure ( CSphSourceParams_SQL & tParams, const CSphVariant * pHead, ESphAttr eAttrType, const char * sSourceName, bool bIndexedAttr=false )
 {
 	for ( const CSphVariant * pCur = pHead; pCur; pCur= pCur->m_pNext )
 	{
-		CSphColumnInfo tCol ( pCur->cstr(), uAttrType );
+		CSphColumnInfo tCol ( pCur->cstr(), eAttrType );
 		char * pColon = strchr ( const_cast<char*> ( tCol.m_sName.cstr() ), ':' );
 		if ( pColon )
 		{
 			*pColon = '\0';
 
-			if ( uAttrType==SPH_ATTR_INTEGER )
+			if ( eAttrType==SPH_ATTR_INTEGER )
 			{
 				int iBits = strtol ( pColon+1, NULL, 10 );
 				if ( iBits<=0 || iBits>ROWITEM_BITS )
@@ -458,6 +479,7 @@ bool ParseJoinedField ( const char * sBuf, CSphJoinedField * pField, const char 
 		fprintf ( stdout, "ERROR: source '%s': expected " _exp " in sql_joined_field, got '%s'.\n", sSourceName, sBuf ); \
 		return false; \
 	}
+#define LOC_TEXT()			{ if ( *sBuf!=';') LOC_ERR ( "';'" ); sTmp = ++sBuf; while ( *sBuf && *sBuf!=';' ) sBuf++; iTokLen = sBuf-sTmp; }
 
 	// parse field name
 	while ( isspace(*sBuf) )
@@ -485,6 +507,9 @@ bool ParseJoinedField ( const char * sBuf, CSphJoinedField * pField, const char 
 	while ( isspace(*sBuf) )
 		sBuf++;
 
+	bool bGotRanged = false;
+	pField->m_bPayload = false;
+
 	// parse 'query'
 	if ( strncasecmp ( sBuf, "payload-query", 13 )==0 )
 	{
@@ -493,8 +518,12 @@ bool ParseJoinedField ( const char * sBuf, CSphJoinedField * pField, const char 
 
 	} else if ( strncasecmp ( sBuf, "query", 5 )==0 )
 	{
-		pField->m_bPayload = false;
 		sBuf += 5;
+
+	} else if ( strncasecmp ( sBuf, "ranged-query", 12 )==0 )
+	{
+		bGotRanged = true;
+		sBuf += 12;
 
 	} else
 		LOC_ERR ( "'query'" );
@@ -505,15 +534,28 @@ bool ParseJoinedField ( const char * sBuf, CSphJoinedField * pField, const char 
 
 	if ( *sBuf!=';' )
 		LOC_ERR ( "';'" );
-	sBuf++;
 
-	// the rest is query
-	while ( isspace(*sBuf) )
-		sBuf++;
+	// handle QUERY
+	const char * sTmp = sBuf;
+	int iTokLen = 0;
+	LOC_TEXT();
+	if ( iTokLen )
+		pField->m_sQuery.SetBinary ( sTmp, iTokLen );
+	else
+		LOC_ERR ( "query" );
 
-	pField->m_sQuery = sBuf;
+	if ( !bGotRanged )
+		return true;
+
+	// handle RANGE-QUERY
+	LOC_TEXT();
+	if ( iTokLen )
+		pField->m_sRanged.SetBinary ( sTmp, iTokLen );
+	else
+		LOC_ERR ( "range query" );
 
 #undef LOC_ERR
+#undef LOC_TEXT
 
 	return true;
 }
@@ -521,10 +563,13 @@ bool ParseJoinedField ( const char * sBuf, CSphJoinedField * pField, const char 
 
 bool SqlParamsConfigure ( CSphSourceParams_SQL & tParams, const CSphConfigSection & hSource, const char * sSourceName )
 {
-	LOC_CHECK ( hSource, "sql_host", "in source '%s'", sSourceName );
-	LOC_CHECK ( hSource, "sql_user", "in source '%s'", sSourceName );
-	LOC_CHECK ( hSource, "sql_pass", "in source '%s'", sSourceName );
-	LOC_CHECK ( hSource, "sql_db", "in source '%s'", sSourceName );
+	if ( !hSource.Exists("odbc_dsn") ) // in case of odbc source, the host, user, pass and db are not mandatory, since they may be already defined in dsn string.
+	{
+		LOC_CHECK ( hSource, "sql_host", "in source '%s'", sSourceName );
+		LOC_CHECK ( hSource, "sql_user", "in source '%s'", sSourceName );
+		LOC_CHECK ( hSource, "sql_pass", "in source '%s'", sSourceName );
+		LOC_CHECK ( hSource, "sql_db", "in source '%s'", sSourceName );
+	}
 	LOC_CHECK ( hSource, "sql_query", "in source '%s'", sSourceName );
 
 	LOC_GETS ( tParams.m_sHost,				"sql_host" );
@@ -561,6 +606,7 @@ bool SqlParamsConfigure ( CSphSourceParams_SQL & tParams, const CSphConfigSectio
 	LOC_GETA ( tParams.m_dFileFields,			"sql_file_field" );
 
 	tParams.m_iMaxFileBufferSize = g_iMaxFileFieldBuffer;
+	tParams.m_iRefRangeStep = tParams.m_iRangeStep;
 
 	// unpack
 	if ( !ConfigureUnpack ( hSource("unpack_zlib"), SPH_UNPACK_ZLIB, tParams, sSourceName ) )
@@ -603,6 +649,10 @@ bool SqlParamsConfigure ( CSphSourceParams_SQL & tParams, const CSphConfigSectio
 		fprintf ( stdout, "WARNING: sql_ranged_throttle must not be negative; throttling disabled\n" );
 		tParams.m_iRangedThrottle = 0;
 	}
+
+	// debug printer
+	if ( g_bPrintQueries )
+		tParams.m_bPrintQueries = true;
 
 	return true;
 }
@@ -662,6 +712,7 @@ CSphSource * SpawnSourceODBC ( const CSphConfigSection & hSource, const char * s
 		return NULL;
 
 	LOC_GETS ( tParams.m_sOdbcDSN, "odbc_dsn" );
+	LOC_GETS ( tParams.m_sColBuffers, "sql_column_buffers" );
 
 	CSphSource_ODBC * pSrc = new CSphSource_ODBC ( sSourceName );
 	if ( !pSrc->Setup ( tParams ) )
@@ -681,6 +732,7 @@ CSphSource * SpawnSourceMSSQL ( const CSphConfigSection & hSource, const char * 
 
 	LOC_GETB ( tParams.m_bWinAuth, "mssql_winauth" );
 	LOC_GETB ( tParams.m_bUnicode, "mssql_unicode" );
+	LOC_GETS ( tParams.m_sColBuffers, "sql_column_buffers" );
 
 	CSphSource_MSSQL * pSrc = new CSphSource_MSSQL ( sSourceName );
 	if ( !pSrc->Setup ( tParams ) )
@@ -738,7 +790,7 @@ CSphSource * SpawnSourceXMLPipe ( const CSphConfigSection & hSource, const char 
 }
 
 
-CSphSource * SpawnSource ( const CSphConfigSection & hSource, const char * sSourceName, bool bUTF8 )
+CSphSource * SpawnSource ( const CSphConfigSection & hSource, const char * sSourceName, bool bUTF8, bool bWordDict )
 {
 	if ( !hSource.Exists ( "type" ) )
 	{
@@ -763,6 +815,12 @@ CSphSource * SpawnSource ( const CSphConfigSection & hSource, const char * sSour
 	if ( hSource["type"]=="mssql" )
 		return SpawnSourceMSSQL ( hSource, sSourceName );
 	#endif
+
+	if ( hSource["type"]=="xmlpipe" && bWordDict )
+	{
+		fprintf ( stdout, "ERROR: source '%s': type xmlpipe incompatible with dict=keywords option use xmlpipe2 instead; skipping.\n", sSourceName );
+		return NULL;
+	}
 
 	if ( hSource["type"]=="xmlpipe" || hSource["type"]=="xmlpipe2" )
 		return SpawnSourceXMLPipe ( hSource, sSourceName, bUTF8 );
@@ -821,7 +879,8 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 		return false;
 	}
 
-	if ( ( hIndex.GetInt ( "min_prefix_len", 0 ) > 0 || hIndex.GetInt ( "min_infix_len", 0 ) > 0 )
+	bool bInfix = hIndex.GetInt ( "min_infix_len", 0 ) > 0;
+	if ( ( hIndex.GetInt ( "min_prefix_len", 0 ) > 0 || bInfix )
 		&& hIndex.GetInt ( "enable_star" )==0 )
 	{
 		const char * szMorph = hIndex.GetStr ( "morphology", "" );
@@ -845,15 +904,35 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 	if ( !pTokenizer )
 		sphDie ( "index '%s': %s", sIndexName, sError.cstr() );
 
+	// enable sentence indexing on tokenizer
+	// (not in Create() because search time tokenizer does not care)
+	bool bIndexSP = ( hIndex.GetInt ( "index_sp" )!=0 );
+	if ( bIndexSP )
+		if ( !pTokenizer->EnableSentenceIndexing ( sError ) )
+			sphDie ( "index '%s': %s", sIndexName, sError.cstr() );
+
+	if ( hIndex("index_zones") )
+		if ( !pTokenizer->EnableZoneIndexing ( sError ) )
+			sphDie ( "index '%s': %s", sIndexName, sError.cstr() );
+
 	CSphDict * pDict = NULL;
 	CSphDictSettings tDictSettings;
 
 	if ( !g_sBuildStops )
 	{
 		ISphTokenizer * pTokenFilter = NULL;
-
 		sphConfDictionary ( hIndex, tDictSettings );
-		pDict = sphCreateDictionaryCRC ( tDictSettings, pTokenizer, sError );
+
+		// FIXME! no support for infixes in keywords dict yet
+		if ( tDictSettings.m_bWordDict && bInfix )
+		{
+			tDictSettings.m_bWordDict = false;
+			fprintf ( stdout, "WARNING: min_infix_len is not supported yet with dict=keywords; using dict=crc\n" );
+		}
+
+		pDict = tDictSettings.m_bWordDict
+			? sphCreateDictionaryKeywords ( tDictSettings, pTokenizer, sError, sIndexName )
+			: sphCreateDictionaryCRC ( tDictSettings, pTokenizer, sError, sIndexName );
 		if ( !pDict )
 			sphDie ( "index '%s': %s", sIndexName, sError.cstr() );
 
@@ -863,26 +942,6 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 		pTokenFilter = ISphTokenizer::CreateTokenFilter ( pTokenizer, pDict->GetMultiWordforms () );
 		pTokenizer = pTokenFilter ? pTokenFilter : pTokenizer;
 	}
-
-	// prefix/infix indexing
-	int iPrefix = hIndex("min_prefix_len") ? hIndex["min_prefix_len"].intval() : 0;
-	int iInfix = hIndex("min_infix_len") ? hIndex["min_infix_len"].intval() : 0;
-	iPrefix = Max ( iPrefix, 0 );
-	iInfix = Max ( iInfix, 0 );
-
-	CSphString sPrefixFields, sInfixFields;
-
-	if ( hIndex.Exists ( "prefix_fields" ) )
-		sPrefixFields = hIndex ["prefix_fields"].cstr ();
-
-	if ( hIndex.Exists ( "infix_fields" ) )
-		sInfixFields = hIndex ["infix_fields"].cstr ();
-
-	if ( iPrefix==0 && !sPrefixFields.IsEmpty () )
-		fprintf ( stdout, "WARNING: min_prefix_len = 0. prefix_fields are ignored\n" );
-
-	if ( iInfix==0 && !sInfixFields.IsEmpty () )
-		fprintf ( stdout, "WARNING: min_infix_len = 0. infix_fields are ignored\n" );
 
 	// boundary
 	bool bInplaceEnable = hIndex.GetInt ( "inplace_enable", 0 )!=0;
@@ -930,6 +989,13 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 		bHtmlStrip = hIndex.GetInt ( "html_strip" )!=0;
 		sHtmlIndexAttrs = hIndex.GetStr ( "html_index_attrs" );
 		sHtmlRemoveElements = hIndex.GetStr ( "html_remove_elements" );
+	} else
+	{
+		if ( bIndexSP )
+			sphWarning ( "index '%s': index_sp=1 requires html_strip=1 to index paragraphs", sIndexName );
+
+		if ( hIndex("index_zones") )
+			sphDie ( "index '%s': index_zones requires html_strip=1", sIndexName );
 	}
 
 	// parse all sources
@@ -947,7 +1013,7 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 		}
 		const CSphConfigSection & hSource = hSources [ pSourceName->cstr() ];
 
-		CSphSource * pSource = SpawnSource ( hSource, pSourceName->cstr(), pTokenizer->IsUtf8 () );
+		CSphSource * pSource = SpawnSource ( hSource, pSourceName->cstr(), pTokenizer->IsUtf8 (), tDictSettings.m_bWordDict );
 		if ( !pSource )
 		{
 			bSpawnFailed = true;
@@ -960,8 +1026,6 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 		if ( pSource->HasJoinedFields() )
 			bGotJoinedFields = true;
 
-		pSource->SetupFieldMatch ( sPrefixFields.cstr (), sInfixFields.cstr () );
-
 		// strip_html, index_html_attrs
 		CSphString sError;
 		if ( bStripOverride )
@@ -969,7 +1033,7 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 			// apply per-index overrides
 			if ( bHtmlStrip )
 			{
-				if ( !pSource->SetStripHTML ( sHtmlIndexAttrs.cstr(), sHtmlRemoveElements.cstr(), sError ) )
+				if ( !pSource->SetStripHTML ( sHtmlIndexAttrs.cstr(), sHtmlRemoveElements.cstr(), bIndexSP, hIndex.GetStr("index_zones"), sError ) )
 				{
 					fprintf ( stdout, "ERROR: source '%s': %s.\n", pSourceName->cstr(), sError.cstr() );
 					return false;
@@ -979,7 +1043,7 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 		} else if ( hSource.GetInt ( "strip_html" ) )
 		{
 			// apply deprecated per-source settings if there are no overrides
-			if ( !pSource->SetStripHTML ( hSource.GetStr ( "index_html_attrs" ), "", sError ) )
+			if ( !pSource->SetStripHTML ( hSource.GetStr ( "index_html_attrs" ), "", false, NULL, sError ) )
 			{
 				fprintf ( stdout, "ERROR: source '%s': %s.\n", pSourceName->cstr(), sError.cstr() );
 				return false;
@@ -1027,13 +1091,16 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 		{
 			CSphString sError;
 			dSources[i]->SetDict ( &tDict );
-			if ( !dSources[i]->Connect ( sError ) || !dSources[i]->IterateHitsStart ( sError ) )
+			if ( !dSources[i]->Connect ( sError ) || !dSources[i]->IterateStart ( sError ) )
 			{
 				if ( !sError.IsEmpty() )
 					fprintf ( stdout, "ERROR: index '%s': %s\n", sIndexName, sError.cstr() );
 				continue;
 			}
-			while ( dSources[i]->IterateHitsNext ( sError ) && dSources[i]->m_tDocInfo.m_iDocID );
+			while ( dSources[i]->IterateDocument ( sError ) && dSources[i]->m_tDocInfo.m_iDocID )
+				while ( dSources[i]->IterateHits ( sError ) )
+				{
+				}
 		}
 		tDict.Save ( g_sBuildStops, g_iTopStops, g_bBuildFreqs );
 
@@ -1050,7 +1117,7 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 		sIndexPath.SetSprintf ( g_bRotate ? "%s.tmp" : "%s", hIndex["path"].cstr() );
 
 		// do index
-		CSphIndex * pIndex = sphCreateIndexPhrase ( sIndexPath.cstr() );
+		CSphIndex * pIndex = sphCreateIndexPhrase ( sIndexName, sIndexPath.cstr() );
 		assert ( pIndex );
 
 		// check lock file
@@ -1060,14 +1127,22 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 			exit ( 1 );
 		}
 
+		CSphString sError;
 		CSphIndexSettings tSettings;
-		sphConfIndex ( hIndex, tSettings );
+		if ( !sphConfIndex ( hIndex, tSettings, sError ) )
+			sphDie ( "index '%s': %s.", sIndexName, sError.cstr() );
 		tSettings.m_bVerbose = bVerbose;
 
-		if ( tSettings.m_bIndexExactWords && !tDictSettings.HasMorphology () )
+		if ( tSettings.m_bIndexExactWords && !pDict->HasMorphology () )
 		{
 			tSettings.m_bIndexExactWords = false;
 			fprintf ( stdout, "WARNING: index '%s': no morphology, index_exact_words=1 has no effect, ignoring\n", sIndexName );
+		}
+
+		if ( tDictSettings.m_bWordDict && pDict->HasMorphology() && tSettings.m_iMinPrefixLen && !tSettings.m_bIndexExactWords )
+		{
+			tSettings.m_bIndexExactWords = true;
+			fprintf ( stdout, "WARNING: index '%s': dict=keywords and prefixes and morphology enabled, forcing index_exact_words=1\n", sIndexName );
 		}
 
 		if ( bGotAttrs && tSettings.m_eDocinfo==SPH_DOCINFO_NONE )
@@ -1099,6 +1174,9 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 
 		if ( !bOK )
 			fprintf ( stdout, "ERROR: index '%s': %s.\n", sIndexName, pIndex->GetLastError().cstr() );
+
+		if ( !pIndex->GetLastWarning().IsEmpty() )
+			fprintf ( stdout, "WARNING: index '%s': %s.\n", sIndexName, pIndex->GetLastWarning().cstr() );
 
 		pIndex->Unlock ();
 
@@ -1155,8 +1233,8 @@ bool DoMerge ( const CSphConfigSection & hDst, const char * sDst,
 	}
 
 	// do the merge
-	CSphIndex * pSrc = sphCreateIndexPhrase ( hSrc["path"].cstr() );
-	CSphIndex * pDst = sphCreateIndexPhrase ( hDst["path"].cstr() );
+	CSphIndex * pSrc = sphCreateIndexPhrase ( NULL, hSrc["path"].cstr() );
+	CSphIndex * pDst = sphCreateIndexPhrase ( NULL, hDst["path"].cstr() );
 	assert ( pSrc );
 	assert ( pDst );
 
@@ -1272,9 +1350,151 @@ void ReportIOStats ( const char * sType, int iReads, int64_t iReadTime, int64_t 
 }
 
 
+extern int64_t g_iIndexerCurrentDocID;
+extern int64_t g_iIndexerCurrentHits;
+extern int64_t g_iIndexerCurrentRangeMin;
+extern int64_t g_iIndexerCurrentRangeMax;
+extern int64_t g_iIndexerPoolStartDocID;
+extern int64_t g_iIndexerPoolStartHit;
+
+#if !USE_WINDOWS
+
+void sigsegv ( int sig )
+{
+	sphSafeInfo ( STDERR_FILENO, "*** Oops, indexer crashed! Please send the following report to developers." );
+	sphSafeInfo ( STDERR_FILENO, "-------------- report begins here ---------------" );
+	sphSafeInfo ( STDERR_FILENO, "Current document: docid=%l, hits=%l", g_iIndexerCurrentDocID, g_iIndexerCurrentHits );
+	sphSafeInfo ( STDERR_FILENO, "Current batch: minid=%l, maxid=%l", g_iIndexerCurrentRangeMin, g_iIndexerCurrentRangeMax );
+	sphSafeInfo ( STDERR_FILENO, "Hit pool start: docid=%l, hit=%l", g_iIndexerPoolStartDocID, g_iIndexerPoolStartHit );
+	sphBacktrace ( STDERR_FILENO );
+	CRASH_EXIT;
+}
+
+void SetSignalHandlers ()
+{
+	struct sigaction sa;
+	sigfillset ( &sa.sa_mask );
+
+	bool bSignalsSet = false;
+	for ( ;; )
+	{
+		sa.sa_flags = SA_NOCLDSTOP;
+		sa.sa_handler = SIG_IGN; if ( sigaction ( SIGCHLD, &sa, NULL )!=0 ) break;
+
+		sa.sa_flags |= SA_RESETHAND;
+		sa.sa_handler = sigsegv; if ( sigaction ( SIGSEGV, &sa, NULL )!=0 ) break;
+		sa.sa_handler = sigsegv; if ( sigaction ( SIGBUS, &sa, NULL )!=0 ) break;
+		sa.sa_handler = sigsegv; if ( sigaction ( SIGABRT, &sa, NULL )!=0 ) break;
+		sa.sa_handler = sigsegv; if ( sigaction ( SIGILL, &sa, NULL )!=0 ) break;
+		sa.sa_handler = sigsegv; if ( sigaction ( SIGFPE, &sa, NULL )!=0 ) break;
+
+		bSignalsSet = true;
+		break;
+	}
+	if ( !bSignalsSet )
+	{
+		fprintf ( stderr, "sigaction(): %s", strerror(errno) );
+		exit ( 1 );
+	}
+}
+
+#else // if USE_WINDOWS
+
+LONG WINAPI sigsegv ( EXCEPTION_POINTERS * pExc )
+{
+	const char * sFail1 = "*** Oops, indexer crashed! Please send ";
+	const char * sFail2 = " minidump file to developers.\n";
+
+	sphBacktrace ( pExc, g_sMinidump );
+	::write ( STDERR_FILENO, sFail1, strlen(sFail1) );
+	::write ( STDERR_FILENO, g_sMinidump, strlen(g_sMinidump) );
+	::write ( STDERR_FILENO, sFail2, strlen(sFail2) );
+
+	CRASH_EXIT;
+}
+
+
+void SetSignalHandlers ()
+{
+	snprintf ( g_sMinidump, sizeof(g_sMinidump), "indexer.%d.mdmp", GetCurrentProcessId() );
+	SetUnhandledExceptionFilter ( sigsegv );
+}
+
+#endif // USE_WINDOWS
+
+bool SendRotate ( int iPID, bool bForce )
+{
+	if ( iPID<0 )
+		return false;
+
+	if ( !( g_bRotate && ( g_bRotateEach || bForce ) ) )
+		return false;
+
+#if USE_WINDOWS
+	char szPipeName[64];
+	snprintf ( szPipeName, sizeof(szPipeName), "\\\\.\\pipe\\searchd_%d", iPID );
+
+	HANDLE hPipe = INVALID_HANDLE_VALUE;
+
+	while ( hPipe==INVALID_HANDLE_VALUE )
+	{
+		hPipe = CreateFile ( szPipeName, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL );
+
+		if ( hPipe==INVALID_HANDLE_VALUE )
+		{
+			if ( GetLastError()!=ERROR_PIPE_BUSY )
+			{
+				fprintf ( stdout, "WARNING: could not open pipe (GetLastError()=%d)\n", GetLastError () );
+				return false;
+			}
+
+			if ( !WaitNamedPipe ( szPipeName, 1000 ) )
+			{
+				fprintf ( stdout, "WARNING: could not open pipe (GetLastError()=%d)\n", GetLastError () );
+				return false;
+			}
+		}
+	}
+
+	if ( hPipe!=INVALID_HANDLE_VALUE )
+	{
+		DWORD uWritten = 0;
+		BYTE uWrite = 0;
+		BOOL bResult = WriteFile ( hPipe, &uWrite, 1, &uWritten, NULL );
+		if ( bResult )
+			fprintf ( stdout, "rotating indices: succesfully sent SIGHUP to searchd (pid=%d).\n", iPID );
+		else
+			fprintf ( stdout, "WARNING: failed to send SIGHUP to searchd (pid=%d, GetLastError()=%d)\n", iPID, GetLastError () );
+
+		CloseHandle ( hPipe );
+	}
+#else
+	// signal
+	int iErr = kill ( iPID, SIGHUP );
+	if ( iErr==0 )
+	{
+		if ( !g_bQuiet )
+			fprintf ( stdout, "rotating indices: succesfully sent SIGHUP to searchd (pid=%d).\n", iPID );
+	} else
+	{
+		switch ( errno )
+		{
+		case ESRCH:	fprintf ( stdout, "WARNING: no process found by PID %d.\n", iPID ); break;
+		case EPERM:	fprintf ( stdout, "WARNING: access denied to PID %d.\n", iPID ); break;
+		default:	fprintf ( stdout, "WARNING: kill() error: %s.\n", strerror(errno) ); break;
+		}
+		return false;
+	}
+#endif
+
+	// all ok
+	return true;
+}
+
+
 int main ( int argc, char ** argv )
 {
-	sphSetWarningCallback ( LogWarning );
+	sphSetLogger ( Logger );
 
 	const char * sOptConfig = NULL;
 	bool bMerge = false;
@@ -1323,6 +1543,10 @@ int main ( int argc, char ** argv )
 		{
 			g_bRotate = true;
 
+		} else if ( strcasecmp ( argv[i], "--sighup-each" )==0 )
+		{
+			g_bRotateEach = true;
+
 		} else if ( strcasecmp ( argv[i], "--buildfreqs" )==0 )
 		{
 			g_bBuildFreqs = true;
@@ -1356,6 +1580,10 @@ int main ( int argc, char ** argv )
 		{
 			sDumpRows = argv[++i];
 
+		} else if ( strcasecmp ( argv[i], "--print-queries" )==0 )
+		{
+			g_bPrintQueries = true;
+
 		} else
 		{
 			break;
@@ -1387,10 +1615,10 @@ int main ( int argc, char ** argv )
 				"--verbose\t\tverbose indexing issues report\n"
 				"--noprogress\t\tdo not display progress\n"
 				"\t\t\t(automatically on if output is not to a tty)\n"
-#if !USE_WINDOWS
 				"--rotate\t\tsend SIGHUP to searchd when indexing is over\n"
 				"\t\t\tto rotate updated indexes automatically\n"
-#endif
+				"--sighup-each\t\tsend SIGHUP to searchd after each index\n"
+				"\t\t\t(used with --rotate only)\n"
 				"--buildstops <output.txt> <N>\n"
 				"\t\t\tbuild top N stopwords and write them to given file\n"
 				"--buildfreqs\t\tstore words frequencies to output.txt\n"
@@ -1406,6 +1634,7 @@ int main ( int argc, char ** argv )
 				"--merge-killlists\tmerge src and dst kill-lists (default is to\n"
 				"\t\t\tapply src kill-list to dst index)\n"
 				"--dump-rows <FILE>\tdump indexed rows into FILE\n"
+				"--print-queries\t\tprint SQL queries (for debugging)\n"
 				"\n"
 				"Examples:\n"
 				"indexer --quiet myidx1\treindex 'myidx1' defined in 'sphinx.conf'\n"
@@ -1415,7 +1644,13 @@ int main ( int argc, char ** argv )
 		return 1;
 	}
 
-	sphSetupSignals();
+	if ( !bMerge && !bIndexAll && !dIndexes.GetLength() )
+	{
+		fprintf ( stdout, "ERROR: nothing to do.\n" );
+		return 1;
+	}
+
+	SetSignalHandlers();
 
 	///////////////
 	// load config
@@ -1439,6 +1674,40 @@ int main ( int argc, char ** argv )
 		g_iMaxFileFieldBuffer = Max ( 1024*1024, hIndexer.GetSize ( "max_file_field_buffer", 8*1024*1024 ) );
 
 		sphSetThrottling ( hIndexer.GetInt ( "max_iops", 0 ), hIndexer.GetSize ( "max_iosize", 0 ) );
+	}
+
+	int iPID = -1;
+	while ( g_bRotate )
+	{
+		// load config
+		if ( !hConf.Exists ( "searchd" ) )
+		{
+			fprintf ( stdout, "WARNING: 'searchd' section not found in config file.\n" );
+			break;
+		}
+
+		const CSphConfigSection & hSearchd = hConf["searchd"]["searchd"];
+		if ( !hSearchd.Exists ( "pid_file" ) )
+		{
+			fprintf ( stdout, "WARNING: 'pid_file' parameter not found in 'searchd' config section.\n" );
+			break;
+		}
+
+		// read in PID
+		FILE * fp = fopen ( hSearchd["pid_file"].cstr(), "r" );
+		if ( !fp )
+		{
+			fprintf ( stdout, "WARNING: failed to open pid_file '%s'.\n", hSearchd["pid_file"].cstr() );
+			break;
+		}
+		if ( fscanf ( fp, "%d", &iPID )!=1 || iPID<=0 )
+		{
+			fprintf ( stdout, "WARNING: failed to scanf pid from pid_file '%s'.\n", hSearchd["pid_file"].cstr() );
+			break;
+		}
+		fclose ( fp );
+
+		break;
 	}
 
 	/////////////////////
@@ -1472,17 +1741,29 @@ int main ( int argc, char ** argv )
 			hConf["index"][dIndexes[1]], dIndexes[1], dMergeDstFilters, g_bRotate, bMergeKillLists );
 	} else if ( bIndexAll )
 	{
+		uint64_t tmRotated = sphMicroTimer();
 		hConf["index"].IterateStart ();
 		while ( hConf["index"].IterateNext() )
-			bIndexedOk |= DoIndex ( hConf["index"].IterateGet (), hConf["index"].IterateGetKey().cstr(), hConf["source"], bVerbose, fpDumpRows );
+		{
+			bool bLastOk = DoIndex ( hConf["index"].IterateGet (), hConf["index"].IterateGetKey().cstr(), hConf["source"], bVerbose, fpDumpRows );
+			bIndexedOk |= bLastOk;
+			if ( bLastOk && ( sphMicroTimer() - tmRotated > ROTATE_MIN_INTERVAL ) && SendRotate ( iPID, false ) )
+				tmRotated = sphMicroTimer();
+		}
 	} else
 	{
+		uint64_t tmRotated = sphMicroTimer();
 		ARRAY_FOREACH ( i, dIndexes )
 		{
 			if ( !hConf["index"](dIndexes[i]) )
 				fprintf ( stdout, "WARNING: no such index '%s', skipping.\n", dIndexes[i] );
 			else
-				bIndexedOk |= DoIndex ( hConf["index"][dIndexes[i]], dIndexes[i], hConf["source"], bVerbose, fpDumpRows );
+			{
+				bool bLastOk = DoIndex ( hConf["index"][dIndexes[i]], dIndexes[i], hConf["source"], bVerbose, fpDumpRows );
+				bIndexedOk |= bLastOk;
+				if ( bLastOk && ( sphMicroTimer() - tmRotated > ROTATE_MIN_INTERVAL ) && SendRotate ( iPID, false ) )
+					tmRotated = sphMicroTimer();
+			}
 		}
 	}
 
@@ -1500,107 +1781,10 @@ int main ( int argc, char ** argv )
 	// rotating searchd indices
 	////////////////////////////
 
-	if ( bIndexedOk )
+	if ( bIndexedOk && g_bRotate )
 	{
-		bool bOK = false;
-		while ( g_bRotate )
-		{
-			// load config
-			if ( !hConf.Exists ( "searchd" ) )
-			{
-				fprintf ( stdout, "WARNING: 'searchd' section not found in config file.\n" );
-				break;
-			}
-
-			const CSphConfigSection & hSearchd = hConf["searchd"]["searchd"];
-			if ( !hSearchd.Exists ( "pid_file" ) )
-			{
-				fprintf ( stdout, "WARNING: 'pid_file' parameter not found in 'searchd' config section.\n" );
-				break;
-			}
-
-			// read in PID
-			int iPID;
-			FILE * fp = fopen ( hSearchd["pid_file"].cstr(), "r" );
-			if ( !fp )
-			{
-				fprintf ( stdout, "WARNING: failed to open pid_file '%s'.\n", hSearchd["pid_file"].cstr() );
-				break;
-			}
-			if ( fscanf ( fp, "%d", &iPID )!=1 || iPID<=0 )
-			{
-				fprintf ( stdout, "WARNING: failed to scanf pid from pid_file '%s'.\n", hSearchd["pid_file"].cstr() );
-				break;
-			}
-			fclose ( fp );
-
-#if USE_WINDOWS
-			char szPipeName[64];
-			snprintf ( szPipeName, sizeof(szPipeName), "\\\\.\\pipe\\searchd_%d", iPID );
-
-			HANDLE hPipe = INVALID_HANDLE_VALUE;
-
-			while ( hPipe==INVALID_HANDLE_VALUE )
-			{
-				hPipe = CreateFile ( szPipeName, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL );
-
-				if ( hPipe==INVALID_HANDLE_VALUE )
-				{
-					if ( GetLastError()!=ERROR_PIPE_BUSY )
-					{
-						fprintf ( stdout, "WARNING: could not open pipe (GetLastError()=%d)\n", GetLastError () );
-						break;
-					}
-
-					if ( !WaitNamedPipe ( szPipeName, 1000 ) )
-					{
-						fprintf ( stdout, "WARNING: could not open pipe (GetLastError()=%d)\n", GetLastError () );
-						break;
-					}
-				}
-			}
-
-			if ( hPipe!=INVALID_HANDLE_VALUE )
-			{
-				DWORD uWritten = 0;
-				BYTE uWrite = 0;
-				BOOL bResult = WriteFile ( hPipe, &uWrite, 1, &uWritten, NULL );
-				if ( bResult )
-					fprintf ( stdout, "rotating indices: succesfully sent SIGHUP to searchd (pid=%d).\n", iPID );
-				else
-					fprintf ( stdout, "WARNING: failed to send SIGHUP to searchd (pid=%d, GetLastError()=%d)\n", iPID, GetLastError () );
-
-				CloseHandle ( hPipe );
-			}
-#else
-			// signal
-			int iErr = kill ( iPID, SIGHUP );
-			if ( iErr==0 )
-			{
-				if ( !g_bQuiet )
-					fprintf ( stdout, "rotating indices: succesfully sent SIGHUP to searchd (pid=%d).\n", iPID );
-			} else
-			{
-				switch ( errno )
-				{
-					case ESRCH:	fprintf ( stdout, "WARNING: no process found by PID %d.\n", iPID ); break;
-					case EPERM:	fprintf ( stdout, "WARNING: access denied to PID %d.\n", iPID ); break;
-					default:	fprintf ( stdout, "WARNING: kill() error: %s.\n", strerror(errno) ); break;
-				}
-				break;
-			}
-#endif
-
-			// all ok
-			bOK = true;
-			break;
-		}
-
-		if ( g_bRotate )
-		{
-			if ( !bOK )
-				fprintf ( stdout, "WARNING: indices NOT rotated.\n" );
-		}
+		if ( !SendRotate ( iPID, true ) )
+			fprintf ( stdout, "WARNING: indices NOT rotated.\n" );
 	}
 
 #if SPH_DEBUG_LEAKS
@@ -1611,5 +1795,5 @@ int main ( int argc, char ** argv )
 }
 
 //
-// $Id: indexer.cpp 2325 2010-06-08 18:42:00Z tomat $
+// $Id: indexer.cpp 2810 2011-05-09 18:59:08Z shodan $
 //

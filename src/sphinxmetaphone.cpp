@@ -1,10 +1,10 @@
 //
-// $Id: sphinxmetaphone.cpp 2247 2010-03-09 10:22:30Z shodan $
+// $Id: sphinxmetaphone.cpp 2616 2011-01-01 02:33:06Z shodan $
 //
 
 //
-// Copyright (c) 2001-2010, Andrew Aksyonoff
-// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// Copyright (c) 2001-2011, Andrew Aksyonoff
+// Copyright (c) 2008-2011, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -14,49 +14,7 @@
 //
 
 #include "sphinx.h"
-
-// FIXME! merge this copy with the original
-inline int sphUTF8Decode ( BYTE * & pBuf )
-{
-	BYTE v = *pBuf;
-	if ( !v )
-		return 0;
-	pBuf++;
-
-	// check for 7-bit case
-	if ( v<128 )
-		return v;
-
-	// get number of bytes
-	int iBytes = 0;
-	while ( v & 0x80 )
-	{
-		iBytes++;
-		v <<= 1;
-	}
-
-	// check for valid number of bytes
-	if ( iBytes<2 || iBytes>4 )
-		return -1;
-
-	int iCode = ( v >> iBytes );
-	iBytes--;
-	do
-	{
-		if ( !(*pBuf) )
-			return 0; // unexpected eof
-
-		if ( ((*pBuf) & 0xC0)!=0x80 )
-			return -1; // invalid code
-
-		iCode = ( iCode<<6 ) + ( (*pBuf) & 0x3F );
-		iBytes--;
-		pBuf++;
-	} while ( iBytes );
-
-	// all good
-	return iCode;
-}
+#include "sphinxint.h"
 
 
 struct CurrentWord_t
@@ -701,5 +659,5 @@ void stem_dmetaphone ( BYTE * pWord, bool bUTF8 )
 }
 
 //
-// $Id: sphinxmetaphone.cpp 2247 2010-03-09 10:22:30Z shodan $
+// $Id: sphinxmetaphone.cpp 2616 2011-01-01 02:33:06Z shodan $
 //

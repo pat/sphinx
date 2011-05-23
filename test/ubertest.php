@@ -1,12 +1,14 @@
 <?php
 
 //
-// $Id: ubertest.php 2404 2010-07-18 14:56:56Z klirichek $
+// $Id: ubertest.php 2765 2011-04-08 13:07:32Z klirichek $
 //
 
-require_once ( "settings.inc" );
 $sd_managed_searchd	= false;
 $sd_skip_indexer = false;
+$g_ignore_weights = false;
+
+require_once ( "settings.inc" );
 
 //////////////////////
 // parse command line
@@ -21,16 +23,21 @@ if ( !is_array($args) || empty($args) )
 	print ( "\nModes are:\n" );
 	print ( "g, gen\t\t\tgenerate reference ('model') test results\n" );
 	print ( "t, test\t\t\trun tests and compare results to reference\n" );
+	print ( "qt\t\t\tsame as test, but skips user-configured slow tests\n" );
 	print ( "\nOptions are:\n" );
 	print ( "-u, --user <USER>\tuse 'USER' as MySQL user\n" );
 	print ( "-p, --password <PASS>\tuse 'PASS' as MySQL password\n" );
 	print ( "-i, --indexer <PATH>\tpath to indexer\n" );
 	print ( "-s, --searchd <PATH>\tpath to searchd\n" );
 	print ( "--strict\t\tterminate on the first failure (for automatic runs)\n" );
+	print ( "--strict-verbose\tterminate on the first failure and copy the last report to report.txt (for automatic runs)\n" );
 	print ( "--managed\t\tdon't run searchd during test (for debugging)\n" );
 	print ( "--skip-indexer\t\tskip DB creation and indexer stages and go directly to queries/custom tests\n");
 	print ( "--rt\t\t\ttest RT backend (auto-convert all local indexes)\n" );
-	print ( "\nEnvironment vriables are:\n" );
+	print ( "--no-drop-db\t\tKeep test db tables after the test (for debugging)\n");
+	print ( "--no-demo\t\tJust skip all tests without models. Else - run them, but never fail (for debugging)\n");
+	print ( "--no-marks\t\tDon't mark the output of every test in the logs.\n");
+	print ( "\nEnvironment variables are:\n" );
 	print ( "DBUSER\t\t\tuse 'USER' as MySQL user\n" );
 	print ( "DBPASS\t\t\tuse 'PASS' as MySQL password\n" );
 	print ( "\nTests can be specified by full name, or list of IDs, or range of IDs.\n" );
@@ -55,6 +62,7 @@ if ( array_key_exists ( "DBPASS", $_ENV ) && $_ENV["DBPASS"] )
 $run = false;
 $test_dirs = array();
 $test_range = array();
+$user_skip = false;
 for ( $i=0; $i<count($args); $i++ )
 {
 	$arg = $args[$i];
@@ -62,6 +70,7 @@ for ( $i=0; $i<count($args); $i++ )
 	if ( false );
 	else if ( $arg=="g" || $arg=="gen" )			{ $g_model = true; $run = true; }
 	else if ( $arg=="t" || $arg=="test" )			{ $g_model = false; $run = true; }
+	else if ( $arg=="qt" )							{ $g_model = false; $run = true; $user_skip = true; }
 	else if ( $arg=="--managed" )					$sd_managed_searchd = true;
 	else if ( $arg=="--skip-indexer")				$sd_skip_indexer = true;
 	else if ( $arg=="-u" || $arg=="--user" )		$locals['db-user'] = $args[++$i];
@@ -70,6 +79,11 @@ for ( $i=0; $i<count($args); $i++ )
 	else if ( $arg=="-s" || $arg=="--searchd" )		$locals['searchd'] = $args[++$i];
 	else if ( $arg=="--rt" )						$locals['rt_mode'] = true;
 	else if ( $arg=="--strict" )					$g_strict = true;
+	else if ( $arg=="--strict-verbose" )			{ $g_strict = true; $g_strictverbose = true; }
+	else if ( $arg=="--ignore-weights" )			$g_ignore_weights = true;
+	else if ( $arg=="--no-drop-db" )				$locals['no_drop_db'] = true;
+	else if ( $arg=="--no-demo" )					$g_skipdemo = true;
+	else if ( $arg=="--no-marks" )					$g_usemarks = false;
 	else if ( is_dir($arg) )						$test_dirs[] = $arg;
 	else if ( preg_match ( "/^(\\d+)-(\\d+)$/", $arg, $range ) )
 	{
@@ -129,11 +143,20 @@ $t = MyMicrotime ();
 // build test lists
 $tests = array ();
 $dh = opendir ( "." );
+$user_skipped = 0;
 while ( $entry=readdir($dh) )
 {
 	if ( substr ( $entry, 0, 5 )!="test_" )
 		continue;
 	$test_id = (int) substr ( $entry, 5 );
+
+	if ( $user_skip
+		&& isset ( $g_locals["skip-tests"] )
+		&& in_array ( $test_id, $g_locals["skip-tests"] ) )
+	{
+		$user_skipped++;
+		continue;
+	}
 
 	if ( ( empty($test_dirs) && empty($test_range) )
 		|| in_array ( $entry, $test_dirs )
@@ -157,7 +180,7 @@ $total_tests = 0;
 $total_tests_failed = 0;
 $total_subtests = 0;
 $total_subtests_failed = 0;
-$total_skipped = 0;
+$total_skipped = $user_skipped;
 $failed_tests = array();
 foreach ( $tests as $test )
 {
@@ -177,7 +200,7 @@ foreach ( $tests as $test )
 	if ( file_exists ( $test."/test.xml" ) )
 	{
 		$total_tests++;
-		$res = RunTest ( $test );
+		$res = RunTest ( $test, $g_skipdemo, $g_usemarks );
 
 		if ( !is_array($res) )
 		{
@@ -195,7 +218,16 @@ foreach ( $tests as $test )
 			$total_subtests_failed += $res["tests_failed"];
 			$failed_tests[] = ShortTestName ( $test );
 			if ( $g_strict )
+			{
+				if ( $g_strictverbose )
+				{
+					$report = file_get_contents ( "$test/report.txt" );
+					$report.= "\n Test $test failed\n";
+					file_put_contents("report.txt",$report);
+					$report = "";
+				}
 				break;
+			}
 		}
 	}
 	elseif ( file_exists ( $test."/test.inc" ) )
@@ -250,7 +282,7 @@ if ( $total_tests_failed )
 }
 
 //
-// $Id: ubertest.php 2404 2010-07-18 14:56:56Z klirichek $
+// $Id: ubertest.php 2765 2011-04-08 13:07:32Z klirichek $
 //
 
 ?>

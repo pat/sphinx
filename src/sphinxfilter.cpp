@@ -1,10 +1,10 @@
 //
-// $Id: sphinxfilter.cpp 2308 2010-05-19 19:09:23Z shodan $
+// $Id: sphinxfilter.cpp 2657 2011-01-31 09:31:14Z kevg $
 //
 
 //
-// Copyright (c) 2001-2010, Andrew Aksyonoff
-// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// Copyright (c) 2001-2011, Andrew Aksyonoff
+// Copyright (c) 2008-2011, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -226,6 +226,15 @@ struct Filter_IdValues: public IFilter_Values
 		return EvalValues ( tMatch.m_iDocID );
 	}
 
+	bool EvalBlockValues ( SphAttr_t uBlockMin, SphAttr_t uBlockMax ) const
+	{
+		// is any of our values inside the block?
+		for ( int i = 0; i < m_iValueCount; i++ )
+			if ( (SphDocID_t)GetValue(i)>=(SphDocID_t)uBlockMin && (SphDocID_t)GetValue(i)<=(SphDocID_t)uBlockMax )
+				return true;
+		return false;
+	}
+
 	virtual bool EvalBlock ( const DWORD * pMinDocinfo, const DWORD * pMaxDocinfo ) const
 	{
 		const SphAttr_t uBlockMin = DOCINFO2ID ( pMinDocinfo );
@@ -246,6 +255,14 @@ struct Filter_IdRange: public IFilter_Range
 	{
 		const SphDocID_t uID = tMatch.m_iDocID;
 		return uID>=(SphDocID_t)m_uMinValue && uID<=(SphDocID_t)m_uMaxValue;
+	}
+
+	virtual bool EvalBlock ( const DWORD * pMinDocinfo, const DWORD * pMaxDocinfo ) const
+	{
+		const SphDocID_t uBlockMin = DOCINFO2ID ( pMinDocinfo );
+		const SphDocID_t uBlockMax = DOCINFO2ID ( pMaxDocinfo );
+
+		return (!( (SphDocID_t)m_uMaxValue<uBlockMin || (SphDocID_t)m_uMinValue>uBlockMax ));
 	}
 
 	Filter_IdRange ()
@@ -482,10 +499,10 @@ static inline ISphFilter * ReportError ( CSphString & sError, const char * sMess
 }
 
 
-static ISphFilter * CreateFilter ( DWORD eAttrType, ESphFilter eFilterType, CSphString & sError )
+static ISphFilter * CreateFilter ( ESphAttr eAttrType, ESphFilter eFilterType, CSphString & sError )
 {
 	// MVA
-	if ( eAttrType & SPH_ATTR_MULTI )
+	if ( eAttrType==SPH_ATTR_UINT32SET )
 	{
 		switch ( eFilterType )
 		{
@@ -580,5 +597,5 @@ ISphFilter * sphJoinFilters ( ISphFilter * pA, ISphFilter * pB )
 }
 
 //
-// $Id: sphinxfilter.cpp 2308 2010-05-19 19:09:23Z shodan $
+// $Id: sphinxfilter.cpp 2657 2011-01-31 09:31:14Z kevg $
 //

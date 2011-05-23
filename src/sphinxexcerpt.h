@@ -1,10 +1,10 @@
 //
-// $Id: sphinxexcerpt.h 2387 2010-07-05 08:03:52Z tomat $
+// $Id: sphinxexcerpt.h 2760 2011-04-06 06:27:54Z tomat $
 //
 
 //
-// Copyright (c) 2001-2010, Andrew Aksyonoff
-// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// Copyright (c) 2001-2011, Andrew Aksyonoff
+// Copyright (c) 2008-2011, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -22,6 +22,7 @@
 /// everything string is expected to be UTF-8
 struct ExcerptQuery_t
 {
+public:
 	CSphString		m_sSource;			///< source text (or file name, see m_bLoadFiles)
 	CSphString		m_sWords;			///< words themselves
 	CSphString		m_sBeforeMatch;		///< string to insert before each match
@@ -33,6 +34,7 @@ struct ExcerptQuery_t
 	int				m_iLimitPassages;	///< max passages in snippet
 	int				m_iAround;			///< how much words to highlight around each match
 	int				m_iPassageId;		///< current %PASSAGE_ID% counter value (must start at 1)
+	int				m_iPassageBoundary;	///< passage boundary mode
 	bool			m_bRemoveSpaces;	///< whether to collapse whitespace
 	bool			m_bExactPhrase;		///< whether to highlight exact phrase matches only
 	bool			m_bUseBoundaries;	///< whether to extract passages by phrase boundaries setup in tokenizer
@@ -41,28 +43,23 @@ struct ExcerptQuery_t
 	bool			m_bForceAllWords;	///< whether to ignore limit until all needed keywords are highlighted (#448)
 	bool			m_bLoadFiles;		///< whether to interpret source as text or file name
 	bool			m_bAllowEmpty;		///< whether to allow empty snippets (by default, return something from the start)
+	bool			m_bEmitZones;		///< whether to emit zone for passage
+	int				m_iRawFlags;		///< flags as they received from proto (to avoid coding/decoding to agents)
+	CSphString		m_sRawPassageBoundary; ///< boundary as it received from proto (to avoid coding/decoding to agents)
 
 public:
-	ExcerptQuery_t ()
-		: m_sBeforeMatch ( "<b>" )
-		, m_sAfterMatch ( "</b>" )
-		, m_sChunkSeparator ( " ... " )
-		, m_sStripMode ( "index" )
-		, m_iLimit ( 256 )
-		, m_iLimitWords ( 0 )
-		, m_iLimitPassages ( 0 )
-		, m_iAround ( 5 )
-		, m_iPassageId ( 1 )
-		, m_bRemoveSpaces ( false )
-		, m_bExactPhrase ( false )
-		, m_bUseBoundaries ( false )
-		, m_bWeightOrder ( false )
-		, m_bHighlightQuery ( false )
-		, m_bForceAllWords ( false )
-		, m_bLoadFiles ( false )
-		, m_bAllowEmpty ( false )
-	{
-	}
+	int64_t			m_iSize;			///< file size, to sort to work-queue order
+	int				m_iSeq;				///< request order, to sort back to request order
+	int				m_iNext;			///< the next one in one-link list for batch processing
+	char *			m_sRes;				///< snippet result holder (NOT owned)
+	CSphString		m_sError;			///< snippet error message
+	bool			m_bHasBeforePassageMacro;
+	bool			m_bHasAfterPassageMacro;
+	CSphString		m_sBeforeMatchPassage;
+	CSphString		m_sAfterMatchPassage;
+
+public:
+	ExcerptQuery_t ();
 };
 
 /// an excerpt generator
@@ -73,5 +70,5 @@ char * sphBuildExcerpt ( ExcerptQuery_t &, CSphDict *, ISphTokenizer *, const CS
 #endif // _sphinxexcerpt_
 
 //
-// $Id: sphinxexcerpt.h 2387 2010-07-05 08:03:52Z tomat $
+// $Id: sphinxexcerpt.h 2760 2011-04-06 06:27:54Z tomat $
 //

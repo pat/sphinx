@@ -1,15 +1,19 @@
+<!DOCTYPE book [
+<!ENTITY iuml "&#xEF;">
+]>
+
 <book>
 
-<title>Sphinx 1.10-beta reference manual</title>
+<title>Sphinx 2.0.1-beta reference manual</title>
 <subtitle>Free open-source SQL full-text search engine</subtitle>
 
 <bookinfo>
 <copyright>
-<year>2001-2010</year>
+<year>2001-2011</year>
 <holder>Andrew Aksyonoff</holder>
 </copyright>
 <copyright>
-<year>2008-2010</year>
+<year>2008-2011</year>
 <holder>Sphinx Technologies Inc, <ulink 
 url="http://sphinxsearch.com">http://sphinxsearch.com</ulink></holder>
 </copyright>
@@ -268,9 +272,11 @@ specific project files) manually.
 <listitem>
 	<para>
 	Extract everything from the distribution tarball (haven't you already?)
-	and go to the <filename>sphinx</filename> subdirectory:
+	and go to the <filename>sphinx</filename> subdirectory. (We are using
+	version 2.0.1-beta here for the sake of example only; be sure to change this
+	to a specific version you're using.)
 	</para>
-<para><userinput><literallayout>$ tar xzvf sphinx-0.9.8.tar.gz
+<para><userinput><literallayout>$ tar xzvf sphinx-2.0.1-beta.tar.gz
 $ cd sphinx
 </literallayout></userinput></para>
 </listitem>
@@ -308,9 +314,13 @@ unless you are preparing code patches, you can use the pre-compiled binary files
 area on the website.</para>
 <orderedlist>
 <listitem>
-	<para>Extract everything from the .zip file you have downloaded - <filename>sphinx-0.9.8-win32.zip</filename>
-	(or <filename>sphinx-0.9.8-win32-pgsql.zip</filename> if you need PostgresSQL support as well.) You can use
-	Windows Explorer in Windows XP and up to extract the files, or a freeware package like 7Zip to open the archive.</para>
+	<para>Extract everything from the .zip file you have downloaded -
+	<filename>sphinx-2.0.1-beta-win32.zip</filename>,
+	or <filename>sphinx-2.0.1-beta-win32-pgsql.zip</filename> if you need PostgresSQL support as well.
+	(We are using version 2.0.1-beta here for the sake of example only;
+	be sure to change this to a specific version you're using.)
+	You can use Windows Explorer in Windows XP and up to extract the files,
+	or a freeware package like 7Zip to open the archive.</para>
 	<para>For the remainder of this guide, we will assume that the folders are unzipped into <filename>C:\Sphinx</filename>,
 	such that <filename>searchd.exe</filename> can be found in <filename>C:\Sphinx\bin\searchd.exe</filename>. If you decide
 	to use any different location for the folders or configuration file, please change it accordingly.</para>
@@ -1190,7 +1200,7 @@ testing passes, and last but not least a number of production instances
 are already using RT indexes with good results.
 </para>
 <para>
-RT index can be accessed using MySQL protocol. INSERT, DELETE, and
+RT index can be accessed using MySQL protocol. INSERT, REPLACE, DELETE, and
 SELECT statements against RT index are supported. For instance, this
 is an example session with the sample index above:
 </para>
@@ -1414,6 +1424,32 @@ good one, and/or it's possible to replay transactions until a given
 timestamp (point-in-time recovery), but none of that is implemented yet
 as of 1.10-beta.
 </para>
+<para>
+One unwanted side effect of binlogs is that activel updating
+a small RT index that fully fits into a RAM chunk part will lead
+to an ever-growing binlog that can never be unlinked until clean
+shutdown. Binlogs are essentially append-only deltas against
+the last known good saved state on disk, and unless RAM chunk
+gets saved, they can not be unlinked. An ever-growing binlog
+is not very good for disk use and crash recovery time. Starting
+with 2.0.1-beta you can configure <filename>searchd</filename>
+to perform a periodic RAM chunk flush to fix that problem
+using a <link linkend="conf-rt-flush-period">rt_flush_period</link>
+directive. With periodic flushes enabled, <filename>searchd</filename>
+will keep a separate thread, checking whether RT indexes RAM
+chunks need to be written back to disk. Once that happens,
+the respective binlogs can be (and are) safely unlinked.
+</para>
+<para>
+Note that <code>rt_flush_period</code> only controls the
+frequency at which the <emphasis>checks</emphasis> happen.
+There are no <emphasis>guarantees</emphasis> that the
+particular RAM chunk will get saved. For instance, it does
+not make sense to regularly re-save a huge RAM chunk that
+only gets a few rows worh of updates. The search daemon
+determine whether to actually perform the flush with a few
+heuristics.
+</para>
 </sect1>
 
 
@@ -1524,6 +1560,10 @@ hello !world
 <listitem>strict order operator (aka operator "before"): <programlisting>aaa &lt;&lt; bbb &lt;&lt; ccc</programlisting></listitem>
 <listitem>exact form modifier (introduced in version 0.9.9-rc1): <programlisting>raining =cats and =dogs</programlisting></listitem>
 <listitem>field-start and field-end modifier (introduced in version 0.9.9-rc2): <programlisting>^hello world$</programlisting></listitem>
+<listitem>NEAR, generalized proximity operator (introduced in version 2.0.1-beta): <programlisting>hello NEAR/3 world NEAR/4 "my test"</programlisting></listitem>
+<listitem>SENTENCE operator (introduced in version 2.0.1-beta): <programlisting>all SENTENCE words SENTENCE "in one sentence"</programlisting></listitem>
+<listitem>PARAGRAPH operator (introduced in version 2.0.1-beta): <programlisting>"Bill Gates" PARAGRAPH "Steve Jobs"</programlisting></listitem>
+<listitem>zone limit operator: <programlisting>ZONE:(h3,h4) only in these titles</programlisting></listitem>
 </itemizedlist>
 
 Here's an example query that uses some of these operators:
@@ -1627,6 +1667,68 @@ aaa -(bbb -(ccc ddd))
 aaa | -bbb
 </programlisting>
 </para>
+<para>
+<b>NEAR operator</b>, added in 2.0.1-beta, is a generalized version
+of a proximity operator. The syntax is <code>NEAR/N</code>, it is
+case-sensitive, and no spaces are allowed beetwen the NEAR keyword,
+the slash sign, and the distance value.
+</para>
+<para>
+The original proximity operator only worked on sets of keywords.
+NEAR is more generic and can accept arbitrary subexpressions as
+its two arguments, matching the document when both subexpressions
+are found within N words of each other, no matter in which order.
+NEAR is left associative and has the same (lowest) precedence
+as BEFORE.
+</para>
+<para>
+You should also note how a <code>(one NEAR/7 two NEAR/7 three)</code>
+query using NEAR is not really equivalent to a
+<code>("one two three"~7)</code> one using keyword proximity operator.
+The difference here is that the proximity operator allows for up to
+6 non-matching words between all the 3 matching words, but the version
+with NEAR is less restrictive: it would allow for up to 6 words between
+'one' and 'two' and then for up to 6 more between that two-word
+matching and a 'three' keyword.
+</para>
+<para>
+<b>SENTENCE and PARAGRAPH operators</b>, added in 2.0.1-beta,
+matches the document when both its arguments are within the same
+sentence or the same paragraph of text, respectively. The arguments
+can be either keywords, or phrases, or the instances of the same
+operator. Here are a few examples:
+<programlisting>
+one SENTENCE two
+one SENTENCE "two three"
+one SENTENCE "two three" SENTENCE four
+</programlisting>
+The order of the arguments within the sentence or paragraph
+does not matter. These operators only work on indexes built
+with <link linkend="conf-index-sp">index_sp</link> (sentence
+and paragraph indexing feature) enabled, and revert to a mere
+AND otherwise. Refer to the <code>index_sp</code> directive
+documentation for the notes on what's considered a sentence
+and a paragraph. 
+</para>
+<para>
+<b>ZONE limit operator</b>, added in 2.0.1-beta, is quite similar
+to field limit operator, but restricts matching to a given in-field
+zone or a list of zones. Note that the subsequent subexpressions
+are <emphasis>not</emphasis> required to match in a single contiguous
+span of a given zone, and may match in multiple spans.
+For instance, <code>(ZONE:th hello world)</code> query
+<emphasis>will</emphasis> match this example document:
+<programlisting>
+&lt;th&gt;Table 1. Local awareness of Hello Kitty brand.&lt;/th&gt;
+.. some table data goes here ..
+&lt;th&gt;Table 2. World-wide brand awareness.&lt;/th&gt;
+</programlisting>
+ZONE operator affects the query until the next
+field or ZONE limit operator, or the closing parenthesis.
+It only works on the indexes built with zones support
+(see <xref linkend="conf-index-zones"/>) and will be ignored
+otherwise.
+</para>
 </sect1>
 
 
@@ -1691,6 +1793,347 @@ experience is that this phrase proximity based ranking provides noticeably
 better search quality than any statistical scheme alone (such as BM25,
 which is commonly used in other search engines).
 </para>
+</sect1>
+
+
+<sect1 id="expressions">
+<title>Expressions, functions, and operators</title>
+<para>
+Sphinx lets you use arbitrary arithmetic expressions both via SphinxQL
+and SphinxAPI, involving attribute values, internal attributes (document ID
+and relevance weight), arithmetic operations, a number of built-in functions,
+and user-defined functions.
+This section documents the supported operators and functions.
+Here's the complete reference list for quick access.
+<itemizedlist>
+<listitem><link linkend="expr-ari-ops">Arithmetic operators: +, -, *, /, %, DIV, MOD</link></listitem>
+<listitem><link linkend="expr-comp-ops">Comparison operators: &lt;, &gt; &lt;=, &gt;=, =, &lt;&gt;</link></listitem>
+<listitem><link linkend="expr-bool-ops">Boolean operators: AND, OR, NOT</link></listitem>
+<listitem><link linkend="expr-bitwise-ops">Bitwise operators: &amp;, |</link></listitem>
+<listitem><link linkend="expr-func-abs">ABS()</link></listitem>
+<listitem><link linkend="expr-func-bigint">BIGINT()</link></listitem>
+<listitem><link linkend="expr-func-ceil">CEIL()</link></listitem>
+<listitem><link linkend="expr-func-cos">COS()</link></listitem>
+<listitem><link linkend="expr-func-crc32">CRC32()</link></listitem>
+<listitem><link linkend="expr-func-day">DAY()</link></listitem>
+<listitem><link linkend="expr-func-exp">EXP()</link></listitem>
+<listitem><link linkend="expr-func-floor">FLOOR()</link></listitem>
+<listitem><link linkend="expr-func-geodist">GEODIST()</link></listitem>
+<listitem><link linkend="expr-func-idiv">IDIV()</link></listitem>
+<listitem><link linkend="expr-func-if">IF()</link></listitem>
+<listitem><link linkend="expr-func-in">IN()</link></listitem>
+<listitem><link linkend="expr-func-interval">INTERVAL()</link></listitem>
+<listitem><link linkend="expr-func-ln">LN()</link></listitem>
+<listitem><link linkend="expr-func-log10">LOG10()</link></listitem>
+<listitem><link linkend="expr-func-log2">LOG2()</link></listitem>
+<listitem><link linkend="expr-func-max">MAX()</link></listitem>
+<listitem><link linkend="expr-func-min">MIN()</link></listitem>
+<listitem><link linkend="expr-func-month">MONTH()</link></listitem>
+<listitem><link linkend="expr-func-now">NOW()</link></listitem>
+<listitem><link linkend="expr-func-pow">POW()</link></listitem>
+<listitem><link linkend="expr-func-sin">SIN()</link></listitem>
+<listitem><link linkend="expr-func-sint">SINT()</link></listitem>
+<listitem><link linkend="expr-func-sqrt">SQRT()</link></listitem>
+<listitem><link linkend="expr-func-year">YEAR()</link></listitem>
+<listitem><link linkend="expr-func-yearmonth">YEARMONTH()</link></listitem>
+<listitem><link linkend="expr-func-yearmonthday">YEARMONTHDAY()</link></listitem>
+</itemizedlist>
+</para>
+
+
+<sect2 id="operators">
+<title>Operators</title>
+<variablelist>
+
+<varlistentry>
+<term id="expr-ari-ops">Arithmetic operators: +, -, *, /, %, DIV, MOD</term>
+<listitem>
+The standard arithmetic operators. Arithmetic calculations involving those
+can be performed in three different modes: (a) using single-precision,
+32-bit IEEE 754 floating point values (the default), (b) using signed 32-bit integers,
+(c) using 64-bit signed integers. The expression parser will automatically switch
+to integer mode if there are no operations the result in a floating point value.
+Otherwise, it will use the default floating point mode. For instance, <code>a+b</code>
+will be computed using 32-bit integers if both arguments are 32-bit integers;
+or using 64-bit integers if both arguments are integers but one of them is
+64-bit; or in floats otherwise. However, <code>a/b</code> or <code>sqrt(a)</code>
+will always be computed in floats, because these operations return a result
+of non-integer type. To avoid the first, you can either use <code>IDIV(a,b)</code>
+or <code>a DIV b</code> form. Also, <code>a*b</code>
+will not be automatically promoted to 64-bit when the arguments are 32-bit.
+To enforce 64-bit results, you can use BIGINT(). (But note that if there are
+non-integer operations, BIGINT() will simply be ignored.)
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-comp-ops">Comparison operators: &lt;, &gt; &lt;=, &gt;=, =, &lt;&gt;</term>
+<listitem>
+Comparison operators (eg. = or &lt;=) return 1.0 when the condition is true and 0.0 otherwise.
+For instance, <code>(a=b)+3</code> will evaluate to 4 when attribute 'a' is equal to attribute 'b', and to 3 when 'a' is not.
+Unlike MySQL, the equality comparisons (ie. = and &lt;&gt; operators) introduce a small equality threshold (1e-6 by default).
+If the difference between compared values is within the threshold, they will be considered equal.
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-bool-ops">Boolean operators: AND, OR, NOT</term>
+<listitem>
+Boolean operators (AND, OR, NOT) were introduced in 0.9.9-rc2 and behave as usual.
+They are left-associative and have the least priority compared to other operators.
+NOT has more priority than AND and OR but nevertheless less than any other operator.
+AND and OR have the same priority so brackets use is recommended to avoid confusion
+in complex expressions.
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-bitwise-ops">Bitwise operators: &amp;, |</term>
+<listitem>
+These operators perform bitwise AND and OR respectively. The operands
+must be of an integer types. Introduced in version 1.10-beta.
+</listitem>
+</varlistentry>
+
+</variablelist>
+</sect2>
+
+
+<sect2 id="numeric-functions">
+<title>Numeric functions</title>
+<variablelist>
+
+<varlistentry>
+<term id="expr-func-abs">ABS()</term>
+<listitem>Returns the absolute value of the argument.</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-func-ceil">CEIL()</term>
+<listitem>Returns the smallest integer value greater or equal to the argument.</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-func-cos">COS()</term>
+<listitem>Returns the cosine of the argument.</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-func-exp">EXP()</term>
+<listitem>Returns the exponent of the argument (e=2.718... to the power of the argument).</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-func-floor">FLOOR()</term>
+<listitem>Returns the largest integer value lesser or equal to the argument.</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-func-idiv">IDIV()</term>
+<listitem>
+Returns the result of an integer division of the first
+argument by the second argument. Both arguments must be
+of an integer type.
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-func-ln">LN()</term>
+<listitem>Returns the natural logarithm of the argument (with the base of e=2.718...).</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-func-log10">LOG10()</term>
+<listitem>Returns the common logarithm of the argument (with the base of 10).</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-func-log2">LOG2()</term>
+<listitem>Returns the binary logarithm of the argument (with the base of 2).</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-func-max">MAX()</term>
+<listitem>Returns the bigger of two arguments.</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-func-min">MIN()</term>
+<listitem>Returns the smaller of two arguments.</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-func-pow">POW()</term>
+<listitem>Returns the first argument raised to the power of the second argument.</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-func-sin">SIN()</term>
+<listitem>Returns the sine of the argument.</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-func-sqrt">SQRT()</term>
+<listitem>Returns the square root of the argument.</listitem>
+</varlistentry>
+
+</variablelist>
+</sect2>
+
+
+<sect2 id="date-time-functions">
+<title>Date and time functions</title>
+<variablelist>
+
+<varlistentry>
+<term id="expr-func-day">DAY()</term>
+<listitem>Returns the integer day of month (in 1..31 range) from a timestamp argument, according to the current timezone. Introduced in version 2.0.1-beta.</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-func-month">MONTH()</term>
+<listitem>Returns the integer month (in 1..12 range) from a timestamp argument, according to the current timezone. Introduced in version 2.0.1-beta.</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-func-now">NOW()</term>
+<listitem>Returns the current timestamp as an INTEGER. Introduced in version 0.9.9-rc1.</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-func-year">YEAR()</term>
+<listitem>Returns the integer year (in 1969..2038 range) from a timestamp argument, according to the current timezone. Introduced in version 2.0.1-beta.</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-func-yearmonth">YEARMONTH()</term>
+<listitem>Returns the integer year and month code (in 196912..203801 range) from a timestamp argument, according to the current timezone. Introduced in version 2.0.1-beta.</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-func-yearmonthday">YEARMONTHDAY()</term>
+<listitem>Returns the integer year, month, and date code (in 19691231..20380119 range) from a timestamp argument, according to the current timezone. Introduced in version 2.0.1-beta.</listitem>
+</varlistentry>
+
+</variablelist>
+</sect2>
+
+
+<sect2 id="type-conversion-functions">
+<title>Type conversion functions</title>
+<variablelist>
+
+<varlistentry>
+<term id="expr-func-bigint">BIGINT()</term>
+<listitem>
+Forcibly promotes the integer argument to 64-bit type,
+and does nothing on floating point argument. It's intended to help enforce evaluation
+of certain expressions (such as <code>a*b</code>) in 64-bit mode even though all the arguments
+are 32-bit.
+Introduced in version 0.9.9-rc1.
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-func-sint">SINT()</term>
+<listitem>
+Forcibly reinterprets its
+32-bit unsigned integer argument as signed, and also expands it to 64-bit type
+(because 32-bit type is unsigned). It's easily illustrated by the following
+example: 1-2 normally evaluates to 4294967295, but SINT(1-2) evaluates to -1.
+Introduced in version 1.10-beta. 
+</listitem>
+</varlistentry>
+
+</variablelist>
+</sect2>
+
+
+<sect2 id="comparison-functions">
+<title>Comparison functions</title>
+<variablelist>
+
+<varlistentry>
+<term id="expr-func-if">IF()</term>
+<listitem>
+<code>IF()</code> behavior is slightly different that that of its MySQL counterpart.
+It takes 3 arguments, check whether the 1st argument is equal to 0.0, returns the 2nd argument if it is not zero, or the 3rd one when it is.
+Note that unlike comparison operators, <code>IF()</code> does <b>not</b> use a threshold!
+Therefore, it's safe to use comparison results as its 1st argument, but arithmetic operators might produce unexpected results.
+For instance, the following two calls will produce <emphasis>different</emphasis> results even though they are logically equivalent:
+<programlisting>
+IF ( sqrt(3)*sqrt(3)-3&lt;&gt;0, a, b )
+IF ( sqrt(3)*sqrt(3)-3, a, b )
+</programlisting>
+In the first case, the comparison operator &lt;&gt; will return 0.0 (false)
+because of a threshold, and <code>IF()</code> will always return 'b' as a result.
+In the second one, the same <code>sqrt(3)*sqrt(3)-3</code> expression will be compared
+with zero <emphasis>without</emphasis> threshold by the <code>IF()</code> function itself.
+But its value will be slightly different from zero because of limited floating point
+calculations precision. Because of that, the comparison with 0.0 done by <code>IF()</code>
+will not pass, and the second variant will return 'a' as a result.
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-func-in">IN()</term>
+<listitem>
+IN(expr,val1,val2,...), introduced in version 0.9.9-rc1, takes 2 or more arguments, and returns 1 if 1st argument
+(expr) is equal to any of the other arguments (val1..valN), or 0 otherwise.
+Currently, all the checked values (but not the expression itself!) are required
+to be constant. (Its technically possible to implement arbitrary expressions too,
+and that might be implemented in the future.) Constants are pre-sorted and then
+binary search is used, so IN() even against a big arbitrary list of constants
+will be very quick. Starting with 0.9.9-rc2, first argument can also be
+a MVA attribute. In that case, IN() will return 1 if any of the MVA values
+is equal to any of the other arguments. Starting with 2.0.1-beta, IN() also
+supports <code>IN(expr,@uservar)</code> syntax to check whether the value
+belongs to the list in the given global user variable.
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-func-interval">INTERVAL()</term>
+<listitem>
+INTERVAL(expr,point1,point2,point3,...), introduced in version 0.9.9-rc1, takes 2 or more arguments, and returns
+the index of the argument that is less than the first argument: it returns
+0 if expr&lt;point1, 1 if point1&lt;=expr&lt;point2, and so on.
+It is required that point1&lt;point2&lt;...&lt;pointN for this function
+to work correctly.
+</listitem>
+</varlistentry>
+
+</variablelist>
+</sect2>
+
+
+<sect2 id="misc-functions">
+<title>Miscellaneous functions</title>
+<variablelist>
+
+<varlistentry>
+<term id="expr-func-crc32">CRC32()</term>
+<listitem>
+Returns the CRC32 value of a string argument. Introduced in version 2.0.1-beta.
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term id="expr-func-geodist">GEODIST()</term>
+<listitem>
+GEODIST(lat1,long1,lat2,long2) function, introduced in version 0.9.9-rc2,
+computes geosphere distance between two given points specified by their
+coordinates. Note that both latitudes and longitudes must be in radians
+and the result will be in meters. You can use arbitrary expression as any
+of the four coordinates. An optimized path will be selected when one pair
+of the arguments refers directly to a pair attributes and the other one
+is constant.
+</listitem>
+</varlistentry>
+
+</variablelist>
+</sect2>
+
 </sect1>
 
 
@@ -1781,111 +2224,8 @@ arithmetic operations, and a number of built-in functions. Here's an example:
 $cl->SetSortMode ( SPH_SORT_EXPR,
 	"@weight + ( user_karma + ln(pageviews) )*0.1" );
 </programlisting>
-</para>
-<para>
-The following operators and functions are supported. They are mimiced after MySQL.
-The functions take a number of arguments depending on the specific function.
-<itemizedlist>
-<listitem>Operators: +, -, *, /, &lt;, &gt; &lt;=, &gt;=, =, &lt;&gt;.</listitem>
-<listitem>Boolean operators: AND, OR, NOT.</listitem>
-<listitem>0-argument functions: NOW().</listitem>
-<listitem>Unary (1-argument) functions: ABS(), CEIL(), FLOOR(), SIN(), COS(), LN(), LOG2(), LOG10(), EXP(), SQRT(), BIGINT(), SINT().</listitem>
-<listitem>Binary (2-argument) functions: MIN(), MAX(), POW(), IDIV().</listitem>
-<listitem>Other functions: IF(), INTERVAL(), IN(), GEODIST().</listitem>
-</itemizedlist>
-</para>
-<para>
-Calculations can be performed in three different modes: (a) using single-precision,
-32-bit IEEE 754 floating point values (the default), (b) using signed 32-bit integers,
-(c) using 64-bit signed integers. The expression parser will automatically switch
-to integer mode if there are no operations the result in a floating point value.
-Otherwise, it will use the default floating point mode. For instance, "a+b"
-will be computed using 32-bit integers if both arguments are 32-bit integers;
-or using 64-bit integers if both arguments are integers but one of them is
-64-bit; or in floats otherwise. However, "a/b" or "sqrt(a)" will always be
-computed in floats, because these operations return non-integer result.
-To avoid the first, you can use IDIV(). Also, "a*b" will not be automatically
-promoted to 64-bit when the arguments are 32-bit. To enforce 64-bit results,
-you can use BIGINT(). (But note that if there are non-integer operations,
-BIGINT() will simply be ignored.)
-</para>
-<para>
-Comparison operators (eg. = or &lt;=) return 1.0 when the condition is true and 0.0 otherwise.
-For instance, <code>(a=b)+3</code> will evaluate to 4 when attribute 'a' is equal to attribute 'b', and to 3 when 'a' is not.
-Unlike MySQL, the equality comparisons (ie. = and &lt;&gt; operators) introduce a small equality threshold (1e-6 by default).
-If the difference between compared values is within the threshold, they will be considered equal.
-</para>
-<para>
-Boolean operators (AND, OR, NOT) were introduced in 0.9.9-rc2 and behave as usual.
-They are left-associative and have the least priority compared to other operators.
-NOT has more priority than AND and OR but nevertheless less than any other operator.
-AND and OR have the same priority so brackets use is recommended to avoid confusion
-in complex expressions.
-</para>
-<para>
-All unary and binary functions are straightforward, they behave just like their mathematical counterparts.
-But <code>IF()</code> behavior needs to be explained in more detail.
-It takes 3 arguments, check whether the 1st argument is equal to 0.0, returns the 2nd argument if it is not zero, or the 3rd one when it is.
-Note that unlike comparison operators, <code>IF()</code> does <b>not</b> use a threshold!
-Therefore, it's safe to use comparison results as its 1st argument, but arithmetic operators might produce unexpected results.
-For instance, the following two calls will produce <emphasis>different</emphasis> results even though they are logically equivalent:
-<programlisting>
-IF ( sqrt(3)*sqrt(3)-3&lt;&gt;0, a, b )
-IF ( sqrt(3)*sqrt(3)-3, a, b )
-</programlisting>
-In the first case, the comparison operator &lt;&gt; will return 0.0 (false)
-because of a threshold, and <code>IF()</code> will always return 'b' as a result.
-In the second one, the same <code>sqrt(3)*sqrt(3)-3</code> expression will be compared
-with zero <emphasis>without</emphasis> threshold by the <code>IF()</code> function itself.
-But its value will be slightly different from zero because of limited floating point
-calculations precision. Because of that, the comparison with 0.0 done by <code>IF()</code>
-will not pass, and the second variant will return 'a' as a result.
-</para>
-<para>
-BIGINT() function, introduced in version 0.9.9-rc1, forcibly promotes the integer argument to 64-bit type,
-and does nothing on floating point argument. It's intended to help enforce evaluation
-of certain expressions (such as "a*b") in 64-bit mode even though all the arguments
-are 32-bit.
-</para>
-<para>
-SINT() function, introduced in version 1.10-beta, forcibly reinterprets its
-32-bit unsigned integer argument as signed, and also expands it to 64-bit type
-(because 32-bit type is unsigned). It's easily illustrated by the following
-example: 1-2 normally evaluates to 4294967295, but SINT(1-2) evaluates to -1.
-</para>
-<para>
-IDIV() functions performs an integer division on its 2 arguments. The result
-is integer as well, unlike "a/b" result.
-</para>
-<para>
-IN(expr,val1,val2,...), introduced in version 0.9.9-rc1, takes 2 or more arguments, and returns 1 if 1st argument
-(expr) is equal to any of the other arguments (val1..valN), or 0 otherwise.
-Currently, all the checked values (but not the expression itself!) are required
-to be constant. (Its technically possible to implement arbitrary expressions too,
-and that might be implemented in the future.) Constants are pre-sorted and then
-binary search is used, so IN() even against a big arbitrary list of constants
-will be very quick. Starting with 0.9.9-rc2, first argument can also be
-a MVA attribute. In that case, IN() will return 1 if any of the MVA values
-is equal to any of the other arguments.
-</para>
-<para>
-INTERVAL(expr,point1,point2,point3,...), introduced in version 0.9.9-rc1, takes 2 or more arguments, and returns
-the index of the argument that is less than the first argument: it returns
-0 if expr&lt;point1, 1 if point1&lt;=expr&lt;point2, and so on.
-It is required that point1&lt;point2&lt;...&lt;pointN for this function
-to work correctly.
-</para>
-<para>
-NOW(), introduced in version 0.9.9-rc1, is a helper function that returns current timestamp as a 32-bit integer.
-</para>
-<para>
-GEODIST(lat1,long1,lat2,long2) function, introduced in version 0.9.9-rc2,
-computes geosphere distance between two given points specified by their
-coordinates. Note that both latitudes and longitudes must be in radians
-and the result will be in meters. You can use arbitrary expression as any
-of the four coordinates. An optimized path will be selected when one pair
-of the arguments refers directly to a pair attributes and the other one
-is constant.
+The operators and functions supported in the expressions are discussed
+in a separate section, <xref linkend="expressions"/>.
 </para>
 </sect1>
 
@@ -2041,22 +2381,33 @@ of alive agents, load-balance requests, etc.
 </sect1>
 
 
-<sect1 id="query-log-format"><title><filename>searchd</filename> query log format</title>
+<sect1 id="query-log-format"><title><filename>searchd</filename> query log formats</title>
 <para>
-<filename>searchd</filename> logs all succesfully executed search queries
-into query log file. Here's an example:
+In version 2.0.1-beta and above two query log formats are supported.
+Previous versions only supported a custom plain text format. That format
+is still the default one. However, while it might be more convenient for
+manual monitoring and review, but hard to replay for benchmarks, it only
+logs <emphasis>search</emphasis> queries but not the other types
+of requests, does not always contain the complete search query 
+data, etc. The default text format is also harder (and sometimes
+impossible) to replay for benchmarking purposes. The new <code>sphinxql</code>
+format alleviates that. It aims to be complete and automatable,
+even though at the cost of brevity and readability.
+</para>
 
+<sect2 id="plain-log-format"><title>Plain log format</title>
+<para>
+By default, <filename>searchd</filename> logs all succesfully executed search queries
+into a query log file. Here's an example:
 <programlisting>
 [Fri Jun 29 21:17:58 2007] 0.004 sec [all/0/rel 35254 (0,20)] [lj] test
 [Fri Jun 29 21:20:34 2007] 0.024 sec [all/0/rel 19886 (0,20) @channel_id] [lj] test
 </programlisting>
-
 This log format is as follows:
 <programlisting>
 [query-date] query-time [match-mode/filters-count/sort-mode
     total-matches (offset,limit) @groupby-attr] [index-name] query
 </programlisting>
-
 Match mode can take one of the following values:
 <itemizedlist>
 <listitem>"all" for SPH_MATCH_ALL mode;</listitem>
@@ -2067,9 +2418,7 @@ Match mode can take one of the following values:
 <listitem>"ext2" for SPH_MATCH_EXTENDED2 mode;</listitem>
 <listitem>"scan" if the full scan mode was used, either by being specified with SPH_MATCH_FULLSCAN, or if the query was empty (as documented under <link linkend="matching-modes">Matching Modes</link>)</listitem>
 </itemizedlist>
-
 Sort mode can take one of the following values:
-
 <itemizedlist>
 <listitem>"rel" for SPH_SORT_RELEVANCE mode;</listitem>
 <listitem>"attr-" for SPH_SORT_ATTR_DESC mode;</listitem>
@@ -2077,9 +2426,7 @@ Sort mode can take one of the following values:
 <listitem>"tsegs" for SPH_SORT_TIME_SEGMENTS mode;</listitem>
 <listitem>"ext" for SPH_SORT_EXTENDED mode.</listitem>
 </itemizedlist>
-
 </para>
-
 <para>Additionally, if <filename>searchd</filename> was started with <option>--iostats</option>, there will be a block of data after where the index(es) searched are listed.</para>
 <para>A query log entry might take the form of:</para>
 <programlisting>
@@ -2092,6 +2439,55 @@ the number of file I/O operations carried out, the amount of data in kilobytes r
 the index files and time spent on I/O operations (although there is a background processing
 component, the bulk of this time is the I/O operation time).
 </para>
+</sect2>
+
+<sect2 id="sphinxql-log-format"><title>SphinxQL log format</title>
+<para>
+This is a new log format introduced in 2.0.1-beta, with the goals
+begin logging everything and then some, and in a format easy to automate
+(for insance, automatically replay). New format can either be enabled
+via the <link linkend="conf-query-log-format">query_log_format</link>
+directive in the configuration file, or switched back and forth
+on the fly with the
+<link linkend="sphinxql-set"><code>SET GLOBAL query_log_format=...</code></link>
+statement via SphinxQL. In the new format, the example from the previous
+section would look as follows. (Wrapped below for readability, but with
+just one query per line in the actual log.)
+<programlisting>
+/* Fri Jun 29 21:17:58.609 2007 2011 conn 2 wall 0.004 found 35254 */
+SELECT * FROM lj WHERE MATCH('test') OPTION ranker=proximity;
+
+/* Fri Jun 29 21:20:34 2007.555 conn 3 wall 0.024 found 19886 */
+SELECT * FROM lj WHERE MATCH('test') GROUP BY channel_id
+OPTION ranker=proximity;
+</programlisting>
+Note that <b>all</b> requests would be logged in this format,
+including those sent via SphinxAPI and SphinxSE, not just those
+sent via SphinxQL.
+</para>
+<para>
+The features of SphinxQL log format compared to the default text
+one are as follows.
+<itemizedlist>
+<listitem>All request types should be logged. (This is still work in progress.)</listitem>
+<listitem>Full statement data will be logged where possible.</listitem>
+<listitem>Errors and warnings are logged.</listitem>
+<listitem>The log should be automatically replayable via SphinxQL.</listitem>
+<listitem>Additional performance counters (currently, per-agent distributed query times) are logged.</listitem>
+</itemizedlist>
+<!-- FIXME! more examples with ios, kbs, agents etc; comment stuff reference?-->
+</para>
+<para>
+Every request (including both SphinxAPI and SphinxQL) request
+must result in exactly one log line. All request types, including
+INSERT, CALL SNIPPETS, etc will eventually get logged, though as of
+time of this writing, that is a work in progress). Every log line
+must be a valid SphinxQL statement that reconstructs the full request,
+except if the logged request is too big and needs shortening
+for performance reasons. Additional messages, counters, etc can be
+logged in the comments section after the request.
+</para>
+</sect2>
 </sect1>
 
 
@@ -2156,6 +2552,8 @@ in one go (more formally, one network request).
 Two API methods that implement multi-query mechanism are
 <link linkend="api-func-addquery">AddQuery()</link> and
 <link linkend="api-func-runqueries">RunQueries()</link>.
+You can also run multiple queries with SphinxQL, see
+<xref linkend="sphinxql-multi-queries"/>.
 (In fact, regular <link linkend="api-func-addquery">Query()</link>
 call is internally implemented as a single AddQuery() call immediately
 followed by RunQueries() call.) AddQuery() captures the current state
@@ -2273,6 +2671,221 @@ of 1.5x to 2.3x, depending on a particular sorting mode. In fact, for both
 common query and common subtree optimizations, there were reports of 3x and
 even more improvements, and that's from production instances, not just
 synthetic tests.
+</para>
+</sect1>
+
+
+<sect1 id="collations"><title>Collations</title>
+<para>
+Introduced to Sphinx in version 2.0.1-beta to supplement string sorting,
+collations essentially affect the string attribute comparisons. They specify
+both the character set encoding and the strategy that Sphinx uses to compare
+strings when doing ORDER BY or GROUP BY with a string attribute involved.
+</para>
+<para>
+String attributes are stored as is when indexing, and no character set
+or language information is attached to them. That's okay as long as Sphinx
+only needs to store and return the strings to the calling application verbatim.
+But when you ask Sphinx to sort by a string value, that request immediately
+becomes quite ambiguous.
+</para>
+<para>
+First, single-byte (ASCII, or ISO-8859-1, or Windows-1251) strings
+need to be processed differently that the UTF-8 ones that may encode
+every character with a variable number of bytes. So we need to know
+what is the character set type to interepret the raw bytes as meaningful
+characters properly.
+</para>
+<para>
+Second, we additionally need to know the language-specific
+string sorting rules. For instance, when sorting according to US rules
+in en_US locale, the accented character '&iuml;' (small letter i with diaeresis)
+should be placed somewhere after 'z'. However, when sorting with French rules
+and fr_FR locale in mind, it should be placed between 'i' and 'j'. And some
+other set of rules might choose to ignore accents at all, allowing '&iuml;'
+and 'i' to be mixed arbitrarily.
+</para>
+<para>
+Third, but not least, we might need case-sensitive sorting in some
+scenarios and case-insensitive sorting in some others.
+</para>
+<para>
+Collations combine all of the above: the character set, the lanugage rules,
+and the case sensitivity. Sphinx currently provides the following four
+collations.
+<orderedlist>
+<listitem><option>libc_ci</option></listitem>
+<listitem><option>libc_cs</option></listitem>
+<listitem><option>utf8_general_ci</option></listitem>
+<listitem><option>binary</option></listitem>
+</orderedlist>
+</para>
+<para>
+The first two collations rely on several standard C library (libc) calls
+and can thus support any locale that is installed on your system. They provide
+case-insensitive (_ci) and case-sensitive (_cs) comparisons respectively.
+By default they will use C locale, effectively resorting to bytewise
+comparisons. To change that, you need to specify a different available
+locale using <link linkend="conf-collation-libc-locale">collation_libc_locale</link>
+directive. The list of locales available on your system can usually be obtained
+with the <filename>locale</filename> command:
+<programlisting>
+$ locale -a
+C
+en_AG
+en_AU.utf8
+en_BW.utf8
+en_CA.utf8
+en_DK.utf8
+en_GB.utf8
+en_HK.utf8
+en_IE.utf8
+en_IN
+en_NG
+en_NZ.utf8
+en_PH.utf8
+en_SG.utf8
+en_US.utf8
+en_ZA.utf8
+en_ZW.utf8
+es_ES
+fr_FR
+POSIX
+ru_RU.utf8
+ru_UA.utf8
+</programlisting>
+</para>
+<para>
+The specific list of the system locales may vary. Consult your OS documentation
+to install additional needed locales.
+</para>
+<para>
+<option>utf8_general_ci</option> and <option>binary</option> locales are
+built-in into Sphinx. The first one is a generic collation for UTF-8 data
+(without any so-called language tailoring); it should behave similar to
+<option>utf8_general_ci</option> collation in MySQL. The second one
+is a simple bytewise comparison.
+</para>
+<para>
+Collation can be overriden via SphinxQL on a per-session basis using
+<code>SET collation_connection</code> statement. All subsequent SphinxQL
+queries will use this collation. SphinxAPI and SphinxSE queries will use
+the server default collation, as specified in
+<link linkend="conf-collation-server">collation_server</link> configuration
+directive. Sphinx currently defaults to <option>libc_ci</option> collation.
+</para>
+<para>
+Collations should affect all string attribute comparisons, including
+those within ORDER BY and GROUP BY, so differently ordered or grouped results
+can be returned depending on the collation chosen.
+</para>
+</sect1>
+
+
+<sect1 id="udf"><title>User-defined functions (UDF)</title>
+<para>
+Starting with 2.0.1-beta, Sphinx supports User-Defined Functions,
+or UDF for short. They can be loaded and unloaded dynamically into
+<filename>searchd</filename> without having to restart the daemon,
+and used in expressions when searching. UDF features at a glance
+are as follows.
+<itemizedlist>
+<listitem>Functions can take integer (both 32-bit and 64-bit), float, string, or MVA arguments.</listitem>
+<listitem>Functions can return integer or float values.</listitem>
+<listitem>Functions can check the argument number, types, and names and raise errors.</listitem>
+<listitem>Only simple functions (that is, non-aggregate ones) are currently supported.</listitem>
+</itemizedlist>
+</para>
+<para>
+User-defined functions need your OS to support dynamically loadable
+libraries (aka shared objects). Most of the modern OSes are eligible,
+including Linux, Windows, MacOS, Solaris, BSD and others. (The internal
+testing has been done on Linux and Windows.) The UDF libraries must
+reside in a directory specified by
+<link linkend="conf-plugin-dir">plugin_dir</link> directive, and the
+server must be configured to use <option>workers = threads</option> mode.
+Relative paths to the library files are not allowed. Once the library
+is succesfully built and copied to the trusted location, you can then
+dynamically install and deinstall the functions using
+<link linkend="sphinxql-create-function">CREATE FUNCTION</link> and
+<link linkend="sphinxql-drop-function">DROP FUNCTION</link> statements
+respectively. A single library can contain multiple functions. A library
+gets loaded when you first install a function from it, and unloaded
+when you deinstall all the functions from that library.
+</para>
+<para>
+The library functions that will implement a UDF visible to SQL statements
+need to follow C calling convention, and a simple naming convention. Sphinx
+source distribution provides a sample file,
+<ulink url="http://code.google.com/p/sphinxsearch/source/browse/trunk/src/udfexample.c">src/udfexample.c</ulink>,
+that defines a few simple functions showing how to work with integer,
+string, and MVA arguments; you can use that one as a foundation for
+your new functions. It includes the UDF interface header file,
+<ulink url="http://code.google.com/p/sphinxsearch/source/browse/trunk/src/udfexample.c">src/sphinxudf.h</ulink>,
+that defines the required types and structures. <filename>sphinxudf.h</filename>
+header is standalone, that is, does not require any other parts of Sphinx
+source to compile.
+</para>
+<para>
+Every function that you intend to use in your SELECT statements
+requires at least two corresponding C/C++ functions: the initialization
+call, and the function call itself. You can also optionally define
+the deinitialization call if your function requires any post-query
+cleanup. (For instance, if you were allocating any memory in either
+the initialization call or the function calls.) Function names
+in SQL are case insensitive, C function names are not. They need
+to be all lower-case. Mistakes in function name prevent UDFs
+from loading. You also have to pay special attention to the calling
+convention used when compiling, the list and the types of arguments,
+and the return type of the main function call. Mistakes in either
+are likely to crash the server, or result in unexpected results
+in the best case. Last but not least, all functions need to be
+thread-safe.
+</para>
+<para>
+Let's assume for the sake of example that your UDF name in SphinxQL
+will be <code>MYFUNC</code>. The initialization, main, and deinitialization
+functions would then need to be named as follows and take the following
+arguments:
+<programlisting>
+/// initialization function
+/// called once during query initialization
+/// returns 0 on success
+/// returns non-zero and fills error_message buffer on failure
+int myfunc_init ( SPH_UDF_INIT * init, SPH_UDF_ARGS * args,
+                  char * error_message );
+
+/// main call function
+/// returns the computed value
+/// writes non-zero value into error_flag to indicate errors
+RETURN_TYPE myfunc ( SPH_UDF_INIT * init, SPH_UDF_ARGS * args,
+                     char * error_flag );
+
+/// optional deinitialization function
+/// called once to cleanup once query processing is done
+void myfunc_deinit ( SPH_UDF_INIT * init );
+</programlisting>
+The two mentioned structures, <code>SPH_UDF_INIT</code> and
+<code>SPH_UDF_ARGS</code>, are defined in the <filename>src/sphinxudf.h</filename>
+interface header and documented there. <code>RETURN_TYPE</code> of the
+main function must be one of the following:
+<itemizedlist>
+<listitem><code>int</code> for the functions that return INT.</listitem>
+<listitem><code>sphinx_int64_t</code> for the functions that return BIGINT.</listitem>
+<listitem><code>float</code> for the functions that return FLOAT.</listitem>
+</itemizedlist>
+</para>
+<para>
+The calling sequence is as follows. <code>myfunc_init()</code> is called
+once when initializing the query. It can return a non-zero code to indicate
+a failure; in that case query is not executed, and the error message from
+the <code>error_message</code> buffer is returned. Otherwise, <code>myfunc()</code>
+is be called for every row, and a <code>myfunc_deinit()</code> is then called
+when the query ends. <code>myfunc()</code> can indicate an error by writing
+a non-zero byte value to <code>error_flag</code>, in that case, it will
+no more be called for subsequent rows, and a default value of 0 will be
+substituted. Sphinx might or might not choose to terminate such queries
+early, neither behavior is currently guaranteed.
 </para>
 </sect1>
 
@@ -2460,6 +3073,22 @@ or file field IO issues; etc) will be reported. By default, this option
 is off, and problem summaries may be reported instead.
 </listitem>
 
+<listitem><option>--sighup-each</option> is useful when you are
+rebuilding many big indexes, and want each one rotated into
+<filename>searchd</filename> as soon as possible. With
+<option>--sighup-each</option>, <filename>indexer</filename>
+will send a SIGHUP signal to searchd after succesfully
+completing the work on each index. (The default behavior
+is to send a single SIGHUP after all the indexes were built.)
+</listitem>
+
+<listitem><option>--print-queries</option> prints out
+SQL queries that <filename>indexer</filename> sends to
+the database, along with SQL connection and disconnection
+events. That is useful to diagnose and fix problems with
+SQL sources.
+</listitem>
+
 </itemizedlist>
 </para>
 </sect1>
@@ -2610,6 +3239,12 @@ itself. Example usage:
 <programlisting>
 $ searchd --index myindex
 </programlisting>
+</listitem>
+
+<listitem><option>--strip-path</option> strips the path names from
+all the file names referenced from the index (stopwords, wordforms,
+exceptions, etc). This is useful for picking up indexes built on another
+machine with possibly different path layouts.
 </listitem>
 
 </itemizedlist>
@@ -2946,6 +3581,11 @@ all the index settings, in particular the entire attribute and
 field list. Prior to 0.9.9-rc2, this command was present in
 CLI search utility.
 </listitem>
+<listitem><option>--dumpconfig FILENAME.sph</option> dumps
+the index definition from the given index header file in (almost)
+compliant <filename>sphinx.conf</filename> file format.
+Added in version 2.0.1-beta.
+</listitem>
 <listitem><option>--dumpheader INDEXNAME</option> dumps index header
 by index name with looking up the header path in the configuration file.
 </listitem>
@@ -3012,23 +3652,29 @@ extensions and has a few omissions (such as (currently) missing support for JOIN
 Specifically,
 <itemizedlist>
 <listitem>Column list clause. Column names, arbitrary expressions,
-and star ('*') are all allowed (ie. "SELECT @id, group_id*123+456 FROM test1"
-will work). Unlike in regular SQL, all computed expressions must be aliased with
-a valid identifier. Special names such as @id and @weight should currently
+and star ('*') are all allowed (ie.
+<code>SELECT @id, group_id*123+456 AS expr1 FROM test1</code>
+will work). Unlike in regular SQL, all computed expressions must be aliased
+with a valid identifier. Starting with version 2.0.1-beta, <code>AS</code>
+is optional. Special names such as @id and @weight should currently
 be used with leading at-sign. This at-sign requirement will be lifted in
-the future.</listitem>
+the future.
+</listitem>
 <listitem>FROM clause. FROM clause should contain the list of indexes
 to search through. Unlike in regular SQL, comma means enumeration of
 full-text indexes as in <link linkend="api-func-query">Query()</link>
 API call rather than JOIN.
 </listitem>
 <listitem>WHERE clause. This clause will map both to fulltext query
-and filters. Comparison operators (=, !=, &lt;, &gt;, &lt;=, &gt;=), IN(),
+and filters. Comparison operators (=, !=, &lt;, &gt;, &lt;=, &gt;=), IN,
 AND, NOT, and BETWEEN are all supported and map directly to filters.
 OR is not supported yet but will be in the future. MATCH('query')
 is supported and maps to fulltext query. Query will be interpreted
 according to <link linkend="extended-syntax">full-text query language rules</link>.
-There must be at most one MATCH() in the clause.
+There must be at most one MATCH() in the clause. Starting with version
+2.0.1-beta, <code>{col_name | expr_alias} [NOT] IN @uservar</code>
+condition syntax is supported. (Refer to <xref linkend="sphinxql-set"/>
+for a discussion of global user variables.)
 </listitem>
 <listitem>GROUP BY clause. Currently only supports grouping by a single
 column. The column however can be a computed expression:
@@ -3049,6 +3695,8 @@ FROM products
 WHERE MATCH('ipod')
 GROUP BY vendorid
 </programlisting>
+Starting with 2.0.1-beta, GROUP BY on a string attribute is supported,
+with respect for current collation (see <xref linkend="collations"/>).
 </listitem>
 <listitem>WITHIN GROUP ORDER BY clause. This is a Sphinx specific
 extension that lets you control how the best row within a group
@@ -3061,6 +3709,8 @@ GROUP BY siteid
 WITHIN GROUP ORDER BY @weight DESC
 ORDER BY timeseg DESC, @weight DESC
 </programlisting>
+Starting with 2.0.1-beta, WITHIN GROUP ORDER BY on a string attribute is supported,
+with respect for current collation (see <xref linkend="collations"/>).
 </listitem>
 <listitem>ORDER BY clause. Unlike in regular SQL, only column names
 (not expressions) are allowed and explicit ASC and DESC are required.
@@ -3068,6 +3718,8 @@ The columns however can be computed expressions:
 <programlisting>
 SELECT *, @weight*10+docboost AS skey FROM example ORDER BY skey
 </programlisting>
+Starting with 2.0.1-beta, ORDER BY on a string attribute is supported,
+with respect for current collation (see <xref linkend="collations"/>).
 </listitem>
 <listitem>LIMIT clause. Both LIMIT N and LIMIT M,N forms are supported.
 Unlike in regular SQL (but like in Sphinx API), an implicit LIMIT 0,20
@@ -3088,6 +3740,7 @@ Supported options and respectively allowed values are:
 <listitem>'retry_delay' - integer (distributed retry delay, msec)</listitem>
 <listitem>'field_weights' - a named integer list (per-field user weights for ranking)</listitem>
 <listitem>'index_weights' - a named integer list (per-index user weights for ranking)</listitem>
+<listitem>'reverse_scan' - 0 or 1, lets you control the order in which full-scan query processes the rows</listitem>
 </itemizedlist>
 Example:
 <programlisting>
@@ -3256,7 +3909,7 @@ several comma-separated, parens-enclosed lists of rows values.
 
 <sect1 id="sphinxql-delete"><title>DELETE syntax</title>
 <programlisting>
-DELETE FROM index WHERE id = value
+DELETE FROM index WHERE {id = value | id IN (val1 [, val2 [, ...]])}
 </programlisting>
 <para>
 DELETE statement, introduced in version 1.10-beta, is only supported for RT indexes.
@@ -3264,10 +3917,11 @@ It deletes existing rows (documents) from an existing index based on ID.
 </para>
 <para>
 <option>index</option> is the name of RT index from which the row should be deleted.
-<option>value</option> is the row ID to be deleted.
+<option>value</option> is the row ID to be deleted. Support for batch
+<code>id IN (2,3,5)</code> syntax was added in version 2.0.1-beta.
 </para>
 <para>
-Additional types of WHERE conditions (such as IN, conditions on attributes, etc)
+Additional types of WHERE conditions (such as conditions on attributes, etc)
 are planned, but not supported yet as of 1.10-beta.
 </para>
 </sect1>
@@ -3275,12 +3929,102 @@ are planned, but not supported yet as of 1.10-beta.
 
 <sect1 id="sphinxql-set"><title>SET syntax</title>
 <programlisting>
-SET variable_name = value
+SET [GLOBAL] server_variable_name = value
+SET GLOBAL @user_variable_name = (int_val1 [, int_val2, ...])
 </programlisting>
 <para>
 SET statement, introduced in version 1.10-beta, modifies a server variable value.
-The only variable supported as of 1.10-beta is AUTOCOMMIT, and its allowed values
-are 0 and 1.
+The variable names are case-insensitive. No variable value changes survive
+server restart. There are the following classes of the variables:
+<orderedlist>
+<listitem>per-session server variable (1.10-beta and above)</listitem>
+<listitem>global server variable (2.0.1-beta and above)</listitem>
+<listitem>global user variable (2.0.1-beta and above)</listitem>
+</orderedlist>
+</para>
+<para>
+Global user variables are shared between concurrent sessions. Currently,
+the only supported value type is the list of BIGINTs, and these variables
+can only be used along with IN() for filtering purpose. The intended usage
+scenario is uploading huge lists of values to <filename>searchd</filename>
+(once) and reusing them (many times) later, saving on network overheads.
+Example:
+<programlisting>
+// in session 1
+mysql> SET GLOBAL @myfilter=(2,3,5,7,11,13);
+Query OK, 0 rows affected (0.00 sec)
+
+// later in session 2
+mysql> SELECT * FROM test1 WHERE group_id IN @myfilter;
++------+--------+----------+------------+-----------------+------+
+| id   | weight | group_id | date_added | title           | tag  |
++------+--------+----------+------------+-----------------+------+
+|    3 |      1 |        2 | 1299338153 | another doc     | 15   |
+|    4 |      1 |        2 | 1299338153 | doc number four | 7,40 |
++------+--------+----------+------------+-----------------+------+
+2 rows in set (0.02 sec)
+</programlisting>
+</para>
+<para>
+Per-session and global server variables affect certain server settings in the respective scope.
+Known per-session server variables are:
+<variablelist>
+<varlistentry>
+<term><code>AUTOCOMMIT = {0 | 1}</code></term>
+<listitem>
+Whether any data modification statement should be implicitly
+wrapped by BEGIN and COMMIT.
+Introduced in version 1.10-beta.
+</listitem>
+</varlistentry>
+<varlistentry>
+<term><code>COLLATION_CONNECTION = collation_name</code></term>
+<listitem>
+Selects the collation to be used for ORDER BY or GROUP BY on string
+values in the subsequent queries. Refer to <xref linkend="collations"/>
+for a list of known collation names.
+Introduced in version 2.0.1-beta.
+</listitem>
+</varlistentry>
+<varlistentry>
+<term><code>CHARACTER_SET_RESULTS = charset_name</code></term>
+<listitem>
+Does nothing; a placeholder to support frameworks, clients, and
+connectors that attempt to automatically enforce a charset when
+connecting to a Sphinx server.
+Introduced in version 2.0.1-beta.
+</listitem>
+</varlistentry>
+</variablelist>
+</para>
+<para>
+Known global server variables are:
+<variablelist>
+<varlistentry>
+<term><code>QUERY_LOG_FORMAT = {plain | sphinxql}</code></term>
+<listitem>
+Changes the current log format.
+Introduced in version 2.0.1-beta.
+</listitem>
+</varlistentry>
+<varlistentry>
+<term><code>LOG_LEVEL = {info | debug | debugv | debugvv}</code></term>
+<listitem>
+Changes the current log verboseness level.
+Introduced in version 2.0.1-beta.
+</listitem>
+</varlistentry>
+</variablelist>
+</para>
+<para>
+Examples:
+<programlisting>
+mysql> SET autocommit=0;
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> SET GLOBAL query_log_format=sphinxql;
+Query OK, 0 rows affected (0.00 sec)
+</programlisting>
 </para>
 </sect1>
 
@@ -3349,6 +4093,411 @@ of the keywords, and, optionally, keyword statistics.
 <option>index</option> is the name of the index from which to take the text
 processing settings. <option>hits</option> is an optional boolean parameter
 that specifies whether to return document and hit occurrence statistics.
+</para>
+</sect1>
+
+
+<sect1 id="sphinxql-show-tables"><title>SHOW TABLES syntax</title>
+<programlisting>
+SHOW TABLES
+</programlisting>
+<para>
+SHOW TABLES statement, introduced in version 2.0.1-beta, enumerates
+all currently active indexes along with their types. As of 2.0.1-beta,
+existing index types are <option>local</option>, <option>distributed</option>,
+and <option>rt</option> respectively.
+Example:
+<programlisting>
+mysql> SHOW TABLES;
++-------+-------------+
+| Index | Type        |
++-------+-------------+
+| dist1 | distributed |
+| rt    | rt          |
+| test1 | local       |
+| test2 | local       |
++-------+-------------+
+4 rows in set (0.00 sec)
+</programlisting>
+</para>
+</sect1>
+
+
+<sect1 id="sphinxql-describe"><title>DESCRIBE syntax</title>
+<programlisting>
+{DESC | DESCRIBE} index
+</programlisting>
+<para>
+DESCRIBE statement, introduced in version 2.0.1-beta, lists
+index columns and their associated types. Columns are document ID,
+full-text fields, and attributes. The order matches that in which
+fields and attributes are expected by INSERT and REPLACE statements.
+As of 2.0.1-beta, column types are <option>field</option>,
+<option>integer</option>, <option>timestamp</option>,
+<option>ordinal</option>, <option>bool</option>,
+<option>float</option>, <option>bigint</option>,
+<option>string</option>, and <option>mva</option>.
+ID column will be typed either <option>integer</option>
+or <option>bigint</option> based on whether the binaries
+were built with 32-bit or 64-bit document ID support.
+Example:
+</para>
+<programlisting>
+mysql> DESC rt;
++---------+---------+
+| Field   | Type    |
++---------+---------+
+| id      | integer |
+| title   | field   |
+| content | field   |
+| gid     | integer |
++---------+---------+
+4 rows in set (0.00 sec)
+</programlisting>
+</sect1>
+
+
+<sect1 id="sphinxql-create-function"><title>CREATE FUNCTION syntax</title>
+<programlisting>
+CREATE FUNCTION udf_name
+	RETURNS {INT | BIGINT | FLOAT}
+	SONAME 'udf_lib_file'
+</programlisting>
+<para>
+CREATE FUNCTION statement, introduced in version 2.0.1-beta,
+installs a <link linkend="udf">user-defined function (UDF)</link>
+with the given name and type from the given library file.
+The library file must reside in a trusted
+<link linkend="conf-plugin-dir">plugin_dir</link> directory.
+On success, the function is available for use in all subsequent
+queries that the server receives. Example:
+</para>
+<programlisting>
+mysql> CREATE FUNCTION avgmva RETURNS INT SONAME 'udfexample.dll';
+Query OK, 0 rows affected (0.03 sec)
+
+mysql> SELECT *, AVGMVA(tag) AS q from test1;
++------+--------+---------+-----------+
+| id   | weight | tag     | q         |
++------+--------+---------+-----------+
+|    1 |      1 | 1,3,5,7 | 4.000000  |
+|    2 |      1 | 2,4,6   | 4.000000  |
+|    3 |      1 | 15      | 15.000000 |
+|    4 |      1 | 7,40    | 23.500000 |
++------+--------+---------+-----------+
+</programlisting>
+</sect1>
+
+
+<sect1 id="sphinxql-drop-function"><title>DROP FUNCTION syntax</title>
+<programlisting>
+DROP FUNCTION udf_name
+</programlisting>
+<para>
+DROP FUNCTION statement, introduced in version 2.0.1-beta,
+deinstalls a <link linkend="udf">user-defined function (UDF)</link>
+with the given name. On success, the function is no longer available
+for use in subsequent queries. Pending concurrent queries will not be
+affected and the library unload, if necessary, will be postponed
+until those queries complete. Example:
+</para>
+<programlisting>
+mysql> DROP FUNCTION avgmva;
+Query OK, 0 rows affected (0.00 sec)
+</programlisting>
+</sect1>
+
+
+<sect1 id="sphinxql-show-variables"><title>SHOW VARIABLES syntax</title>
+<programlisting>
+SHOW VARIABLES
+</programlisting>
+<para>
+Added in version 2.0.1-beta, this is currently a placeholder 
+query that does nothing and reports success. That is in order
+to keep compatibility with frameworks and connectors that
+automatically execute this statement.
+</para>
+<programlisting>
+mysql> SHOW VARIABLES;
+Query OK, 0 rows affected (0.00 sec)
+</programlisting>
+</sect1>
+
+
+<sect1 id="sphinxql-show-variables"><title>SHOW COLLATION syntax</title>
+<programlisting>
+SHOW COLLATION
+</programlisting>
+<para>
+Added in version 2.0.1-beta, this is currently a placeholder 
+query that does nothing and reports success. That is in order
+to keep compatibility with frameworks and connectors that
+automatically execute this statement.
+</para>
+<programlisting>
+mysql> SHOW COLLATION;
+Query OK, 0 rows affected (0.00 sec)
+</programlisting>
+</sect1>
+
+
+<sect1 id="sphinxql-update"><title>UPDATE syntax</title>
+<programlisting>
+UPDATE index SET col1 = newval1 [, ...] WHERE ID = docid
+</programlisting>
+<para>
+UPDATE statement was added in version 2.0.1-beta. It can currently
+update 32-bit integer attributes only. Multiple attributes and values
+can be specified. Both RT and disk indexes are supported.
+Updates on other attribute types are also planned.
+</para>
+<programlisting>
+mysql> UPDATE myindex SET enabled=0 WHERE id=123;
+Query OK, 1 rows affected (0.00 sec)
+</programlisting>
+</sect1>
+
+
+<sect1 id="sphinxql-multi-queries">
+<title>Multi-statement queries</title>
+<para>
+Starting version 2.0.1-beta, SphinxQL supports multi-statement
+queries, or batches. Possible inter-statement optimizations described
+in <xref linkend="multi-queries"/> do apply to SphinxQL just as well.
+The batched queries should be separated by a semicolon. Your MySQL
+client library needs to support MySQL multi-query mechanism and
+multiple result set. For instance, mysqli interface in PHP
+and DBI/DBD libraries in Perl are known to work.
+</para>
+<para>
+Here's a PHP sample showing how to utilize mysqli interface
+with Sphinx.
+<programlisting><![CDATA[
+<?php
+
+$link = mysqli_connect ( "127.0.0.1", "root", "", "", 9306 );
+if ( mysqli_connect_errno() )
+    die ( "connect failed: " . mysqli_connect_error() );
+
+$batch = "SELECT * FROM test1 ORDER BY group_id ASC;";
+$batch .= "SELECT * FROM test1 ORDER BY group_id DESC";
+
+if ( !mysqli_multi_query ( $link, $batch ) )
+    die ( "query failed" );
+
+do
+{
+    // fetch and print result set
+    if ( $result = mysqli_store_result($link) )
+    {
+        while ( $row = mysqli_fetch_row($result) )
+            printf ( "id=%s\n", $row[0] );
+        mysqli_free_result($result);
+    }
+
+    // print divider
+    if ( mysqli_more_results($link) )
+        printf ( "------\n" );
+
+} while ( mysqli_next_result($link) );
+]]></programlisting>
+Its output with the sample <code>test1</code> index included
+with Sphinx is as follows.
+<programlisting>
+$ php test_multi.php
+id=1
+id=2
+id=3
+id=4
+------
+id=3
+id=4
+id=1
+id=2
+</programlisting>
+</para>
+<para>
+The following statements can currently be used in a batch:
+SELECT, SHOW WARNINGS, SHOW STATUS, and SHOW META. Arbitrary
+sequence of these statements are allowed. The results sets
+returned should match those that would be returned if the
+batched queries were sent one by one.
+</para>
+</sect1>
+
+
+<sect1 id="sphinxql-comment-syntax">
+<title>Comment syntax</title>
+<para>
+Since version 2.0.1-beta, SphinxQL supports C-style comment syntax.
+Everything from an opening <code>/*</code> sequence to a closing
+<code>*/</code> sequence is ignored. Comments can span multiple lines,
+can not nest, and should not get logged. MySQL specific
+<code>/*! ... */</code> comments are also currently ignored.
+(As the comments support was rather added for better compatibility
+with <filename>mysqldump</filename> produced dumps, rather than
+improving generaly query interoperability between Sphinx and MySQL.)
+<programlisting>
+SELECT /*! SQL_CALC_FOUND_ROWS */ col1 FROM table1 WHERE ...
+</programlisting>
+</para>
+</sect1>
+
+
+<sect1 id="sphinxql-reserved-keywords">
+<title>List of SphinxQL reserved keywords</title>
+<para>A complete alphabetical list of keywords that are currently reserved
+in SphinxQL syntax (and therefore can not be used as identifiers).
+<programlisting>
+AND
+AS
+ASC
+AVG
+BEGIN
+BETWEEN
+BY
+CALL
+COLLATION
+COMMIT
+COUNT
+DELETE
+DESC
+DESCRIBE
+DISTINCT
+FALSE
+FROM
+GLOBAL
+GROUP
+ID
+IN
+INSERT
+INTO
+LIMIT
+MATCH
+MAX
+META
+MIN
+NOT
+NULL
+OPTION
+OR
+ORDER
+REPLACE
+ROLLBACK
+SELECT
+SET
+SHOW
+START
+STATUS
+SUM
+TABLES
+TRANSACTION
+TRUE
+UPDATE
+VALUES
+VARIABLES
+WARNINGS
+WEIGHT
+WHERE
+WITHIN
+</programlisting></para>
+</sect1>
+
+
+<sect1 id="sphinxql-upgrading-magics">
+<title>SphinxQL upgrade notes, version 2.0.1-beta</title>
+<para>
+This section only applies to existing applications that
+use SphinxQL versions prior to 2.0.1-beta.
+</para>
+<para>
+In previous versions, SphinxQL just wrapped around SphinxAPI
+and inherited its magic columns and column set quirks. Essentially,
+SphinxQL queries could return (slightly) different columns and
+in a (slightly) different order than it was explicitly requested
+in the query. Namely, <code>weight</code> magic column (which is not
+a real column in any index) was added at all times, and GROUP BY
+related <code>@count</code>, <code>@group</code>, and <code>@distinct</code>
+magic columns were conditionally added when grouping. Also, the order
+of columns (attributes) in the result set was actually taken from the
+index rather than the query. (So if you asked for columns C, B, A
+in your query but they were in the A, B, C order in the index,
+they would have been returned in the A, B, C order.)
+</para>
+<para>
+In version 2.0.1-beta, we fixed that. SphinxQL is now more
+SQL compliant (and will be further brought in as much compliance
+with standard SQL syntax as possible). That is not yet a breaking
+change, because <filename>searchd</filename> now supports
+<link linkend="conf-compat-sphinxql-magics"><code>compat_sphinxql_magics</code></link>
+directive that flips between the old "compatibility" mode and the new
+"compliance" mode. However, the compatibility mode support is going
+to be removed in future, so it's strongly advised to update SphinxQL
+applications and switch to the compliance mode.
+</para>
+<para>
+The important changes are as follows:
+<itemizedlist>
+<listitem><para>
+<b><code>@ID</code> magic name is deprecated in favor of
+<code>ID</code>.</b> Document ID is considered an attribute.
+</para></listitem>
+<listitem><para>
+<b><code>WEIGHT</code> is no longer implicitly returned</b>,
+because it is not actually a column (an index attribute),
+but rather an internal function computed per each row (a match).
+You have to explicitly ask for it, using the <code>WEIGHT()</code>
+function. (The requirement to alias the result will be lifted
+in the next release.)
+<programlisting>
+SELECT id, WEIGHT() w FROM myindex WHERE MATCH('test')
+</programlisting>
+</para></listitem>
+<listitem><para>
+<b>You can now use quoted reserved keywords as aliases.</b>
+The quote character is backtick ("`", ASCII code 96 decimal,
+60 hex). One particularly useful example would be returning
+<code>weight</code> column like the old mode:
+<programlisting>
+SELECT id, WEIGHT() `weight` FROM myindex WHERE MATCH('test')
+</programlisting>
+</para></listitem>
+<listitem><para>
+The column order is now different and should now match the
+one expliclitly defined in the query. So if you are accessing
+columns based on their position in the result set rather than
+the name (for instance, by using <code>mysql_fetch_row()</code>
+rather than <code>mysql_fetch_assoc()</code> in PHP),
+<b>check and fix the order of columns in your queries.</b>
+</para></listitem>
+<listitem><para>
+<code>SELECT *</code> return the columns in index order,
+as it used to, including the ID column. However,
+<b><code>SELECT *</code> does not automatically return WEIGHT().</b>
+To update such queries in case you access columns by names,
+simply add it to the query:
+<programlisting>
+SELECT *, WEIGHT() `weight` FROM myindex WHERE MATCH('test')
+</programlisting>
+Otherwise, i.e., in case you rely on column order, select
+ID, weight, and then other columns:
+<programlisting>
+SELECT id, *, WEIGHT() `weight` FROM myindex WHERE MATCH('test')
+</programlisting>
+</para></listitem>
+<listitem><para>
+<b>Magic <code>@count</code> and <code>@distinct</code>
+attributes are no longer implicitly returned</b>. You now
+have to explicitly ask for them when using GROUP BY.
+(Also note that you currently have to alias them;
+that requirement will be lifted in the future.)
+<programlisting>
+SELECT gid, COUNT(*) q FROM myindex WHERE MATCH('test')
+GROUP BY gid ORDER BY q DESC
+</programlisting>
+</para></listitem>
+</itemizedlist>
 </para>
 </sect1>
 
@@ -3928,6 +5077,10 @@ Starting with version 0.9.9-rc2, aggregate functions (AVG(), MIN(),
 MAX(), SUM()) are supported through <link linkend="api-func-setselect">SetSelect()</link> API call
 when using GROUP BY.
 </para>
+<para>
+Starting with version 2.0.1-beta, grouping on string attributes
+is supported, with respect to current collation.
+</para>
 </sect2>
 
 <sect2 id="api-func-setgroupdistinct"><title>SetGroupDistinct</title>
@@ -4236,6 +5389,14 @@ Starting with version 0.9.9-rc1, keywords can contain wildcards, that work simil
 	<listitem>Whether to extract single best passage only. Boolean, default is false.</listitem>
 </varlistentry>
 <varlistentry>
+	<term>"use_boundaries":</term>
+	<listitem>Whether to additionaly break passages by phrase 
+	boundary characters, as configured in index settings with
+	<link linkend="conf-phrase-boundary">phrase_boundary</link>
+	directive. Boolean, default is false.
+	</listitem>
+</varlistentry>
+<varlistentry>
 	<term>"weight_order":</term>
 	<listitem>Whether to sort the extracted passages in order of relevance (decreasing weight),
 	or in order of appearance in the document (increasing position). Boolean, default is false.</listitem>
@@ -4280,7 +5441,10 @@ Starting with version 0.9.9-rc1, keywords can contain wildcards, that work simil
 	<term>"load_files":</term>
 	<listitem>Added in version 1.10-beta. Whether to handle $docs as data
 	to extract snippets from (default behavior), or to treat it as file names,
-	and load data from specified files on the server side. Boolean, default is false.
+	and load data from specified files on the server side. Starting with
+	version 2.0.1-beta, up to <link linkend="conf-dist-threads">dist_threads</link>
+	worker threads per request will be created to parallelize the work
+	when this flag is enabled. Boolean, default is false.
 	</listitem>
 </varlistentry>
 <varlistentry>
@@ -4304,12 +5468,46 @@ Starting with version 0.9.9-rc1, keywords can contain wildcards, that work simil
 	string. Boolean, default is false.
 	</listitem>
 </varlistentry>
+<varlistentry>
+	<term>"passage_boundary":</term>
+	<listitem>Added in version 2.0.1-beta. Ensures that passages do not
+	cross a sentence, paragraph, or zone boundary (when used with an index
+	that has the respective indexing settings enabled). String, allowed
+	values are "sentence", "paragraph", and "zone".
+	</listitem>
+</varlistentry>
+<varlistentry>
+	<term>"passage_boundary":</term>
+	<listitem>Added in version 2.0.1-beta. Ensures that passages do not
+	cross a sentence, paragraph, or zone boundary (when used with an index
+	that has the respective indexing settings enabled). String, allowed
+	values are "sentence", "paragraph", and "zone".
+	</listitem>
+</varlistentry>
+<varlistentry>
+	<term>"emit_zones":</term>
+	<listitem>Added in version 2.0.1-beta. Emits an HTML tag with
+	an enclosing zone name before each passage. Boolean, default is false.
+	</listitem>
+</varlistentry>
 </variablelist>
+</para>
+<para>
+Snippets extraction algorithm currently favors better passages
+(with closer phrase matches), and then passages with keywords not
+yet in snippet. Generally, it will try to highlight the best match
+with the query, and it will also to highlight all the query keywords,
+as made possible by the limtis. In case the document does not match
+the query, beginning of the document trimmed down according to the
+limits will be return by default. Starting with 1.10-beta, you can
+also return an empty snippet instead case by setting "allow_empty"
+option to true.
 </para>
 <para>
 Returns false on failure. Returns a plain array of strings with excerpts (snippets) on success.
 </para>
 </sect2>
+
 
 <sect2 id="api-func-updateatttributes"><title>UpdateAttributes</title>
 <para><b>Prototype:</b> function UpdateAttributes ( $index, $attrs, $values )</para>
@@ -4733,12 +5931,26 @@ attribute name (or sorting clause for "extended") is also required after a colon
 ... WHERE query='test;!range=group_id,5,25;';
 </programlisting>
 </listitem>
-<listitem>maxmatches - per-query max matches value:
+<listitem>maxmatches - per-query max matches value, as in max_matches parameter to
+<link linkend="api-func-setlimits">SetLimits()</link> API call:
 <programlisting>
 ... WHERE query='test;maxmatches=2000;';
 </programlisting>
 </listitem>
-<listitem>groupby - group-by function and attribute:
+<listitem>cutoff - maximum allowed matches, as in cutoff parameter to
+<link linkend="api-func-setlimits">SetLimits()</link> API call:
+<programlisting>
+... WHERE query='test;cutoff=10000;';
+</programlisting>
+</listitem>
+<listitem>maxquerytme - maximum allowed query time (in milliseconds), as in
+<link linkend="api-func-setmaxquerytime">SetMaxQueryTime()</link> API call:
+<programlisting>
+... WHERE query='test;maxquerytime=1000;';
+</programlisting>
+</listitem>
+<listitem>groupby - group-by function and attribute, corresponding to
+<link linkend="api-func-setgroupby">SetGroupBy()</link> API call:
 <programlisting>
 ... WHERE query='test;groupby=day:published_ts;';
 ... WHERE query='test;groupby=attr:group_id;';
@@ -4747,6 +5959,12 @@ attribute name (or sorting clause for "extended") is also required after a colon
 <listitem>groupsort - group-by sorting clause:
 <programlisting>
 ... WHERE query='test;groupsort=@count desc;';
+</programlisting>
+</listitem>
+<listitem>distinct - an attribute to compute COUNT(DISTINCT) for when doing group-by, as in
+<link linkend="api-func-setgroupdistinct">SetGroupDistinct()</link> API call:
+<programlisting>
+... WHERE query='test;groupby=attr:country_id;distinct=site_id';
 </programlisting>
 </listitem>
 <listitem>indexweights - comma-separated list of index names and weights
@@ -4765,6 +5983,28 @@ to use when searching through several indexes:
 (mapping to <link linkend="api-func-setselect">SetSelect()</link> API call):
 <programlisting>
 ... WHERE query='test;select=2*a+3*b as myexpr;';
+</programlisting>
+</listitem>
+<listitem>host, port - remote <filename>searchd</filename> host name
+and TCP port, respectively:
+<programlisting>
+... WHERE query='test;host=sphinx-test.loc;port=7312;';
+</programlisting>
+</listitem>
+<listitem>ranker - a ranking function to use when matching mode is extended
+(i.e. with query syntax), as in <link linkend="api-func-setrankingmode">SetRankingMode()</link> API call.
+Known values are "proximity_bm25", "bm25", "none", "wordcount", "proximity",
+"matchany", and "fieldmask".
+<programlisting>
+... WHERE query='test;ranker=bm25;';
+</programlisting>
+</listitem>
+<listitem>geoanchor - geodistance anchor, as in
+<link linkend="api-func-setgeoanchor">SetGeoAnchor()</link> API call.
+Takes 4 parameters which are latitude and longiture attribute names,
+and anchor point coordinates respectively:
+<programlisting>
+... WHERE query='test;geoanchor=latattr,lonattr,0.123,0.456';
 </programlisting>
 </listitem>
 </itemizedlist>
@@ -5325,12 +6565,15 @@ Applies to SQL source types (<option>mysql</option>, <option>pgsql</option>, <op
 <option>sql_joined_field</option> lets you use two different features:
 joined fields, and payloads (payload fields). It's syntax is as follows:
 <programlisting>
-sql_joined_field = FIELD-NAME 'from'  ( 'query' | 'payload-query' ); QUERY
+sql_joined_field = FIELD-NAME 'from'  ( 'query' | 'payload-query' ); \
+    QUERY [ ; RANGE-QUERY ]
 </programlisting>
 where
 <itemizedlist>
 <listitem>FIELD-NAME is a joined/payload field name;</listitem>
-<listitem>QUERY is an SQL query used to fetch values to index.</listitem>
+<listitem>QUERY is an SQL query that must fetch values to index.</listitem>
+<listitem>RANGE-QUERY is an optional SQL query that fetches a range
+of values to index. (Added in version 2.0.1-beta.)</listitem>
 </itemizedlist>
 </para>
 <para>
@@ -5362,6 +6605,16 @@ a new text field with a value of 'red right hand' to document 1 and
 <para>
 Joined fields are only indexed differently. There are no other differences
 between joined fields and regular text fields.
+</para>
+<para>
+Starting with 2.0.1-beta, <b>ranged queries</b> can be used when
+a single query is not efficient enough or does not work because of
+the database driver limitations. It works similar to the ranged
+queries in the main indexing loop, see <xref linkend="ranged-queries"/>.
+The range will be queried for and fetched upfront once,
+then multiple queries with different <code>$start</code>
+and <code>$end</code> substitutions will be run to fetch
+the actual data.
 </para>
 <para>
 <b>Payloads</b> let you create a special field in which, instead of
@@ -5571,15 +6824,25 @@ Multi-value (there might be multiple attributes declared), optional.
 Applies to SQL source types (<option>mysql</option>, <option>pgsql</option>, <option>mssql</option>) only.
 </para>
 <para>
-The column value should be a timestamp in UNIX format, ie. 32-bit unsigned
+Timestamps can store date and time in the range of Jan 01, 1970
+to Jan 19, 2038 with a precision of one second.
+The expected column value should be a timestamp in UNIX format, ie. 32-bit unsigned
 integer number of seconds elapsed since midnight, January 01, 1970, GMT.
 Timestamps are internally stored and handled as integers everywhere.
 But in addition to working with timestamps as integers, it's also legal
-to use them along with different date-based functions - such as time segments
-sorting mode, or day/week/month/year extraction for GROUP BY. Note that
-DATE or DATETIME column types in MySQL can <b>not</b> be directly used
-as timestamps; you need to explicitly convert such columns using
-UNIX_TIMESTAMP function.
+to use them along with different date-based functions, such as time segments
+sorting mode, or day/week/month/year extraction for GROUP BY.
+</para>
+<para>
+Note that DATE or DATETIME column types in MySQL can <b>not</b> be directly
+used as timestamp attributes in Sphinx; you need to explicitly convert such
+columns using UNIX_TIMESTAMP function (if data is in range).
+</para>
+<para>
+Note timestamps can not represent dates before January 01, 1970,
+and UNIX_TIMESTAMP() in MySQL will not return anything expected.
+If you only needs to work with dates, not times, consider TO_DAYS()
+function in MySQL instead.
 </para>
 <bridgehead>Example:</bridgehead>
 <programlisting>
@@ -5750,6 +7013,44 @@ sql_attr_str2wordcount = title_wc
 </sect2>
 
 
+<sect2 id="conf-sql-column-buffers"><title>sql_column_buffers</title>
+<para>
+Per-column buffer sizes.
+Optional, default is empty (deduce the sizes automatically).
+Applies to <option>odbc</option>, <option>mssql</option> source types only.
+Introduced in version 2.0.1-beta.
+</para>
+<para>
+ODBC and MS SQL drivers sometimes can not return the maximum
+actual column size to be expected. For instance, NVARCHAR(MAX) columns
+always report their length as 2147483647 bytes to
+<filename>indexer</filename> even though the actually used length
+is likely considerably less. However, the receiving buffers still
+need to be allocated upfront, and their sizes have to be determined.
+When the driver does not report the column length at all, Sphinx
+allocates default 1 KB buffers for each non-char column, and 1 MB
+buffers for each char column. Driver-reported column length
+also gets clamped by an upper limie of 8 MB, so in case the
+driver reports (almost) a 2 GB column length, it will be clamped
+and a 8 MB buffer will be allocated instead for that column.
+These hard-coded limits can be overridden using the
+<code>sql_column_buffers</code> directive, either in order
+to save memory on actually shorter columns, or overcome
+the 8 MB limit on actually longer columns. The directive values
+must be a comma-separated lists of selected column names and sizes:
+<programlisting>
+sql_column_buffers = &lt;colname&gt;=&lt;size&gt;[K|M] [, ...]
+</programlisting>
+</para>
+<bridgehead>Example:</bridgehead>
+<programlisting>
+sql_query = SELECT id, mytitle, mycontent FROM documents
+sql_column_buffers = mytitle=64K, mycontent=10M
+</programlisting>
+</sect2>
+
+
+
 <sect2 id="conf-sql-field-string"><title>sql_field_string</title>
 <para>
 Combined string attribute and full-text field declaration.
@@ -5845,7 +7146,8 @@ If this query produces errors, they are reported as warnings,
 but indexing is <b>not</b> terminated. It's result set is ignored.
 <code>$maxid</code> macro can be used in its text; it will be
 expanded to maximum document ID which was actually fetched
-from the database during indexing.
+from the database during indexing. If no documents were indexed,
+$maxid will be expanded to 0.
 </para>
 <bridgehead>Example:</bridgehead>
 <programlisting>
@@ -6323,8 +7625,10 @@ For reference, different index files store the following data:
 <listitem><filename>.spd</filename> stores matching document ID lists for each word ID;</listitem>
 <listitem><filename>.sph</filename> stores index header information;</listitem>
 <listitem><filename>.spi</filename> stores word lists (word IDs and pointers to <filename>.spd</filename> file);</listitem>
+<listitem><filename>.spk</filename> stores kill-lists;</listitem>
 <listitem><filename>.spm</filename> stores MVA data;</listitem>
-<listitem><filename>.spp</filename> stores hit (aka posting, aka word occurence) lists for each word ID.</listitem>
+<listitem><filename>.spp</filename> stores hit (aka posting, aka word occurence) lists for each word ID;</listitem>
+<listitem><filename>.sps</filename> stores string attribute data.</listitem>
 </itemizedlist>
 </para>
 <bridgehead>Example:</bridgehead>
@@ -6421,8 +7725,17 @@ because they are based on an older version. Metaphone implementation
 is based on Double Metaphone algorithm and indexes the primary code.
 </para>
 <para>
-Built-in values that be used in <option>morphology</option> option are:
-'none', 'stem_en', 'stem_ru', 'stem_enru', 'soundex', and 'metaphone'.
+Built-in values that are available for use in <option>morphology</option>
+option are as follows:
+<itemizedlist>
+<listitem>none - do not perform any morphology processing;</listitem>
+<listitem>stem_en - apply Porter's English stemmer;</listitem>
+<listitem>stem_ru - apply Porter's Russian stemmer;</listitem>
+<listitem>stem_enru - apply Porter's English and Russian stemmers;</listitem>
+<listitem>stem_cz - apply Czech stemmer;</listitem>
+<listitem>soundex - replace keywords with their SOUNDEX code;</listitem>
+<listitem>metaphone - replace keywords with their METAPHONE code.</listitem>
+</itemizedlist>
 Additional values provided by libstemmer are in 'libstemmer_XXX' format,
 where XXX is libstemmer algorithm codename (refer to
 <filename>libstemmer_c/libstemmer/modules.txt</filename> for a complete list).
@@ -6440,6 +7753,168 @@ used to implement stemming exceptions.
 <bridgehead>Example:</bridgehead>
 <programlisting>
 morphology = stem_en, libstemmer_sv
+</programlisting>
+</sect2>
+
+
+<sect2 id="conf-dict"><title>dict</title>
+<para>
+The keywords dictionary type.
+Known values are 'crc' and 'keywords'.
+Optional, default is 'crc'.
+Introduced in version 2.0.1-beta.
+</para>
+<para>
+The default dictionary type in Sphinx, and the only one available
+until version 2.0.1-beta, is a so-called CRC dictionary which never
+stores the original keyword text in the index. Instead, keywords are
+replaced with their control sum value (either CRC32 or FNV64, depending
+whether Sphinx was built with <option>--enable-id64</option>) both
+when searching and indexing, and that value is used internally
+in the index.
+</para>
+<para>
+That approach has two drawbacks. First, in CRC32 case there is
+a chance of control sum collision between several pairs of different
+keywords, growing quadratically with the number of unique keywords
+in the index. (FNV64 case is unaffected in practice, as a chance
+of a single FNV64 collision in a dictionary of 1 billion entries
+is approximately 1:16, or 6.25 percent. And most dictionaries
+will be much more compact that a billion keywords, as a typical
+spoken human language has in the region of 1 to 10 million word
+forms.) Second, and more importantly, substring searches are not
+directly possible with control sums. Sphinx alleviated that by
+pre-indexing all the possible substrings as separate keywords
+(see <xref linkend="conf-min-prefix-len"/>, <xref linkend="conf-min-infix-len"/>
+directives). That actually has an added benefit of matching
+substrings in the quickest way possible. But at the same time
+pre-indexing all substrings grows the index size a lot (factors
+of 3-10x and even more would not be unusual) and impacts the
+indexing time respectively, rendering substring searches
+on big indexes rather impractical.
+</para>
+<para>
+Keywords dictionary, introduced in 2.0.1-beta, fixes both these
+drawbacks. It stores the keywords in the index and performs
+search-time wildcard expansion. For example, a search for a
+'test*' prefix could internally expand to 'test|tests|testing'
+query based on the dictionary contents. That expansion is fully
+transparent to the application, except that the separate
+per-keyword statistics for all the actually matched keywords 
+would now also be reported.
+</para>
+<para>
+Indexing with keywords dictionary should be 1.1x to 1.3x slower
+compared to regular, non-substring indexing - but times faster
+compared to substring indexing (either prefix or infix). Index size
+should only be slightly bigger that than of the regular non-substring
+index, with a 1..10% percent total difference
+Regular keyword searching time must be very close or identical across
+all three discussed index kinds (CRC non-substring, CRC substring,
+keywords). Substring searching time can vary greatly depending
+on how many actual keywords match the given substring (in other
+words, into how many keywords does the search term expand).
+The maximum number of keywords matched is restricted by the
+<link linkend="conf-expansion-limit">expansion_limit</link>
+directive.
+</para>
+<para>
+Essentially, keywords and CRC dictionaries represent the two
+different trade-off substring searching decisions. You can choose
+to either sacrifice indexing time and index size in favor of
+top-speed worst-case searches (CRC dictionary), or only slightly
+impact indexing time but sacrifice worst-case searching time when
+the prefix expands into very many keywords (keywords dictionary).
+</para>
+<bridgehead>Example:</bridgehead>
+<programlisting>
+dict = keywords
+</programlisting>
+</sect2>
+
+
+<sect2 id="conf-index-sp"><title>index_sp</title>
+<para>
+Whether to detect and index sentence and paragraph boundaries.
+Optional, default is 0 (do not detect and index).
+Introduced in version 2.0.1-beta.
+</para>
+<para>
+This directive enables sentence and paragraph boundary indexing.
+It's required for the SENTENCE and PARAGRAPH operators to work.
+Sentence boundary detection is based on plain text analysis, so you
+only need to set <code>index_sp = 1</code> to enable it. Paragraph
+detection is however based on HTML markup, and happens in the
+<link linkend="conf-html-strip">HTML stripper</link>.
+So to index paragraph locations you also need to enable the stripper
+by specifying <code>html_strip = 1</code>. Both types of boundaries
+are detected based on a few built-in rules enumerated just below.
+</para>
+<para>
+Sentence boundary detection rules are as follows.
+<itemizedlist>
+<listitem>Question and excalamation signs (? and !) are always a sentence boundary.</listitem>
+<listitem>Trailing dot (.) is a sentence boundary, except:
+	<itemizedlist>
+	<listitem>When followed by a letter. That's considered a part of an abbreviation (as in "S.T.A.L.K.E.R" or "Goldman Sachs S.p.A.").</listitem>
+	<listitem>When followed by a comma. That's considered an abbreviation followed by a comma (as in "Telecom Italia S.p.A., founded in 1994").</listitem>
+	<listitem>When followed by a space and a small letter. That's considered an abbreviation within a sentence (as in "News Corp. announced in Februrary").</listitem>
+	<listitem>When preceded by a space and a capital letter, and followed by a space. That's considered a middle initial (as in "John D. Doe").</listitem>
+	</itemizedlist>
+</listitem>
+</itemizedlist>
+</para>
+<para>
+Paragraph boundaries are inserted at every block-level HTML tag.
+Namely, those are (as taken from HTML 4 standard) ADDRESS, BLOCKQUOTE,
+CAPTION, CENTER, DD, DIV, DL, DT, H1, H2, H3, H4, H5, LI, MENU, OL, P,
+PRE, TABLE, TBODY, TD, TFOOT, TH, THEAD, TR, and UL.
+</para>
+<para>
+Both sentences and paragraphs increment the keyword position counter by 1.
+</para>
+<bridgehead>Example:</bridgehead>
+<programlisting>
+index_sp = 1
+</programlisting>
+</sect2>
+
+
+<sect2 id="conf-index-zones"><title>index_zones</title>
+<para>
+A list of in-field HTML/XML zones to index.
+Optional, default is empty (do not index zones).
+Introduced in version 2.0.1-beta.
+</para>
+<para>
+Zones can be formally defined as follows. Everything between
+an opening and a matching closing tag is called a span, and
+the aggregate of all spans corresponding sharing the same
+tag name is called a zone. For instance, everything between
+the occurrences of &lt;H1&gt; and &lt;/H1&gt; in the document
+field belongs to H1 zone.
+</para>
+<para>
+Zone indexing, enabled by <code>index_zones</code> directive,
+is an optional extension of the HTML stripper. So it will also
+require that the <link linkend="conf-html-strip">stripper</link>
+is enabled (with <code>html_strip = 1</code>). The value of the
+<code>index_zones</code> should be a comma-separated list of
+those tag names and wildcards (ending with a star) that should
+be indexed as zones.
+</para>
+<para>
+Zones can nest and overlap arbitrarily. The only requirement
+is that every opening tag has a matching tag. You can also have
+an arbitrary number of both zones (as in unique zone names,
+such as H1) and spans (all the occurrences of those H1 tags)
+in a document.
+Once indexed, zones can then be used for matching with
+the ZONE operator, see <xref linkend="extended-syntax"/>.
+</para>
+<bridgehead>Example:</bridgehead>
+<programlisting>
+index_zones = h*, th, title
 </programlisting>
 </sect2>
 
@@ -6547,7 +8022,7 @@ walking &gt; walk
 </programlisting>
 </para>
 <para>
-There is bundled <filename>spelldump</filename> utility that
+There is a bundled <filename>spelldump</filename> utility that
 helps you create a dictionary file in the format Sphinx can read
 from source <filename>.dict</filename> and <filename>.aff</filename>
 dictionary files in <filename>ispell</filename> or <filename>MySpell</filename>
@@ -6562,6 +8037,14 @@ core 2 duo &gt; c2d
 e6600 &gt; c2d
 core 2duo &gt; c2d
 </programlisting>
+</para>
+<para>
+Notice however that the <emphasis>destination</emphasis> wordforms
+are still always interpreted as a <emphasis>single</emphasis> keyword!
+Having a mapping like "St John > Saint John" will result in <b>not</b>
+matching "St John" when searching for "Saint" or "John", because the
+destination keyword will be "Saint John" with a space character in it
+(and it's barely possible to input a destination keyword with a space).
 </para>
 <bridgehead>Example:</bridgehead>
 <programlisting>
@@ -6988,7 +8471,7 @@ Optional, default is 0 (disable n-gram indexing).
 Known values are 0 and 1 (other lengths to be implemented).
 </para>
 <para>
-N-grams provide basic CJK (Chinese, Japanse, Koreasn) support for
+N-grams provide basic CJK (Chinese, Japanese, Korean) support for
 unsegmented texts. The issue with CJK searching is that there could be no
 clear separators between the words. Ideally, the texts would be filtered
 through a special program called segmenter that would insert separators
@@ -7103,6 +8586,26 @@ phrase_boundary_step = 100
 Whether to strip HTML markup from incoming full-text data.
 Optional, default is 0.
 Known values are 0 (disable stripping) and 1 (enable stripping).
+</para>
+<para>
+Both HTML tags and entities and considered markup and get processed.
+</para>
+<para>HTML tags are removed, their contents (i.e., everything between
+&lt;P&gt; and &lt;/P&gt;) are left intact by default. You can choose
+to keep and index attributes of the tags (e.g., HREF attribute in
+an A tag, or ALT in an IMG one). Several well-known inline tags are
+completely removed, all other tags are treated as block level and
+replaced with whitespace. For example, 'te&lt;B&gt;st&lt;/B&gt;'
+text will be indexed as a single keyword 'test', however,
+'te&lt;P&gt;st&lt;/P&gt;' will be indexed as two keywords
+'te' and 'st'. Known inline tags are as follows: A, B, I, S, U, BASEFONT,
+BIG, EM, FONT, IMG, LABEL, SMALL, SPAN, STRIKE, STRONG, SUB, SUP, TT.
+</para>
+<para>
+HTML entities get decoded and replaced with corresponding UTF-8
+characters. Stripper supports both numeric forms (such as &amp;#239;)
+and text forms (such as &amp;oacute; or &amp;nbsp;). All entities
+as specified by HTML4 standard are supported.
 </para>
 <para>
 Stripping does not work with <option>xmlpipe</option> source type
@@ -7633,10 +9136,20 @@ Blended characters are indexed both as separators and valid characters.
 For instance, assume that &amp; is configured as blended and AT&amp;T
 occurs in an indexed document. Three different keywords will get indexed,
 namely "at&amp;t", treating blended characters as valid, plus "at" and "t",
-treating them as separators. Note that all these three keywords will be
-assigned the very same position (in a sense blending with each other).
-Thus, querying for either AT&amp;T or just AT will match that document.
-However, querying for "AT T" phrase will not match it.
+treating them as separators.
+</para>
+<para>
+Positions for tokens obtained by replacing blended characters with whitespace
+are assigned as usual, so regular keywords will be indexed just as if there was
+no <option>blend_chars</option> specified at all. An additional token that
+mixes blended and non-blended characters will be put at the starting position.
+For instance, if the field contents are "AT&amp;T company" occurs in the very
+beginning of the text field, "at" will be given position 1, "t" position 2, 
+"company" positin 3, and "AT&amp;T" will also be given position 1 ("blending"
+with the opening regular keyword). Thus, querying for either AT&amp;T or just
+AT will match that document, and querying for "AT T" as a phrase also match it.
+Last but not least, phrase query for "AT&amp;T company" will <emphasis>also</emphasis>
+match it, despite the position
 </para>
 <para>
 Blended characters can overlap with special characters used in query
@@ -7645,11 +9158,90 @@ automatically handle blended character as blended. For instance, "hello @twitter
 within quotes (a phrase operator) would handle @-sign as blended, because
 @-syntax for field operator is not allowed within phrases. Otherwise,
 the character would be handled as an operator. So you might want to
-escape the query terms.
+escape the keywords.
+</para>
+<para>
+Starting with version 2.0.1-beta, blended characters can be remapped,
+so that multiple different blended characters could be normalized into
+just one base form. This is useful when indexing multiple alternative
+Unicode codepoints with equivalent glyphs.
 </para>
 <bridgehead>Example:</bridgehead>
 <programlisting>
 blend_chars = +, &amp;, U+23
+blend_chars = +, &amp;->+ # 2.0.1 and above
+</programlisting>
+</sect2>
+
+
+<sect2 id="conf-blend-mode"><title>blend_mode</title>
+<para>
+Blended tokens indexing mode.
+Optional, default is <option>trim_none</option>.
+Introduced in version 2.0.1-beta.
+</para>
+<para>
+By default, tokens that mix blended and non-blended characters
+get indexed in there entirety. For instance, when both at-sign and
+an exclamation are in <option>blend_chars</option>, "@dude!" will get
+result in two tokens indexed: "@dude!" (with all the blended characters)
+and "dude" (without any). Therefore "@dude" query will <emphasis>not</emphasis>
+match it.
+</para>
+<para>
+<option>blend_mode</option> directive adds flexibility to this indexing
+behavior. It takes a comma-separated list of options.
+<programlisting>
+blend_mode = option [, option [, ...]]
+option = trim_none | trim_head | trim_tail | trim_both | skip_pure
+</programlisting>
+</para>
+<para>
+Options specify token indexing variants. If multiple options are
+specified, multiple variants of the same token will be indexed.
+Regular keywords (resulting from that token by replacing blended
+with whitespace) are always be indexed.
+<variablelist>
+<varlistentry>
+	<term>trim_none</term>
+	<listitem>Index the entire token.</listitem>
+</varlistentry>
+<varlistentry>
+	<term>trim_head</term>
+	<listitem>Trim heading blended characters, and index the resulting token.</listitem>
+</varlistentry>
+<varlistentry>
+	<term>trim_tail</term>
+	<listitem>Trim trailing blended characters, and index the resulting token.</listitem>
+</varlistentry>
+<varlistentry>
+	<term>trim_both</term>
+	<listitem>Trim both heading and trailing blended characters, and index the resulting token.</listitem>
+</varlistentry>
+<varlistentry>
+	<term>skip_pure</term>
+	<listitem>Do not index the token if it's purely blended, that is, consists of blended characters only.</listitem>
+</varlistentry>
+</variablelist>
+Returning to the "@dude!" example above, setting <option>blend_mode = trim_head,
+trim_tail</option> will result in two tokens being indexed, "@dude" and "dude!".
+In this particular example, <option>trim_both</option> would have no effect,
+because trimming both blended characters results in "dude" which is already
+indexed as a regular keyword. Indexing "@U.S.A." with <option>trim_both</option>
+(and assuming that dot is blended two) would result in "U.S.A" being indexed.
+Last but not least, <option>skip_pure</option> enables you to fully ignore
+sequences of blended characters only. For example, "one @@@ two" would be
+indexed exactly as "one two", and match that as a phrase. That is not the case
+by default because a fully blended token gets indexed and offsets the second
+keyword position.
+</para>
+<para>
+Default behavior is to index the entire token, equivalent to
+<option>blend_mode = trim_none</option>.
+</para>
+<bridgehead>Example:</bridgehead>
+<programlisting>
+blend_mode = trim_tail, skip_pure
 </programlisting>
 </sect2>
 
@@ -8031,6 +9623,28 @@ query_log = /var/log/query.log
 </sect2>
 
 
+<sect2 id="conf-query-log-format"><title>query_log_format</title>
+<para>
+Query log format.
+Optional, allowed values are 'plain' and 'sphinxql', default is 'plain'.
+Introduced in version 2.0.1-beta.
+</para>
+<para>
+Starting with version 2.0.1-beta, two different log formats are supported.
+The default one logs queries in a custom text format. The new one logs
+valid SphinxQL statements. This directive allows to switch between the two
+formats on search daemon startup. The log format can also be altered
+on the fly, using <code>SET GLOBAL query_log_format=sphinxql</code> syntax.
+Refer to <xref linkend="query-log-format"/> for more discussion and format
+details.
+</para>
+<bridgehead>Example:</bridgehead>
+<programlisting>
+query_log_format = sphinxql
+</programlisting>
+</sect2>
+
+
 <sect2 id="conf-read-timeout"><title>read_timeout</title>
 <para>
 Network client request read timeout, in seconds.
@@ -8194,9 +9808,26 @@ seamless_rotate = 1
 <sect2 id="conf-preopen-indexes"><title>preopen_indexes</title>
 <para>
 Whether to forcibly preopen all indexes on startup.
-Optional, default is 0 (do not preopen).
-Enforces enabled <link linkend="conf-preopen">preopen</link> on all served indexes,
-to avoid manually specifying it in every index.
+Optional, default is 1 (preopen everything).
+</para>
+<para>
+Starting with 2.0.1-beta, the default value for this
+option is now 1 (foribly preopen all indexes). In prior
+versions, it used to be 0 (use per-index settings).
+</para>
+<para>
+When set to 1, this directive overrides and enforces
+<link linkend="conf-preopen">preopen</link> on all indexes.
+They will be preopened, no matter what is the per-index
+<code>preopen</code> setting. When set to 0, per-index
+settings can take effect. (And they default to 0.)
+</para>
+<para>
+Pre-opened indexes avoid races between search queries
+and rotations that can cause queries to fail occasionally.
+They also make <filename>searchd</filename> use more file
+handles. In most scenarios it's therefore preferred and
+recommended to preopen indexes.
 </para>
 <bridgehead>Example:</bridgehead>
 <programlisting>
@@ -8300,21 +9931,11 @@ mva_updates_pool = 16M
 
 <sect2 id="conf-crash-log-path"><title>crash_log_path</title>
 <para>
-Path (formally prefix) for the crash log files.
-Optional, default is empty (do not create crash logs).
-Introduced in version 0.9.9-rc1.
+Deprecated debugging setting, path (formally prefix) for crash log files.
+Introduced in version 0.9.9-rc1. Deprecated in version 2.0.1-beta,
+as crash debugging information now gets logged into searchd.log
+in text form, and separate binary crash logs are no longer needed.
 </para>
-<para>
-This is a debugging setting, to help catch rare offending queries
-causing crashes without otherwise affecting production instances.
-When enabled, <filename>searchd</filename> will intercept crash signals
-such as SIGSEGV, and dump offending query packets to files named
-"crash_log_path.PID", where PID is crashed process ID.
-</para>
-<bridgehead>Example:</bridgehead>
-<programlisting>
-crash_log_path = /home/sphinx/log/crashlog
-</programlisting>
 </sect2>
 
 
@@ -8519,8 +10140,8 @@ workers = threads
 
 <sect2 id="conf-dist-threads"><title>dist_threads</title>
 <para>
-Max local search threads to use when searching a distributed index.
-Optional, default is 0, which means to disable multi-threaded distributed searching.
+Max local worker threads to use for parallelizable requests (searching a distributed index; building a batch of snippets).
+Optional, default is 0, which means to disable in-request parallelism.
 Introduced in version 1.10-beta.
 </para>
 <para>
@@ -8546,6 +10167,13 @@ utilizes even when there are threads that wait for I/O completion).
 <para>
 Note that <option>dist_threads</option> does <b>not</b> require
 threads MPM. You can perfectly use it with fork or prefork MPMs too.
+</para>
+<para>
+Starting with version 2.0.1-beta, building a batch of snippets
+with <option>load_files</option> flag enabled can also be parallelized.
+Up to <option>dist_threads</option> threads are be created to process
+those files. That speeds up snippet extraction when the total amount
+of document data to process is significant (hundreds of megabytes).
 </para>
 <bridgehead>Example:</bridgehead>
 <programlisting>
@@ -8652,6 +10280,210 @@ binlog_max_log_size = 16M
 </sect2>
 
 
+<sect2 id="conf-collation-server"><title>collation_server</title>
+<para>
+Default server collation.
+Optional, default is libc_ci.
+Introduced in version 2.0.1-beta.
+</para>
+<para>
+Specifies the default collation used for incoming requests. 
+The collation can be overridden on a per-query basis.
+Refer to <xref linkend="collations"/> section for the list of available collations and other details.
+</para>
+<bridgehead>Example:</bridgehead>
+<programlisting>
+collation_server = utf8_ci
+</programlisting>
+</sect2>
+
+
+<sect2 id="conf-collation-libc-locale"><title>collation_libc_locale</title>
+<para>
+Server libc locale.
+Optional, default is C.
+Introduced in version 2.0.1-beta.
+</para>
+<para>
+Specifies the libc locale, affecting the libc-based collations.
+Refer to <xref linkend="collations"/> section for the details.
+</para>
+<bridgehead>Example:</bridgehead>
+<programlisting>
+collation_libc_locale = fr_FR
+</programlisting>
+</sect2>
+
+
+<sect2 id="conf-plugin-dir"><title>plugin_dir</title>
+<para>
+Trusted location for the dynamic libraries (UDFs).
+Optional, default is empty (no location).
+Introduced in version 2.0.1-beta.
+</para>
+<para>
+Specifies the trusted directory from which the
+<link linkend="udf">UDF libraries</link> can be loaded. Requires
+<link linkend="conf-workers">workers = thread</link> to take effect.
+</para>
+<bridgehead>Example:</bridgehead>
+<programlisting>
+workers = threads
+plugin_dir = /usr/local/sphinx/lib
+</programlisting>
+</sect2>
+
+
+<sect2 id="conf-mysql-version-string"><title>mysql_version_string</title>
+<para>
+A server version string to return via MySQL protocol.
+Optional, default is empty (return Sphinx version).
+Introduced in version 2.0.1-beta.
+</para>
+<para>
+Several picky MySQL client libraries depend on a particular version
+number format used by MySQL, and moreover, sometimes choose a different
+execution path based on the reported version number (rather than the
+indicated capabilities flags). For instance, Python MySQLdb 1.2.2 throws
+an exception when the version number is not in X.Y.ZZ format; MySQL .NET
+connector 6.3.x fails internally on version numbers 1.x along with
+a certain combination of flags, etc. To workaround that, you can use
+<option>mysql_version_string</option> directive and have <filename>searchd</filename>
+report a different version to clients connecting over MySQL protocol.
+(By default, it reports its own version.)
+</para>
+<bridgehead>Example:</bridgehead>
+<programlisting>
+mysql_version_string = 5.0.37
+</programlisting>
+</sect2>
+
+
+<sect2 id="conf-rt-flush-period"><title>rt_flush_period</title>
+<para>
+RT indexes RAM chunk flush check period, in seconds.
+Optional, default is 0 (do not flush).
+Introduced in version 2.0.1-beta.
+</para>
+<para>
+Actively updated RT indexes that however fully fit in RAM chunks
+can result in ever-growing binlogs, impacting disk use and crash
+recovery time. With this directive the search daemon performs
+periodic flush checks, and eligible RAM chunks can get saved,
+enabling consequential binlog cleanup. See <xref linkend="rt-binlog"/>
+for more details.
+</para>
+<bridgehead>Example:</bridgehead>
+<programlisting>
+rt_flush_period = 3600
+</programlisting>
+</sect2>
+
+
+<sect2 id="conf-thread-stack"><title>thread_stack</title>
+<para>
+Per-thread stack size.
+Optional, default is 64K.
+Introduced in version 2.0.1-beta.
+</para>
+<para>
+In the <code>workers = threads</code> mode, every request is processed
+with a separate thread that needs its own stack space. By default, 64K per
+thread are allocated for stack. However, extremely complex search requests
+might eventually exhaust the default stack and require more. For instance,
+a query that matches a few thousand keywords (either directly or through
+term expansion) can eventually run out of stack. Previously, that resulted
+in crashes. Starting with 2.0.1-beta, <filename>searchd</filename> attempts
+to estimate the expected stack use, and blocks the potentially dangerous
+queries. To process such queries, you can either the thread stack size
+by using the <code>thread_stack</code> directive (or switch to a different
+<code>workers</code> setting if that is possible).
+</para>
+<para>
+A query with N levels of nesting is estimated to require approximately
+30+0.12*N KB of stack, meaning that the default 64K is enough for queries
+with upto 300 levels, 150K for upto 1000 levels, etc. If the stack size limit
+is not met, <filename>searchd</filename> fails the query and reports
+the required stack size in the error message.
+</para>
+<bridgehead>Example:</bridgehead>
+<programlisting>
+thread_stack = 256K
+</programlisting>
+</sect2>
+
+
+<sect2 id="conf-expansion-limit"><title>expansion_limit</title>
+<para>
+The maximum number of expanded keywords for a single wildcard.
+Optional, default is 0 (no limit).
+Introduced in version 2.0.1-beta.
+</para>
+<para>
+When doing substring searches against indexes built with
+<code>dict = keywords</code> enabled, a single wildcard may
+potentially result in thousands and even millions of matched
+keywords (think of matching 'a*' against the entire Oxford
+dictionary). This directive lets you limit the impact
+of such expansions. Setting <code>expansion_limit = N</code>
+restricts expansions to no more than N of the most frequent
+matching keywords (per each wildcard in the query).
+</para>
+<bridgehead>Example:</bridgehead>
+<programlisting>
+expansion_limit = 16
+</programlisting>
+</sect2>
+
+
+<sect2 id="conf-compat-sphinxql-magics"><title>compat_sphinxql_magics</title>
+<para>
+Legacy SphinxQL quirks compatiblity mode.
+Optional, default is 1 (keep compatibility).
+Introduced in version 2.0.1-beta.
+</para>
+<para>
+Starting with version 2.0.1-beta, we're bringing SphinxQL in closer
+compliance with standard SQL. However, existing applications must not
+get broken, and <code>compat_sphinxql_magics</code> lets you upgrade
+safely. It defauls to 1, which enables the compatibility mode.
+However, <b>SphinxQL compatibility mode is now deprecated and
+will be removed</b> once we complete bringing SphinxQL in line
+with standard SQL syntax. So it's advised to update the applications
+utilising SphinxQL and then switch the daemon to the new, more SQL
+compliant mode by setting <code>compat_sphinxql_magics = 0</code>.
+Please refer to <xref linkend="sphinxql-upgrading-magics"/>
+for the details and update instruction.
+</para>
+<bridgehead>Example:</bridgehead>
+<programlisting>
+compat_sphinxql_magics = 0 # the future is now
+</programlisting>
+</sect2>
+
+
+<sect2 id="conf-watchdog"><title>watchdog</title>
+<para>
+Threaded server watchdog.
+Optional, default is 1 (watchdog enabled).
+Introduced in version 2.0.1-beta.
+</para>
+<para>
+A crashed query in <code>threads</code> multi-processing mode
+(<code><link linkend="conf-workers">workers</link> = threads</code>)
+can take down the entire server. With watchdog feature enabled,
+<filename>searchd</filename> additionally keeps a separate lightweight
+process that monitors the main server process, and automatically
+restarts the latter in case of abnormal termination. Watchdog
+is enabled by default.
+</para>
+<bridgehead>Example:</bridgehead>
+<programlisting>
+watchdog = 0 # disable watchdog
+</programlisting>
+</sect2>
+
+
 </sect1>
 
 
@@ -8676,6 +10508,150 @@ binlog_max_log_size = 16M
 -->
 
 <appendix id="changelog"><title>Sphinx revision history</title>
+
+<sect1 id="rel111"><title>Version 2.0.1-beta, 22 apr 2011</title>
+<bridgehead>New general features</bridgehead>
+<itemizedlist>
+<listitem>added remapping support to <link linkend="conf-blend-chars">blend_chars</link> directive</listitem>
+<listitem>added multi-threaded snippet batches support (requires a batch sent via API, <link linkend="conf-dist-threads">dist_threads</link>, and <code>load_files</code>)</listitem>
+<listitem>added collations (<link linkend="conf-collation-server">collation_server</link>, <link linkend="conf-collation-libc-locale">collation_libc_locale directives</link>)</listitem>
+<listitem>added support for sorting and grouping on string attributes (<code>ORDER BY</code>, <code>GROUP BY</code>, <code>WITHING GROUP ORDER BY</code>)</listitem>
+<listitem>added UDF support (<link linkend="conf-plugin-dir">plugin_dir</link> directive; <link linkend="sphinxql-create-function">CREATE FUNCTION</link>, <link linkend="sphinxql-drop-function">DROP FUNCTION</link> statements)</listitem>
+<listitem>added <link linkend="conf-query-log-format">query_log_format</link> directive, <link linkend="sphinxql-set">SET GLOBAL query_log_format | log_level = ...</link> statements; and connection id tracking</listitem>
+<listitem>added <link linkend="conf-sql-column-buffers">sql_column_buffers</link> directive, fixed out-of-buffer column handling in ODBC/MS SQL sources</listitem>
+<listitem>added <link linkend="conf-blend-mode">blend_mode</link> directive that enables indexing multiple variants of a blended sequence</listitem>
+<listitem>added UNIX socket support to C, Ruby APIs</listitem>
+<listitem>added ranged query support to <link linkend="conf-sql-joined-field">sql_joined_field</link></listitem>
+<listitem>added <link linkend="conf-rt-flush-period">rt_flush_period</link> directive</listitem>
+<listitem>added <link linkend="conf-thread-stack">thread_stack</link> directive</listitem>
+<listitem>added SENTENCE, PARAGRAPH, ZONE operators (and <link linkend="conf-index-sp">index_sp</link>, <link linkend="conf-index-zones">index_zones</link> directives)</listitem>
+<listitem>added keywords dictionary support (and <link linkend="conf-dict">dict</link>, <link linkend="conf-expansion-limit">expansion_limit</link> directives)</listitem>
+<listitem>added <code>passage_boundary</code>, <code>emit_zones</code> options to snippets</listitem>
+<listitem>added <link linkend="conf-watchdog">a watchdog process</link> in threaded mode</listitem>
+<listitem>added persistent MVA updates</listitem>
+<listitem>added crash dumps to <filename>searchd.log</filename>, deprecated <code>crash_log_path</code> directive</listitem>
+<listitem>added id32 index support in id64 binaries (EXPERIMENTAL)</listitem>
+<listitem>added SphinxSE support for DELETE and REPLACE on SphinxQL tables</listitem>
+</itemizedlist>
+<bridgehead>New SphinxQL features</bridgehead>
+<itemizedlist>
+<listitem>added new, more SQL compliant SphinxQL syntax; and a <link linkend="conf-compat-sphinxql-magics">compat_sphinxql_magics</link> directive</listitem>
+<listitem>added <link linkend="expr-func-crc32">CRC32()</link>, <link linkend="expr-func-day">DAY()</link>, <link linkend="expr-func-month">MONTH()</link>, <link linkend="expr-func-year">YEAR()</link>, <link linkend="expr-func-yearmonth">YEARMONTH()</link>, <link linkend="expr-func-yearmonthday">YEARMONTHDAY()</link> functions</listitem>
+<listitem>added <link linkend="expr-ari-ops">DIV, MOD, and % operators</link></listitem>
+<listitem>added <link linkend="sphinxql-select">reverse_scan=(0|1)</link> option to SELECT</listitem>
+<listitem>added support for MySQL packets over 16M</listitem>
+<listitem>added dummy SHOW VARIABLES, SHOW COLLATION, and SET character_set_results support (to support handshake with certain client libraries and frameworks)</listitem>
+<listitem>added <link linkend="conf-mysql-version-string">mysql_version_string</link> directive (to workaround picky MySQL client libraries)</listitem>
+<listitem>added support for global filter variables, <link linkend="sphinxql-set">SET GLOBAL @uservar=(int_list)</link> </listitem>
+<listitem>added <link linkend="sphinxql-delete">DELETE ... IN (id_list)</link> syntax support</listitem>
+<listitem>added C-style comments syntax (for example, <code>SELECT /*!40000 some comment*/ id FROM test</code>)</listitem>
+<listitem>added <link linkend="sphinxql-update">UPDATE ... WHERE id=X</link> syntax support</listitem>
+<listitem>added <link linkend="sphinxql-multi-queries">SphinxQL multi-query support</link></listitem>
+<listitem>added <link linkend="sphinxql-describe">DESCRIBE</link>, <link linkend="sphinxql-show-tables">SHOW TABLES</link> statements</listitem>
+</itemizedlist>
+<bridgehead>New command-line switches</bridgehead>
+<itemizedlist>
+<listitem>added <code>--print-queries</code> switch to <filename>indexer</filename> that dumps SQL queries it runs</listitem>
+<listitem>added <code>--sighup-each </code> switch to <filename>indexer</filename> that rotates indexes one by one</listitem>
+<listitem>added <code>--strip-path</code> switch to <filename>searchd</filename> that skips file paths embedded in the index(-es)</listitem>
+<listitem>added <code>--dumpconfig</code> switch to <filename>indextool</filename> that dumps an index header in <filename>sphinx.conf</filename> format</listitem>
+</itemizedlist>
+<bridgehead>Major changes and optimizations</bridgehead>
+<itemizedlist>
+<listitem>changed default preopen_indexes value to 1</listitem>
+<listitem>optimized English stemmer (results in 1.3x faster snippets and indexing with morphology=stem_en)</listitem>
+<listitem>optimized snippets, 1.6x general speedup</listitem>
+<listitem>optimized const-list parsing in SphinxQL</listitem>
+<listitem>optimized full-document highlighting CPU/RAM use</listitem>
+<listitem>optimized binlog replay (improved performance on K-list update)</listitem>
+</itemizedlist>
+<bridgehead>Bug fixes</bridgehead>
+<itemizedlist>
+<listitem>fixed #767, joined fields vs ODBC sources</listitem>
+<listitem>fixed #757, wordforms shared by indexes with different settings</listitem>
+<listitem>fixed #733, loading of indexes in formats prior to v.14</listitem>
+<listitem>fixed #763, occasional snippets failures</listitem>
+<listitem>fixed #648, occasionally missed rotations on multiple SIGHUPs</listitem>
+<listitem>fixed #750, an RT segment merge leading to false positives and/or crashes in some cases</listitem>
+<listitem>fixed #755, zones in snippets output</listitem>
+<listitem>fixed #754, stopwords counting at snippet passage generation</listitem>
+<listitem>fixed #723, fork/prefork index rotation in children processes</listitem>
+<listitem>fixed #696, freeze on zero threshold in quorum operator</listitem>
+<listitem>fixed #732, query escaping in SphinxSE</listitem>
+<listitem>fixed #739, occasional crashes in MT mode on result set send</listitem>
+<listitem>fixed #746, crash with a named list in SphinxQL option</listitem>
+<listitem>fixed #674, AVG vs group order</listitem>
+<listitem>fixed #734, occasional crashes attempting to report NULL errors</listitem>
+<listitem>fixed #829, tail hits within field position modifier</listitem>
+<listitem>fixed #712, missing query_mode, force_all_words snippet option defaults in Java API</listitem>
+<listitem>fixed #721, added dupe removal on RT batch INSERT/REPLACE</listitem>
+<listitem>fixed #720, potential extraneous highlighting after a blended keyword</listitem>
+<listitem>fixed #702, exceptions vs star search</listitem>
+<listitem>fixed #666, ext2 query grouping vs exceptions</listitem>
+<listitem>fixed #688, WITHIN GROUP ORDER BY related crash</listitem>
+<listitem>fixed #660, multi-queue batches vs dist_threads</listitem>
+<listitem>fixed #678, crash on dict=keywords vs xmlpipe vs min_prefix_len</listitem>
+<listitem>fixed #596, ECHILD vs scripted configs</listitem>
+<listitem>fixed #653, dependency in expression, sorting, grouping</listitem>
+<listitem>fixed #661, concurrent distributed searches vs workers=threads</listitem>
+<listitem>fixed #646, crash on status query via UNIX socket</listitem>
+<listitem>fixed #589, libexpat.dll missing from some Win32 build types</listitem>
+<listitem>fixed #574, quorum match order</listitem>
+<listitem>fixed multiple documentation issues (#372, #483, #495, #601, #623, #632, #654)</listitem>
+<listitem>fixed that ondisk_dict did not affect RT indexes</listitem>
+<listitem>fixed that string attributes check in indextool --check was erroneously sensitive to string data order</listitem>
+<listitem>fixed a rare crash when using BEFORE operator</listitem>
+<listitem>fixed an issue with multiforms vs BuildKeywords()</listitem>
+<listitem>fixed an edge case in OR operator (emitted wrong hits order sometimes)</listitem>
+<listitem>fixed aliasing in docinfo accessors that lead to very rare crashes and/or missing results</listitem>
+<listitem>fixed a syntax error on a short token at the end of a query</listitem>
+<listitem>fixed id64 filtering and performance degradation with range filters</listitem>
+<listitem>fixed missing rankers in libsphinxclient</listitem>
+<listitem>fixed missing SPH04 ranker in SphinxSE</listitem>
+<listitem>fixed column names in sql_attr_multi sample (works with example.sql now)</listitem>
+<listitem>fixed an issue with distributed local+remote setup vs aggregate functions</listitem>
+<listitem>fixed case sensitive columns names in RT indexes</listitem>
+<listitem>fixed a crash vs strings from multiple indexes in result set</listitem>
+<listitem>fixed blended keywords vs snippets</listitem>
+<listitem>fixed secure_connection vs MySQL protocol vs MySQL.NET connector</listitem>
+<listitem>fixed that Python API did not works with Python 2.3</listitem>
+<listitem>fixed overshort_step vs snippets</listitem>
+<listitem>fixed keyword staistics vs dist_threads searching</listitem>
+<listitem>fixed multiforms vs query parsing (vs quorum)</listitem>
+<listitem>fixed missed quorum words vs RT segments</listitem>
+<listitem>fixed blended keywords occasionally skipping extra character when querying (eg "abc[]")</listitem>
+<listitem>fixed Python API to handle int32 values</listitem>
+<listitem>fixed prefix and infix indexing of joined fields</listitem>
+<listitem>fixed MVA ranged query</listitem>
+<listitem>fixed missing blended state reset on document boundary</listitem>
+<listitem>fixed a crash on missing index while replaying binlog</listitem>
+<listitem>fixed an error message on filter values overrun</listitem>
+<listitem>fixed passage duplication in snippets in weight_order mode</listitem>
+<listitem>fixed select clauses over 1K vs remote agents</listitem>
+<listitem>fixed overshort accounting vs soft-whitespace tokens</listitem>
+<listitem>fixed rotation vs workers=threads</listitem>
+<listitem>fixed schema issues vs distributed indexes</listitem>
+<listitem>fixed blended-escaped sequence parsing issue</listitem>
+<listitem>fixed MySQL IN clause (values order etc)</listitem>
+<listitem>fixed that post_index did not execute when 0 documents were succesfully indexed</listitem>
+<listitem>fixed field position limit vs many hits</listitem>
+<listitem>fixed that joined fields missed an end marker at field end</listitem>
+<listitem>fixed that xxx_step settings were missing from .sph index header</listitem>
+<listitem>fixed libsphinxclient missing request cleanup in sphinx_query() (eg after network errors)</listitem>
+<listitem>fixed that index_weights were ignored when grouping</listitem>
+<listitem>fixed multi wordforms vs blend_chars</listitem>
+<listitem>fixed broken MVA output in SphinxQL</listitem>
+<listitem>fixed a few RT leaks</listitem>
+<listitem>fixed an issue with RT string storage going missing</listitem>
+<listitem>fixed an issue with repeated queries vs dist_threads</listitem>
+<listitem>fixed an issue with string attributes vs buffer overrun in SphinxQL</listitem>
+<listitem>fixed unexpected character data warnings within ignored xmlpipe tags</listitem>
+<listitem>fixed a crash in snippets with NEAR syntax query</listitem>
+<listitem>fixed passage duplication in snippets</listitem>
+<listitem>fixed libsphinxclient SIGPIPE handling</listitem>
+<listitem>fixed libsphinxclient vs VS2003 compiler bug</listitem>
+</itemizedlist>
+</sect1>
 
 <sect1 id="rel110"><title>Version 1.10-beta, 19 jul 2010</title>
 <itemizedlist>

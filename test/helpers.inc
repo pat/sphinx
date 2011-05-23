@@ -1,7 +1,7 @@
 <?php
 
 //
-// $Id: helpers.inc 2404 2010-07-18 14:56:56Z klirichek $
+// $Id: helpers.inc 2765 2011-04-08 13:07:32Z klirichek $
 //
 
 ini_set ( "display_errors", 1 );
@@ -31,6 +31,11 @@ function sphFormatTime ( $time )
 	return sprintf ( '%d%s:%d%s', $time / 60, $u[0], $time % 60, $u[1] );
 }
 
+function mysql_wr ($q, $conn)
+{
+//	printf ( "$q\n");
+	return @mysql_query ( $q, $conn );
+}
 
 function ConnectDB ()
 {
@@ -49,7 +54,7 @@ function ConnectDB ()
 		true );
 
 	if ( $conn === false ||
-		!@mysql_query ( "CREATE DATABASE IF NOT EXISTS " . $g_locals['db-name'], $conn ) ||
+		!mysql_wr ( "CREATE DATABASE IF NOT EXISTS " . $g_locals['db-name'], $conn ) ||
 		!@mysql_select_db ( $g_locals['db-name'], $conn ) )
 			return false;
 
@@ -57,26 +62,43 @@ function ConnectDB ()
 }
 
 
-function CreateDB ( $db_drop, $db_create, $db_insert, $custom_insert )
+function CreateDB ( $db_drop, $db_create, $db_insert, $custom_insert, $skip )
 {
 	$conn = ConnectDB ();
 
-	foreach ( $db_drop as $q )
-		if ( !@mysql_query ( $q, $conn ) )
-			return false;
-
-	foreach ( $db_create as $q )
-		if ( !@mysql_query ( $q, $conn ) )
-			return false;
-
-	foreach ( $db_insert as $q )
-		if ( !@mysql_query ( $q, $conn ) )
-			return false;
-
-	foreach ( $custom_insert as $code )
+	if (!$skip)
 	{
-		$function = create_function( '', $code );
-		$function();
+		foreach ( $db_drop as $q )
+			if ( !mysql_wr ( $q, $conn ) )
+				return false;
+
+		foreach ( $db_create as $q )
+		{
+			if ( stripos ( $q, "create table")!==false )
+			{
+				if ( stripos ( $q, "engine=")===false )
+				{
+					$q = trim ( $q, " \t\n\r;" );
+					$q .= " ENGINE=MEMORY";
+				}
+			}
+                        if ( !mysql_wr ( $q, $conn ) )
+				return false;
+		}
+
+		$oneok = count($db_insert)==0;
+		foreach ( $db_insert as $q )
+			if ( mysql_wr ( $q, $conn ) )
+				$oneok = true;
+
+		if ( !$oneok )
+			return false;
+
+		foreach ( $custom_insert as $code )
+		{
+			$function = create_function( '', $code );
+			$function();
+		}
 	}
 
 	return $conn;
@@ -125,7 +147,7 @@ function CheckSearchdLog ( $error_file, &$retval )
 }
 
 
-function StartSearchd ( $config_file, $error_file, $pidfile, &$error )
+function StartSearchd ( $config_file, $error_file, $pidfile, &$error, $use_watchdog = false )
 {
 	global $g_locals, $windows, $action_retries, $action_wait_timeout;
 
@@ -142,6 +164,10 @@ function StartSearchd ( $config_file, $error_file, $pidfile, &$error )
 		return 1;
 	}
 
+	$test_mode = '--test';
+	if ( $use_watchdog )
+		$test_mode = '';
+		
 	$retval = 0;
 	if ( $windows )
 	{
@@ -149,11 +175,11 @@ function StartSearchd ( $config_file, $error_file, $pidfile, &$error )
 		// using cmd /c for redirection to work
 		if ( file_exists ( $pidfile ) )
 			unlink ( $pidfile );
-		$process = popen ("start /min cmd /c \"$path --config $config_file --pidfile > $error_file\"", "r" );
+		$process = popen ("start /min cmd /c \"$path --config $config_file --pidfile --console $test_mode > $error_file\"", "r" );
 		pclose ( $process );
 	}
 	else
-		system ( "$path --config $config_file > $error_file", $retval );
+		system ( "$path --config $config_file $test_mode > $error_file", $retval );
 
 	// wait until pid appears
 	for ( $i=0; $i<$action_retries && !file_exists($pidfile); $i++ )
@@ -166,7 +192,7 @@ function StartSearchd ( $config_file, $error_file, $pidfile, &$error )
 	}
 
 	// check for early crash
-	$error = CheckSearchdLog ( $error_file, &$retval );
+	$error = CheckSearchdLog ( $error_file, $retval );
 
 	// on windows, searchd starts *fully* async
 	// so lets also wait until pidfile gets real data
@@ -215,6 +241,42 @@ function StopSearchd ( $config, $pidfile )
 	}
 }
 
+function StopWaitSearchd ( $config, $pidfile )
+{
+	global $g_locals, $action_retries, $action_wait_timeout;
+	$ret = 0;
+
+	if ( file_exists($pidfile) && count(file($pidfile)) )
+	{
+		$path = $g_locals['searchd'];
+		$dummy = array();
+		exec ( "$path --config $config --stopwait", $dummy, $ret );
+	}
+	return $ret;
+}
+
+function KillSearchd ( $config, $pidfile, $signal, $unlinkpid=True )
+{
+	global $windows, $action_wait_timeout;
+	
+	if ( file_exists($pidfile) && count(file($pidfile)) )
+	{
+		if ( !$windows )
+		{
+			$fp = fopen($pidfile,"r");
+			$pid = fread ( $fp, filesize ( $pidfile ) );
+			fclose ($fp);
+
+			exec ("kill -s $signal $pid");
+			if ( $unlinkpid && file_exists ( $pidfile ) )
+			{
+			    usleep ( $action_wait_timeout );
+			    unlink ( $pidfile );
+			}
+		} else
+			StopSearchd ($config, $pidfile);
+	}
+}
 
 function IsModelGenMode ()
 {
@@ -282,11 +344,11 @@ class SphinxConfig
 	private $_connection;			///< mysql connection (since we cound use mysql ans sqphinxql together)
 	private $_testdir;				///< the path to the directory with current test (namely for accessing data without knowing the test name)
 
-
-	function SetConnection($connection)
+	function SetConnection ( $connection )
 	{
 		$this->_connection = $connection;
 	}
+
 	function SphinxConfig ()
 	{
 		global $sd_address, $sd_port, $sd_sphinxql_port, $sd_pid_file;
@@ -625,6 +687,7 @@ class SphinxConfig
 				$res["expect_error"] = $q->getAttribute("expect_error");
 				$res["tag"] = $q->getAttribute("tag");
 				$res["cutoff"] = $q->getAttribute("cutoff");
+				$res["limits"] = $q->getAttribute("limits");
 
 				// add query
 				if ( $q->getAttribute("source") )
@@ -725,7 +788,6 @@ class SphinxConfig
 	function RunQuerySphinxQL ( &$error, $bench=false )
 	{
 		global $sd_address, $sd_sphinxql_port, $action_retries, $action_wait_timeout;
-		$query_results = array ();
 		$total = $done = 0;
 		if ($sd_address == "localhost")
 			$connect_string = "127.0.0.1:$sd_sphinxql_port";
@@ -748,7 +810,7 @@ class SphinxConfig
 			$query_result = array ();
 				
 			$query_result["sphinxql"]=$query;
-			$result = @mysql_query ($query,$connection);
+			$result = mysql_wr ($query,$connection);
 			if ($result===true)
 				$query_result["total_affected"] = mysql_affected_rows($connection);
 			else if ($result===false)
@@ -762,13 +824,12 @@ class SphinxConfig
 					$query_result["rows"][] = $row;
 				mysql_free_result($result);
 			}
-			$query_results[] = $query_result;
+			$this->_results[] = $query_result;
+			if ( IsModelGenMode () )
+			{
+				$this->_results_model[$this->SubtestNo ()][] = $query_result;
+			}
 		}
-		$this->_results = $query_results;
-
-		if ( IsModelGenMode () )
-			array_push ( $this->_results_model, $query_results );
-
 		mysql_close ( $connection );
 		return true;
 	}
@@ -845,7 +906,8 @@ class SphinxConfig
 						if ( @$qinfo["id_range"] )	$cl->SetIDRange ( $qinfo["id_range"]["min"], $qinfo["id_range"]["max"] );
 						if ( @$qinfo["index"] )		$my_index = $qinfo["index"];
 						if ( @$qinfo["index_weights"] ) $cl->SetIndexWeights ( $qinfo["index_weights"] );
-						if ( @$qinfo["cutoff"] )	$cl->SetLimits ( 0, 20, 0, $qinfo["cutoff"] );
+						if ( @$qinfo["cutoff"] )		$cl->SetLimits ( 0, 20, 0, $qinfo["cutoff"] );
+						if ( @$qinfo["limits"] )		$cl->SetLimits ( 0, (int)$qinfo["limits"] );
 						if ( @$qinfo["filter"] )
 						{
 							$name = $qinfo["filter"];
@@ -923,7 +985,7 @@ class SphinxConfig
 
 				if ( !$bOk )
 				{
-					$error = $cl->GetLastError ();
+					$error = sprintf ( "query %d/%d: %s", $n+1, count($this->_queries), $cl->GetLastError() );
 					return FALSE;
 				}
 			}
@@ -964,6 +1026,7 @@ class SphinxConfig
 								!@mysql_select_db ( $g_locals['db-name'] ) )
 					return FALSE;
 
+			$GLOBALS["this_test"] = $this->_testdir;
 			$run_func ( $cl, $results );
 
 			@mysql_close();
@@ -1015,16 +1078,16 @@ class SphinxConfig
 		if ( ! IsModelGenMode () )
 		{
 			if ( ! file_exists ( $filename ) )
-				return FALSE;
+				return -1;
 
 			$contents = file_get_contents ( $filename );
 			if ( ! $contents )
-				return FALSE;
+				return 0;
 
 			$this->_results_model = $this->FixKeys ( unserialize ( $contents ) );
 		}
 
-		return TRUE;
+		return 1;
 	}
 
 
@@ -1036,6 +1099,8 @@ class SphinxConfig
 
 	function CompareResultSetFixup ( &$set, $roundoff )
 	{
+		global $g_ignore_weights;
+
 		if ( !is_array($set) )
 			return;
 
@@ -1048,6 +1113,26 @@ class SphinxConfig
 					$set["matches"][$id]["attrs"][$name] );
 		}
 
+		if ( $g_ignore_weights )
+		{
+			if ( isset($set["matches"]) )
+			{
+				if ( @$set["resarray"] )
+				{
+					for ( $i=0; $i<count($set); $i++ )
+						unset ( $set["matches"][$id]["weight"] );
+				} else
+				{
+					foreach ( $set["matches"] as $id=>$match )
+						unset ( $set["matches"][$id]["weight"] );
+				}
+			}
+			if ( @$set["words"] )
+				foreach ( $set["words"] as $word=>$info )
+					$set["words"][$word] = array ( "hits"=>-1, "docs"=>-1 );
+		}
+
+		//foreach ( preg_split ( "/\\W+/", "time warning status fields resarray roundoff words" ) as $key )
 		foreach ( preg_split ( "/\\W+/", "time warning status fields resarray roundoff" ) as $key )
 			unset ( $set[$key] );
 	}
@@ -1139,6 +1224,7 @@ class SphinxConfig
 
 	function FormatResultSet ( $nquery, $result, $opts=array() )
 	{
+		global $sd_skip_indexer;
 		if ( !$this->IsQueryTest () || !is_array($result) )
 			return var_export ( $result, true )."\n";
 
@@ -1235,6 +1321,7 @@ class SphinxConfig
 
 		// check our table for well-known id column names
 		$idcol = "";
+
 		if ( $this->IsNeedDB() )
 			$r = mysql_query ( "DESC test_table", $this->_connection );
 		else
@@ -1494,7 +1581,7 @@ class SphinxConfig
 				// gotta run pre-queries first!
 				foreach ( $sql_query_pre as $q )
 				{
-					if ( @mysql_query ( $q, $conn ) )
+					if ( mysql_wr ( $q, $conn ) )
 						continue;
 
 					$msg = sprintf ( "sql_query_pre failed (query=%s, error=%s)", $q, mysql_error ( $conn ) );
@@ -1503,7 +1590,7 @@ class SphinxConfig
 				}
 
 				// run main query
-				$res = @mysql_query ( $sql_query, $conn );
+				$res = mysql_wr ( $sql_query, $conn );
 				if ( !$res )
 				{
 					$msg = sprintf ( "sql_query failed (query=%s, error=%s)", $sql_query, mysql_error ( $conn ) );
@@ -1705,7 +1792,7 @@ class SphinxConfig
 				
 				if ( ( strlen ($accum) + strlen ($query) ) > 1024000 ) ///<checkit!
 				{
-					$result = @mysql_query ( $prefix.$accum, $cn );
+					$result = mysql_wr ( $prefix.$accum, $cn );
 					if ( $result === false )
 					{
 						$error = mysql_error ( $cn );
@@ -1798,6 +1885,8 @@ class SphinxConfig
 			case "static":				fwrite ( $fp, $node->nodeValue ); return;
 			case "searchd_settings":	$this->WriteSearchdSettings ( $fp ); return;
 			case "sql_settings":		$this->WriteSqlSettings ( $fp, $node->attributes ); return;
+			case "my_address":
+			case "agent0_address":		fwrite ( $fp, $agents[0]["address"].":".$agents[0]["port"] ); return;
 			case "agent_address":
 			case "agent1_address":		fwrite ( $fp, $agents[1]["address"].":".$agents[1]["port"] ); return;
 			case "agent2_address":		fwrite ( $fp, $agents[2]["address"].":".$agents[2]["port"] ); return;
@@ -1904,34 +1993,54 @@ function CheckConfig ( $config, $path )
 	return true;
 }
 
-
-function RunTest ( $test_dir )
+function MarkTest ( $logfile, $test_dir )
 {
-	global $indexer_data_path, $agents, $sd_pid_file, $sd_managed_searchd, $sd_skip_indexer, $g_id64, $windows;
+	$log = fopen ( $logfile, "a" );
+	fwrite ( $log, "*** in test $test_dir ***\n");
+	fclose ( $log );
+}
+
+
+function RunTest ( $test_dir, $skipdemo, $usemarks )
+{
+	global	$indexer_data_path, $agents, $sd_pid_file, $sd_managed_searchd,
+			$sd_skip_indexer, $g_id64, $windows, $g_locals, $sd_log, $sd_query_log;
 
 	$model_file = $test_dir."/model.bin";
 	$conf_dir 	= $test_dir."/Conf";
 
 	$config = new SphinxConfig;
+	$lmodel = $config->LoadModel ( $model_file );
+	$isdemo = false;
+
+	if ( $lmodel==-1 )
+	{
+		if ( $skipdemo )
+		{
+			printf ( "Skipping %s, - this is demo or bugreport (no model.bin file)\n", $test_dir );
+			return array ( "tests_total"=>0, "tests_failed"=>0, "tests_skipped"=>1 );
+		}
+		$isdemo = true;
+	}
+
 	if ( !$config->Load ( $test_dir."/test.xml" ) )
 		return;
 
 	$config->SetTestDir ( $test_dir );
-
 	$prefix = sprintf ( "testing %s, %s...", $test_dir, $config->Name () );
 
 	if ( !CheckConfig ( $config, $test_dir ) )
 		return array ( "tests_total"=>0, "tests_failed"=>0, "tests_skipped"=>1 );
 
-	if ( !$config->LoadModel ( $model_file ) )
+	if ( $lmodel==0 )
 	{
 		printf ( "$prefix FAILED, error loading model\n" );
 		return;
 	}
 
-	if ( $config->IsNeedDB() && !$sd_skip_indexer )
+	if ( $config->IsNeedDB() )
 	{
-		$connection = CreateDB ( $config->DB_Drop(), $config->DB_Create(), $config->DB_Insert(), $config->DB_CustomInsert() );
+		$connection = CreateDB ( $config->DB_Drop(), $config->DB_Create(), $config->DB_Insert(), $config->DB_CustomInsert(), $sd_skip_indexer );
 		if ( $connection === false )
 		{
 			printf ( "$prefix FAILED, error creating test DB: %s\n", mysql_error() );
@@ -1955,11 +2064,32 @@ function RunTest ( $test_dir )
 	// config to pid hash, instances to stop
 	// static is only to workaround PHP braindamage, otherwise $stop gets reset (at least on 5.2.2 under win32)
 	static $stop = array();
+	$oldlog = '';
+	$oldquerylog = '';
+	if ( $isdemo )
+	{
+		$oldlog = $sd_log;
+		$oldquerylog = $sd_query_log;
+		$sd_log				= "$test_dir/searchd.log";
+		$sd_query_log		= "$test_dir/query.log";
+		if (file_exists($sd_log))
+			unlink ($sd_log);
+		if (file_exists($sd_query_log))
+			unlink ($sd_query_log);
+	}
+
+	if ( $usemarks )
+	{
+		MarkTest($sd_log,$test_dir);
+		MarkTest($sd_query_log,$test_dir);
+	}
+
 	do
 	{
 		// stop them all
-		foreach ( $stop as $conf=>$pid )
-			StopSearchd ( $conf, $pid );
+		if ( !$sd_managed_searchd )
+			foreach ( $stop as $conf=>$pid )
+				StopSearchd ( $conf, $pid );
 		$stop = array();
 
 		// do the dew
@@ -1978,35 +2108,35 @@ function RunTest ( $test_dir )
 
 		EraseDirContents ( $indexer_data_path );
 
-		if ( $config->IsSkipIndexer()===false && $sd_skip_indexer===false )
+		if ( $config->IsSkipIndexer()===false && $sd_managed_searchd===false && $sd_skip_indexer===false )
 		{
 			// standard run
 			if ( !$config->IsRt() )
 			{
-				$indexer_ret = RunIndexer ( $error, "--all" );
-				if ( $indexer_ret==1 )
-				{
-					if ( !HandleFailure ( $config, $report, $error, $nfailed ) )
-						$log .= "\tsubtest $subtest: error running indexer; see $report_file\n";
-					continue;
-
-				} else if ( $indexer_ret==2 )
+			$indexer_ret = RunIndexer ( $error, "--all" );
+				if ( $indexer_ret==2 )
 				{
 					fwrite ( $report, "$error\n" );
+				} else if ( $indexer_ret!=0 )
+				{
+					if ( !HandleFailure ( $config, $report, $error, $nfailed ) )
+						$log .= "\tsubtest $subtest: error running indexer with code $indexer_ret; see $report_file\n";
+					continue;
+
 				}
 			}
 
 			// additional optional runs (eg for merge tests)
 			$indexer_ret = $config->RunIndexerEx ( $error );
-			if ( $indexer_ret==1 )
-			{
-				if ( !HandleFailure ( $config, $report, $error, $nfailed ) )
-					$log .= "\tsubtest $subtest: error running indexer; see $report_file\n";
-				continue;
-
-			} else if ( $indexer_ret==2 )
+			if ( $indexer_ret==2 )
 			{
 				fwrite ( $report, "$error\n" );
+			} else if ( $indexer_ret!=0 )
+			{
+				if ( !HandleFailure ( $config, $report, $error, $nfailed ) )
+					$log .= "\tsubtest $subtest: error running indexer with code $indexer_ret; see $report_file\n";
+				continue;
+
 			}
 		}
 
@@ -2017,7 +2147,7 @@ function RunTest ( $test_dir )
 			if ( $sd_managed_searchd )
 				$searchd_ret = 0;
 			else
-				$searchd_ret = StartSearchd ( "config.conf", "error.txt", $sd_pid_file, $error );
+				$searchd_ret = StartSearchd ( "config.conf", "error.txt", $sd_pid_file, $error, $config->Requires ( "watchdog" ) );
 			
 			$stop["config.conf"] = $sd_pid_file;
 
@@ -2051,7 +2181,7 @@ function RunTest ( $test_dir )
 			if ( $sd_managed_searchd )
 				$searchd_ret = 0;
 			else
-				$searchd_ret = StartSearchd ( $config_file, "error_".$agent_id.".txt", $pid_file, $error );
+				$searchd_ret = StartSearchd ( $config_file, "error_".$agent_id.".txt", $pid_file, $error, $config->Requires ( "watchdog" )  );
 
 				if ( $searchd_ret == 1 )
 				{
@@ -2106,16 +2236,19 @@ function RunTest ( $test_dir )
 			}
 		}
 
-		$mismatch = ( !IsModelGenMode() && !$config->CompareToModel() );
-		if ( $mismatch )
+		$allmatch = $isdemo || IsModelGenMode() || $config->CompareToModel();
+		if ( !$allmatch )
 		{
 			$log .= "\tsubtest $subtest: query results mismatch; see $report_file\n";
 			$nfailed++;
 		}
 
+		if ( $isdemo )
+			$log .= "\tdemo/bugreport $subtest done; see $report_file\n";
+
 		$config->WriteResults ( $report );
 
-		if ( $mismatch )
+		if ( !$allmatch )
 		{
 			fwrite ( $report, "SUBTEST FAILED, RESULTS ARE DIFFERENT FROM THE REFERENCE:\n\n" );
 			$config->WriteReferenceResultsDiff ( $report );
@@ -2125,8 +2258,15 @@ function RunTest ( $test_dir )
 	}
 	while ( $config->CreateNextConfig () );
 
-	foreach ( $stop as $conf=>$pid )
-		StopSearchd ( $conf, $pid );
+	if ( $isdemo )
+	{
+		$sd_log				= $oldlog;
+		$sd_query_log		= $oldquerylog;
+	}
+
+	if ( !$sd_managed_searchd )
+		foreach ( $stop as $conf=>$pid )
+			StopSearchd ( $conf, $pid );
 
 	$total = $config->SubtestNo()+1;
 	if ( IsModelGenMode () )
@@ -2150,13 +2290,13 @@ function RunTest ( $test_dir )
 	fclose ( $report );
 
 	// cleanup DB after ourselves
-	if ( isset($connection) )
+	if ( !array_key_exists ('no_drop_db', $g_locals) && isset($connection) )
 		foreach ( $config->DB_Drop() as $q )
-			@mysql_query ( $q, $connection );
+			mysql_wr ( $q, $connection );
 
 	return array ( "tests_total"=>$total, "tests_failed"=>$nfailed, "tests_skipped"=>0 );
 }
 
 //
-// $Id: helpers.inc 2404 2010-07-18 14:56:56Z klirichek $
+// $Id: helpers.inc 2765 2011-04-08 13:07:32Z klirichek $
 //

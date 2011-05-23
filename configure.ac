@@ -1,7 +1,7 @@
 dnl Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.59)
-AC_INIT([sphinx], [1.10], [shodan(at)shodan.ru])
+AC_INIT([sphinx], [1.11], [shodan(at)shodan.ru])
 
 dnl --------------------------------------------------------------------------
 
@@ -121,6 +121,12 @@ AC_CHECK_FUNCS(clock_gettime)
 
 SPHINX_CHECK_DEFINE(LOCK_EX,sys/file.h)
 SPHINX_CHECK_DEFINE(F_SETLKW,fcntl.h)
+
+# check for dlopen
+# FIXME! technically, only needed in searchd
+# but as UDF manager is curently in libsphinx, we link everything
+AC_CHECK_LIB(dl,dlopen)
+AC_CHECK_FUNCS(dlopen dlerror)
 
 dnl --------------------------------------------------------------------------
 
@@ -429,6 +435,14 @@ AC_RUN_IFELSE(
 		AC_DEFINE([UNALIGNED_RAM_ACCESS],0)],
 	[AC_MSG_RESULT([unknown (cross-compiling), assume yes])
 		AC_DEFINE([UNALIGNED_RAM_ACCESS],1)])
+
+# check endianness
+AC_C_BIGENDIAN(
+	AC_DEFINE(USE_LITTLE_ENDIAN, 0, [big-endian]),
+	AC_DEFINE(USE_LITTLE_ENDIAN, 1, [little-endian]),
+	AC_MSG_ERROR(unknown endianess not supported),
+	AC_MSG_ERROR(universial endianess not supported)
+)
 
 dnl --------------------------------------------------------------------------
 

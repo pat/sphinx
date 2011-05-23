@@ -1,10 +1,10 @@
 //
-// $Id: sphinxtimers.h 2153 2010-01-04 19:17:57Z shodan $
+// $Id: sphinxtimers.h 2616 2011-01-01 02:33:06Z shodan $
 //
 
 //
-// Copyright (c) 2001-2010, Andrew Aksyonoff
-// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// Copyright (c) 2001-2011, Andrew Aksyonoff
+// Copyright (c) 2008-2011, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -34,6 +34,6 @@ DECLARE_TIMER ( debug2 )
 DECLARE_TIMER ( debug3 )
 
 //
-// $Id: sphinxtimers.h 2153 2010-01-04 19:17:57Z shodan $
+// $Id: sphinxtimers.h 2616 2011-01-01 02:33:06Z shodan $
 //
 

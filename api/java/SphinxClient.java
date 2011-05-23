@@ -1,11 +1,11 @@
 /*
- * $Id: SphinxClient.java 2376 2010-06-29 14:08:19Z shodan $
+ * $Id: SphinxClient.java 2710 2011-03-09 13:07:48Z tomat $
  *
  * Java version of Sphinx searchd client (Java API)
  *
  * Copyright (c) 2007, Vladimir Fedorkov
- * Copyright (c) 2007-2010, Andrew Aksyonoff
- * Copyright (c) 2008-2010, Sphinx Technologies Inc
+ * Copyright (c) 2007-2011, Andrew Aksyonoff
+ * Copyright (c) 2008-2011, Sphinx Technologies Inc
  * All rights reserved
  *
  * This program is free software; you can redistribute it and/or modify
@@ -85,7 +85,7 @@ public class SphinxClient
 
 	/* searchd command versions */
 	private final static int VER_MAJOR_PROTO		= 0x1;
-	private final static int VER_COMMAND_SEARCH		= 0x117;
+	private final static int VER_COMMAND_SEARCH		= 0x118;
 	private final static int VER_COMMAND_EXCERPT	= 0x102;
 	private final static int VER_COMMAND_UPDATE		= 0x102;
 	private final static int VER_COMMAND_KEYWORDS	= 0x100;
@@ -951,6 +951,8 @@ public class SphinxClient
 		try
 		{
 			DataOutputStream req = new DataOutputStream ( reqBuf );
+			/* its a client */
+			req.writeInt(0);
 			req.writeInt ( nreqs );
 			for ( int i=0; i<nreqs; i++ )
 				req.write ( (byte[]) _reqs.get(i) );
@@ -1110,6 +1112,8 @@ public class SphinxClient
 		if (!opts.containsKey("weight_order")) opts.put("weight_order", new Integer(0));
 		if (!opts.containsKey("load_files")) opts.put("load_files", new Integer(0));
 		if (!opts.containsKey("allow_empty")) opts.put("allow_empty", new Integer(0));
+		if (!opts.containsKey("query_mode")) opts.put("query_mode", new Integer(0));
+		if (!opts.containsKey("force_all_words")) opts.put("force_all_words", new Integer(0));
 
 		/* build request */
 		ByteArrayOutputStream reqBuf = new ByteArrayOutputStream();
@@ -1483,5 +1487,5 @@ public class SphinxClient
 }
 
 /*
- * $Id: SphinxClient.java 2376 2010-06-29 14:08:19Z shodan $
+ * $Id: SphinxClient.java 2710 2011-03-09 13:07:48Z tomat $
  */

@@ -1,10 +1,10 @@
 //
-// $Id: sphinxclient.c 2399 2010-07-15 11:05:40Z tomat $
+// $Id: sphinxclient.c 2694 2011-03-03 07:28:56Z tomat $
 //
 
 //
-// Copyright (c) 2001-2010, Andrew Aksyonoff
-// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// Copyright (c) 2001-2011, Andrew Aksyonoff
+// Copyright (c) 2008-2011, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -13,6 +13,7 @@
 // did not, you can find it at http://www.gnu.org/
 //
 
+#ifdef _WIN32
 #if _MSC_VER>=1400
 // VS 2005 and above
 #define _CRT_SECURE_NO_DEPRECATE 1
@@ -20,6 +21,7 @@
 #else
 // VS 2003 and below
 #define vsnprintf _vsnprintf
+#endif
 #endif
 
 #include <stdlib.h>
@@ -54,6 +56,7 @@
 	#include <sys/wait.h>
 	#include <netdb.h>
 	#include <errno.h>
+	#include <sys/un.h>
 #endif
 
 //////////////////////////////////////////////////////////////////////////
@@ -74,7 +77,7 @@ enum
 
 enum
 {
-	VER_COMMAND_EXCERPT			= 0x102,
+	VER_COMMAND_EXCERPT			= 0x103,
 	VER_COMMAND_UPDATE			= 0x102,
 	VER_COMMAND_KEYWORDS		= 0x100,
 	VER_COMMAND_STATUS			= 0x100
@@ -197,7 +200,7 @@ sphinx_client * sphinx_create ( sphinx_bool copy_args )
 		return NULL;
 
 	// initialize defaults and return
-	client->ver_search				= 0x117; // 0x113 for 0.9.8, 0x116 for 0.9.9rc2
+	client->ver_search				= 0x118; // 0x113 for 0.9.8, 0x116 for 0.9.9rc2
 	client->copy_args				= copy_args;
 	client->head_alloc				= NULL;
 
@@ -235,7 +238,7 @@ sphinx_client * sphinx_create ( sphinx_bool copy_args )
 	client->num_index_weights		= 0;
 	client->index_weights_names		= NULL;
 	client->index_weights_values	= NULL;
-	client->ranker					= SPH_RANK_PROXIMITY_BM25;
+	client->ranker					= SPH_RANK_DEFAULT;
 	client->max_query_time			= 0;
 	client->num_field_weights		= 0;
 	client->field_weights_names		= NULL;
@@ -360,6 +363,7 @@ static void set_error ( sphinx_client * client, const char * template, ... )
 	va_end ( ap );
 
 	client->error = client->local_error_buf;
+	client->warning = NULL;
 }
 
 
@@ -520,7 +524,7 @@ sphinx_bool sphinx_set_match_mode ( sphinx_client * client, int mode )
 
 sphinx_bool sphinx_set_ranking_mode ( sphinx_client * client, int ranker )
 {
-	if ( !client || ranker<SPH_RANK_PROXIMITY_BM25 || ranker>SPH_RANK_WORDCOUNT ) // FIXME?
+	if ( !client || ranker<SPH_RANK_PROXIMITY_BM25 || ranker>SPH_RANK_SPH04 ) // FIXME?
 	{
 		set_error ( client, "invalid arguments (ranking mode %d out of bounds)", ranker );
 		return SPH_FALSE;
@@ -899,6 +903,16 @@ void sphinx_reset_groupby ( sphinx_client * client )
 
 //////////////////////////////////////////////////////////////////////////
 
+static int sphinx_dismiss_requests ( sphinx_client * client )
+{
+	int nreqs = client->num_reqs, i;
+	for ( i=0; i<client->num_reqs; i++ )
+		free ( client->reqs[i] );
+	client->num_reqs = 0;
+	return nreqs;
+}
+
+
 sphinx_result * sphinx_query ( sphinx_client * client, const char * query, const char * index_list, const char * comment )
 {
 	sphinx_result * res;
@@ -916,6 +930,7 @@ sphinx_result * sphinx_query ( sphinx_client * client, const char * query, const
 		return NULL;
 
 	res = sphinx_run_queries ( client ); // just a shortcut for client->results[0]
+	sphinx_dismiss_requests ( client ); // sphinx_query() is fire and forget; dismiss request in all cases
 	if ( !res )
 		return NULL;
 
@@ -1000,27 +1015,21 @@ static void send_bytes ( char ** pp, const char * bytes, int len )
 
 static void send_int ( char ** pp, unsigned int value )
 {
-	union
-	{
-		unsigned int n;
-		char c[sizeof(int)];
-	} u;
-
-	u.n = htonl ( value );
-	send_bytes ( pp, u.c, (int)sizeof(int) );
+	unsigned char * b = (unsigned char*) *pp;
+	b[0] = ( value >> 24 ) & 0xff;
+	b[1] = ( value >> 16 ) & 0xff;
+	b[2] = ( value >> 8 ) & 0xff;
+	b[3] = ( value & 0xFF );
+	*pp += 4;
 }
 
 
 static void send_word ( char ** pp, unsigned short value )
 {
-	union
-	{
-		unsigned short n;
-		char c[sizeof(short)];
-	} u;
-
-	u.n = htons ( value );
-	send_bytes ( pp, u.c, (int)sizeof(short) );
+	unsigned char * b = (unsigned char*) *pp;
+	b[0] = ( value >> 8 );
+	b[1] = ( value & 0xFF );
+	*pp += 2;
 }
 
 
@@ -1245,6 +1254,9 @@ static int sock_set_blocking ( int sock )
 
 void sock_close ( int sock )
 {
+	if ( sock<0 )
+		return;
+
 #if _WIN32
 	closesocket ( sock );
 #else
@@ -1268,7 +1280,11 @@ void SPH_FD_SET ( int fd, fd_set * fdset ) { FD_SET ( fd, fdset ); }
 static sphinx_bool net_write ( int fd, const char * bytes, int len, sphinx_client * client )
 {
 	int res;
+#if defined(_WIN32) || defined(SO_NOSIGPIPE)
 	res = send ( fd, bytes, len, 0 );
+#else
+	res = send ( fd, bytes, len, MSG_NOSIGNAL );
+#endif
 
 	if ( res<0 )
 	{
@@ -1317,16 +1333,11 @@ static sphinx_bool net_read ( int fd, char * buf, int len, sphinx_client * clien
 }
 
 
-static int net_connect_get ( sphinx_client * client )
+static int net_create_inet_sock ( sphinx_client * client )
 {
 	struct hostent * hp;
 	struct sockaddr_in sa;
-	struct timeval timeout;
-	fd_set fds_write;
-	int sock, to_wait, res, err, my_proto, optval;
-
-	if ( client->sock>=0 )
-		return client->sock;
+	int sock, res, err, optval;
 
 	hp = gethostbyname ( client->host );
 	if ( !hp )
@@ -1354,7 +1365,7 @@ static int net_connect_get ( sphinx_client * client )
 	}
 
 	optval = 1;
-#ifndef _WIN32
+#if defined(SO_NOSIGPIPE)
 	if ( setsockopt ( sock, SOL_SOCKET, SO_NOSIGPIPE, (void *)&optval, (socklen_t)sizeof(optval) ) < 0 )
 	{
 		set_error ( client, "setsockopt() failed: %s", sock_error() );
@@ -1376,6 +1387,93 @@ static int net_connect_get ( sphinx_client * client )
 		set_error ( client, "connect() failed: %s", sock_error() );
 		return -1;
 	}
+
+	return sock;
+}
+
+#ifndef _WIN32
+static int net_create_unix_sock ( sphinx_client * client )
+{
+	struct hostent * hp;
+	struct sockaddr_un uaddr;
+	int sock, res, err, optval, len;
+
+	len = strlen ( client->host );
+
+	if ( len + 1 > sizeof( uaddr.sun_path ) )
+		set_error ( client, "UNIX socket path is too long (len=%d)", len );
+
+	memset ( &uaddr, 0, sizeof(uaddr) );
+	uaddr.sun_family = AF_UNIX;
+	memcpy ( uaddr.sun_path, client->host, len + 1 );
+
+	sock = socket ( AF_UNIX, SOCK_STREAM, 0 );
+	if ( sock<0 )
+	{
+		set_error ( client, "UNIX socket() failed: %s", sock_error() );
+		return -1;
+	}
+
+	if ( sock_set_nonblocking ( sock )<0 )
+	{
+		set_error ( client, "sock_set_nonblocking() failed: %s", sock_error() );
+		return -1;
+	}
+
+	optval = 1;
+#if defined(SO_NOSIGPIPE)
+	if ( setsockopt ( sock, SOL_SOCKET, SO_NOSIGPIPE, (void *)&optval, (socklen_t)sizeof(optval) ) < 0 )
+	{
+		set_error ( client, "setsockopt() failed: %s", sock_error() );
+		return -1;
+	}
+#endif
+
+	res = connect ( sock, (struct sockaddr *)&uaddr, sizeof(uaddr) );
+	if ( res==0 )
+		return sock;
+
+	err = sock_errno();
+#ifdef EINPROGRESS
+	if ( err!=EWOULDBLOCK && err!=EINPROGRESS )
+#else
+	if ( err!=EWOULDBLOCK )
+#endif
+	{
+		set_error ( client, "connect() failed: %s", sock_error() );
+		return -1;
+	}
+
+	return sock;
+}
+#endif
+
+
+static int net_connect_get ( sphinx_client * client )
+{
+	struct timeval timeout;
+	fd_set fds_write;
+	int sock, to_wait, res, my_proto;
+
+	if ( client->sock>=0 )
+		return client->sock;
+
+	sock = -1;
+	if ( client->host[0]!='/' )
+	{
+		sock = net_create_inet_sock ( client );
+	} else
+	{
+#ifdef _WIN32
+		set_error ( client, "UNIX sockets are not supported on Windows" );
+		return -1;
+#else
+		sock = net_create_unix_sock ( client );
+#endif
+	}
+
+	if ( sock<0 )
+		return -1;
 
 	to_wait = (int)( 1000*client->timeout );
 	if ( to_wait<=0 )
@@ -1428,10 +1526,54 @@ static int net_connect_get ( sphinx_client * client )
 	}
 }
 
+
+static sphinx_bool net_sock_eof ( int sock )
+{
+	struct timeval tv;
+	fd_set fds_read, fds_except;
+	int res;
+	char buf;
+
+	// wrong arg, consider dead
+	if ( sock<0 )
+		return SPH_TRUE;
+
+	// select() on a socket and watch for exceptions
+	FD_ZERO ( &fds_read );
+	FD_ZERO ( &fds_except );
+	SPH_FD_SET ( sock, &fds_read );
+	SPH_FD_SET ( sock, &fds_except );
+	tv.tv_sec = 0;
+	tv.tv_usec = 0;
+	res = select ( 1+sock, &fds_read, NULL, &fds_except, &tv );
+
+	// select() failed, assume something is wrong
+	if ( res<0 )
+		return SPH_TRUE;
+
+	// got any events to read? (either normal via fds_read, or OOB via fds_except set)
+	if ( FD_ISSET ( sock, &fds_read ) || FD_ISSET ( sock, &fds_except ) )
+		if ( recv ( sock, &buf, sizeof(buf), MSG_PEEK )<=0 )
+			if ( sock_errno()!=EWOULDBLOCK )
+				return SPH_TRUE;
+
+	// it seems alive
+	return SPH_FALSE;
+}
+
+
 static int net_connect_ex ( sphinx_client * client )
 {
 	if ( client->sock>=0 )
-		return client->sock;
+	{
+		// in case of a persistent connection, check for eof
+		// then attempt to reestablish lost pconn once
+		if ( !net_sock_eof ( client->sock ) )
+			return client->sock;
+
+		sock_close ( client->sock );
+		client->sock = -1;
+	}
 
 	if ( !client->persist )
 		return net_connect_get ( client );
@@ -1550,8 +1692,11 @@ static void net_get_response ( int fd, sphinx_client * client )
 	{
 		case SEARCHD_OK:
 		case SEARCHD_WARNING:
+			client->error = NULL; // so far so good
 			if ( status==SEARCHD_WARNING )
 				client->warning = unpack_str ( &cur );
+			else
+				client->warning = NULL;
 			client->response_len = len;
 			client->response_buf = response;
 			client->response_start = cur;
@@ -1559,6 +1704,7 @@ static void net_get_response ( int fd, sphinx_client * client )
 
 		case SEARCHD_ERROR:
 		case SEARCHD_RETRY:
+			// copy error message, so that we can immediately free the response
 			set_error ( client, "%s", unpack_str ( &cur ) );
 			free ( response );
 			break;
@@ -1662,7 +1808,7 @@ sphinx_result * sphinx_run_queries ( sphinx_client * client )
 	sphinx_free_results ( client );
 
 	// send query, get response
-	len = 4;
+	len = 8;
 	for ( i=0; i<client->num_reqs; i++ )
 		len += client->req_lens[i];
 
@@ -1670,6 +1816,7 @@ sphinx_result * sphinx_run_queries ( sphinx_client * client )
 	send_word ( &req, SEARCHD_COMMAND_SEARCH );
 	send_word ( &req, client->ver_search );
 	send_int ( &req, len );
+	send_int ( &req, 0 ); // its a client
 	send_int ( &req, client->num_reqs );
 
 	if ( !net_write ( fd, req_header, (int)(req-req_header), client ) )
@@ -1683,12 +1830,8 @@ sphinx_result * sphinx_run_queries ( sphinx_client * client )
 	if ( !client->response_buf )
 		return NULL;
 
-	// dismiss requests
-	nreqs = client->num_reqs;
-
-	for ( i=0; i<client->num_reqs; i++ )
-		free ( client->reqs[i] );
-	client->num_reqs = 0;
+	// dismiss request data, memorize count
+	nreqs = sphinx_dismiss_requests ( client );
 
 	// parse response
 	p = client->response_start;
@@ -1908,6 +2051,7 @@ void sphinx_init_excerpt_options ( sphinx_excerpt_options * opts )
 	opts->after_match		= "</b>";
 	opts->chunk_separator	= " ... ";
 	opts->html_strip_mode	= "index";
+	opts->passage_boundary	= "none";
 
 	opts->limit				= 256;
 	opts->limit_passages	= 0;
@@ -1923,6 +2067,7 @@ void sphinx_init_excerpt_options ( sphinx_excerpt_options * opts )
 	opts->force_all_words	= SPH_FALSE;
 	opts->load_files		= SPH_FALSE;
 	opts->allow_empty		= SPH_FALSE;
+	opts->emit_zones		= SPH_FALSE;
 }
 
 
@@ -1949,13 +2094,14 @@ char ** sphinx_build_excerpts ( sphinx_client * client, int num_docs, const char
 	}
 
 	// alloc buffer
-	req_len = (int)( 56
+	req_len = (int)( 60
 		+ strlen(index)
 		+ strlen(words)
 		+ safestrlen(opts->before_match)
 		+ safestrlen(opts->after_match)
 		+ safestrlen(opts->chunk_separator)
-		+ safestrlen(opts->html_strip_mode) );
+		+ safestrlen(opts->html_strip_mode)
+		+ safestrlen(opts->passage_boundary) );
 	for ( i=0; i<num_docs; i++ )
 		req_len += (int)( 4 + safestrlen(docs[i]) );
 
@@ -1982,6 +2128,7 @@ char ** sphinx_build_excerpts ( sphinx_client * client, int num_docs, const char
 	if ( opts->force_all_words )	flags |= 64;
 	if ( opts->load_files )			flags |= 128;
 	if ( opts->allow_empty )		flags |= 256;
+	if ( opts->emit_zones )			flags |= 512;
 
 	send_int ( &req, 0 );
 	send_int ( &req, flags );
@@ -1998,6 +2145,7 @@ char ** sphinx_build_excerpts ( sphinx_client * client, int num_docs, const char
 	send_int ( &req, opts->limit_words );
 	send_int ( &req, opts->start_passage_id );
 	send_str ( &req, opts->html_strip_mode );
+	send_str ( &req, opts->passage_boundary );
 
 	send_int ( &req, num_docs );
 	for ( i=0; i<num_docs; i++ )
@@ -2306,5 +2454,5 @@ void sphinx_status_destroy ( char ** status, int num_rows, int num_cols )
 }
 
 //
-// $Id: sphinxclient.c 2399 2010-07-15 11:05:40Z tomat $
+// $Id: sphinxclient.c 2694 2011-03-03 07:28:56Z tomat $
 //

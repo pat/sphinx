@@ -1,10 +1,10 @@
 //
-// $Id: indextool.cpp 2343 2010-06-18 18:41:19Z shodan $
+// $Id: indextool.cpp 2814 2011-05-13 14:38:48Z tomat $
 //
 
 //
-// Copyright (c) 2001-2010, Andrew Aksyonoff
-// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// Copyright (c) 2001-2011, Andrew Aksyonoff
+// Copyright (c) 2008-2011, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -22,7 +22,7 @@
 void StripStdin ( const char * sIndexAttrs, const char * sRemoveElements )
 {
 	CSphString sError;
-	CSphHTMLStripper tStripper;
+	CSphHTMLStripper tStripper ( true );
 	if ( !tStripper.SetIndexedAttrs ( sIndexAttrs, sError )
 		|| !tStripper.SetRemovedElements ( sRemoveElements, sError ) )
 			sphDie ( "failed to configure stripper: %s", sError.cstr() );
@@ -57,6 +57,7 @@ int main ( int argc, char ** argv )
 			"\n"
 			"Commands are:\n"
 			"--dumpheader <FILENAME.sph>\tdump index header by file name\n"
+			"--dumpconfig <FILENAME.sph>\tdump index header in config format by file name\n"
 			"--dumpheader <INDEXNAME>\tdump index header by index name\n"
 			"--dumpdocids <INDEXNAME>\tdump docids by index name\n"
 			"--dumphitlist <INDEXNAME> <KEYWORD>\n"
@@ -93,6 +94,7 @@ int main ( int argc, char ** argv )
 	{
 		CMD_NOTHING,
 		CMD_DUMPHEADER,
+		CMD_DUMPCONFIG,
 		CMD_DUMPDOCIDS,
 		CMD_DUMPHITLIST,
 		CMD_CHECK,
@@ -110,6 +112,7 @@ int main ( int argc, char ** argv )
 		if ( (i+1)>=argc )			break;
 		OPT ( "-c", "--config" )	sOptConfig = argv[++i];
 		OPT1 ( "--dumpheader" )		{ eCommand = CMD_DUMPHEADER; sDumpHeader = argv[++i]; }
+		OPT1 ( "--dumpconfig" )		{ eCommand = CMD_DUMPCONFIG; sDumpHeader = argv[++i]; }
 		OPT1 ( "--dumpdocids" )		{ eCommand = CMD_DUMPDOCIDS; sIndex = argv[++i]; }
 		OPT1 ( "--check" )			{ eCommand = CMD_CHECK; sIndex = argv[++i]; }
 		OPT1 ( "--htmlstrip" )		{ eCommand = CMD_STRIP; sIndex = argv[++i]; }
@@ -161,7 +164,14 @@ int main ( int argc, char ** argv )
 
 	CSphConfigParser cp;
 	CSphConfig & hConf = cp.m_tConf;
-	sphLoadConfig ( sOptConfig, false, cp );
+	for ( ;; )
+	{
+		if ( ( eCommand==CMD_DUMPHEADER || eCommand==CMD_DUMPCONFIG ) && sDumpHeader.Ends ( ".sph" ) )
+			break;
+
+		sphLoadConfig ( sOptConfig, false, cp );
+		break;
+	}
 
 	///////////
 	// action!
@@ -182,7 +192,7 @@ int main ( int argc, char ** argv )
 			sphDie ( "index '%s': missing 'path' in config'\n", sIndex.cstr() );
 
 		// preload that index
-		pIndex = sphCreateIndexPhrase ( hConf["index"][sIndex]["path"].cstr() );
+		pIndex = sphCreateIndexPhrase ( sIndex.cstr(), hConf["index"][sIndex]["path"].cstr() );
 		if ( !pIndex )
 			sphDie ( "index '%s': failed to create", sIndex.cstr() );
 
@@ -203,8 +213,9 @@ int main ( int argc, char ** argv )
 			sphDie ( "nothing to do; specify a command (run indextool w/o switches for help)" );
 
 		case CMD_DUMPHEADER:
+		case CMD_DUMPCONFIG:
 		{
-			if ( hConf["index"](sDumpHeader) )
+			if ( hConf("index") && hConf["index"](sDumpHeader) )
 			{
 				fprintf ( stdout, "dumping header for index '%s'...\n", sDumpHeader.cstr() );
 
@@ -215,8 +226,8 @@ int main ( int argc, char ** argv )
 			}
 
 			fprintf ( stdout, "dumping header file '%s'...\n", sDumpHeader.cstr() );
-			CSphIndex * pIndex = sphCreateIndexPhrase ( "" );
-			pIndex->DebugDumpHeader ( stdout, sDumpHeader.cstr() );
+			CSphIndex * pIndex = sphCreateIndexPhrase ( NULL, "" );
+			pIndex->DebugDumpHeader ( stdout, sDumpHeader.cstr(), eCommand==CMD_DUMPCONFIG );
 			break;
 		}
 
@@ -478,7 +489,7 @@ void DoOptimization ( const CSphString & sIndex, const CSphConfig & hConf )
 		// attrs
 		const int iNumTypes = 5;
 		const char * sTypes[iNumTypes] = { "rt_attr_uint", "rt_attr_bigint", "rt_attr_float", "rt_attr_timestamp", "rt_attr_string" };
-		const int iTypes[iNumTypes] = { SPH_ATTR_INTEGER, SPH_ATTR_BIGINT, SPH_ATTR_FLOAT, SPH_ATTR_TIMESTAMP, SPH_ATTR_STRING };
+		const ESphAttr iTypes[iNumTypes] = { SPH_ATTR_INTEGER, SPH_ATTR_BIGINT, SPH_ATTR_FLOAT, SPH_ATTR_TIMESTAMP, SPH_ATTR_STRING };
 
 		for ( int iType=0; iType<iNumTypes; iType++ )
 		{
@@ -524,5 +535,5 @@ void DoOptimization ( const CSphString & sIndex, const CSphConfig & hConf )
 }
 
 //
-// $Id: indextool.cpp 2343 2010-06-18 18:41:19Z shodan $
+// $Id: indextool.cpp 2814 2011-05-13 14:38:48Z tomat $
 //

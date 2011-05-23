@@ -1,5 +1,5 @@
 //
-// $Id: ha_sphinx.h 2379 2010-06-29 22:48:24Z shodan $
+// $Id: ha_sphinx.h 2428 2010-08-03 11:38:09Z shodan $
 //
 
 #ifdef USE_PRAGMA_INTERFACE
@@ -85,6 +85,7 @@ public:
 	int				write_row ( byte * buf );
 	int				update_row ( const byte * old_data, byte * new_data );
 	int				delete_row ( const byte * buf );
+	int				extra ( enum ha_extra_function op );
 
 	int				index_init ( uint keynr, bool sorted ); // 5.1.x
 	int				index_init ( uint keynr ) { return index_init ( keynr, false ); } // 5.0.x
@@ -162,5 +163,5 @@ int sphinx_showfunc_word_count ( THD *, SHOW_VAR *, char * );
 int sphinx_showfunc_words ( THD *, SHOW_VAR *, char * );
 
 //
-// $Id: ha_sphinx.h 2379 2010-06-29 22:48:24Z shodan $
+// $Id: ha_sphinx.h 2428 2010-08-03 11:38:09Z shodan $
 //

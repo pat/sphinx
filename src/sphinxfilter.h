@@ -1,10 +1,10 @@
 //
-// $Id: sphinxfilter.h 2259 2010-03-18 08:26:43Z tomat $
+// $Id: sphinxfilter.h 2616 2011-01-01 02:33:06Z shodan $
 //
 
 //
-// Copyright (c) 2001-2010, Andrew Aksyonoff
-// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// Copyright (c) 2001-2011, Andrew Aksyonoff
+// Copyright (c) 2008-2011, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -58,5 +58,5 @@ ISphFilter * sphJoinFilters ( ISphFilter *, ISphFilter * );
 #endif // _sphinxfilter_
 
 //
-// $Id: sphinxfilter.h 2259 2010-03-18 08:26:43Z tomat $
+// $Id: sphinxfilter.h 2616 2011-01-01 02:33:06Z shodan $
 //

@@ -1,10 +1,10 @@
 //
-// $Id: sphinxquery.cpp 2352 2010-06-23 14:58:49Z shodan $
+// $Id: sphinxquery.cpp 2801 2011-04-30 18:11:48Z shodan $
 //
 
 //
-// Copyright (c) 2001-2010, Andrew Aksyonoff
-// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// Copyright (c) 2001-2011, Andrew Aksyonoff
+// Copyright (c) 2008-2011, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -35,11 +35,12 @@ public:
 public:
 	bool			Parse ( XQQuery_t & tQuery, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict );
 
-	bool			Error ( const char * sTemplate, ... );
-	void			Warning ( const char * sTemplate, ... );
+	bool			Error ( const char * sTemplate, ... ) __attribute__ ( ( format ( printf, 2, 3 ) ) );
+	void			Warning ( const char * sTemplate, ... ) __attribute__ ( ( format ( printf, 2, 3 ) ) );
 
 	bool			AddField ( DWORD & uFields, const char * szField, int iLen );
 	bool			ParseFields ( DWORD & uFields, int & iMaxFieldPos );
+	int				ParseZone ( const char * pZone );
 
 	bool			IsSpecial ( char c );
 	int				GetToken ( YYSTYPE * lvalp );
@@ -47,11 +48,17 @@ public:
 	void			AddQuery ( XQNode_t * pNode );
 	XQNode_t *		AddKeyword ( const char * sKeyword, DWORD uStar = STAR_NONE );
 	XQNode_t *		AddKeyword ( XQNode_t * pLeft, XQNode_t * pRight );
-	XQNode_t *		AddOp ( XQOperator_e eOp, XQNode_t * pLeft, XQNode_t * pRight );
+	XQNode_t *		AddOp ( XQOperator_e eOp, XQNode_t * pLeft, XQNode_t * pRight, int iOpArg=0 );
 
 	void			Cleanup ();
 	XQNode_t *		SweepNulls ( XQNode_t * pNode );
 	bool			FixupNots ( XQNode_t * pNode );
+
+public:
+	const CSphVector<int> & GetZoneVec ( int iZoneVec ) const
+	{
+		return m_dZoneVecs[iZoneVec];
+	}
 
 public:
 	XQQuery_t *				m_pParsed;
@@ -82,6 +89,8 @@ public:
 	bool					m_bQuoted;
 
 	CSphVector<CSphString>	m_dIntTokens;
+
+	CSphVector < CSphVector<int> >	m_dZoneVecs;
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -116,6 +125,30 @@ void XQNode_t::SetFieldSpec ( DWORD uMask, int iMaxPos )
 	ARRAY_FOREACH ( i, m_dChildren )
 		m_dChildren[i]->SetFieldSpec ( uMask, iMaxPos );
 }
+
+void XQNode_t::SetZoneSpec ( const CSphVector<int> & dZones )
+{
+	// set it, if we do not yet have one
+	if ( !m_dZones.GetLength() )
+		m_dZones = dZones;
+
+	// some of the children might not yet have a spec, even if the node itself has
+	ARRAY_FOREACH ( i, m_dChildren )
+		m_dChildren[i]->SetZoneSpec ( dZones );
+}
+
+void XQNode_t::CopySpecs ( const XQNode_t * pSpecs )
+{
+	if ( !pSpecs )
+		return;
+
+	if ( pSpecs->m_bFieldSpec )
+		SetFieldSpec ( pSpecs->m_uFieldMask, pSpecs->m_iFieldMaxPos );
+
+	if ( pSpecs->m_dZones.GetLength() )
+		SetZoneSpec ( pSpecs->m_dZones );
+}
+
 
 void XQNode_t::ClearFieldMask ()
 {
@@ -372,7 +405,9 @@ bool XQParser_t::ParseFields ( DWORD & uFields, int & iMaxFieldPos )
 			// separator found
 			if ( pFieldStart==NULL )
 			{
-				return Error ( "separator without preceding field name in field block operator", *pPtr );
+				CSphString sContext;
+				sContext.SetBinary ( pPtr, (int)( pLastPtr-pPtr ) );
+				return Error ( "invalid field block operator syntax near '%s'", sContext.cstr() ? sContext.cstr() : "" );
 
 			} else if ( *pPtr==',' )
 			{
@@ -421,6 +456,95 @@ bool XQParser_t::ParseFields ( DWORD & uFields, int & iMaxFieldPos )
 
 	// well done
 	return true;
+}
+
+
+/// helper find-or-add (make it generic and move to sphinxstd?)
+static int GetZoneIndex ( XQQuery_t * pQuery, const CSphString & sZone )
+{
+	ARRAY_FOREACH ( i, pQuery->m_dZones )
+		if ( pQuery->m_dZones[i]==sZone )
+			return i;
+
+	pQuery->m_dZones.Add ( sZone );
+	return pQuery->m_dZones.GetLength()-1;
+}
+
+
+/// parse zone
+int XQParser_t::ParseZone ( const char * pZone )
+{
+	const char * p = pZone;
+
+	// case one, just a single zone name
+	if ( sphIsAlpha ( *pZone ) )
+	{
+		// find zone name
+		while ( sphIsAlpha(*p) )
+			p++;
+		m_pTokenizer->SetBufferPtr ( p );
+
+		// extract and lowercase it
+		CSphString sZone;
+		sZone.SetBinary ( pZone, p-pZone );
+		sZone.ToLower();
+
+		// register it in zones list
+		int iZone = GetZoneIndex ( m_pParsed, sZone );
+
+		// create new 1-zone vector
+		m_dZoneVecs.Add().Add ( iZone );
+		return m_dZoneVecs.GetLength()-1;
+	}
+
+	// case two, zone block
+	// it must follow strict (name1,name2,...) syntax
+	if ( *pZone=='(' )
+	{
+		// create new zone vector
+		CSphVector<int> & dZones = m_dZoneVecs.Add();
+		p = ++pZone;
+
+		// scan names
+		for ( ;; )
+		{
+			// syntax error, name expected!
+			if ( !sphIsAlpha(*p) )
+			{
+				Error ( "unexpected character '%c' in zone block operator", *p );
+				return -1;
+			}
+
+			// scan next name
+			while ( sphIsAlpha(*p) )
+				p++;
+
+			// extract and lowercase it
+			CSphString sZone;
+			sZone.SetBinary ( pZone, p-pZone );
+			sZone.ToLower();
+
+			// register it in zones list
+			dZones.Add ( GetZoneIndex ( m_pParsed, sZone ) );
+
+			// must be either followed by comma, or closing paren
+			// everything else will cause syntax error
+			if ( *p==')' )
+			{
+				m_pTokenizer->SetBufferPtr ( p+1 );
+				break;
+			}
+
+			if ( *p==',' )
+				pZone = ++p;
+		}
+
+		return m_dZoneVecs.GetLength()-1;
+	}
+
+	// unhandled case
+	Error ( "internal error, unhandled case in ParseZone()" );
+	return -1;
 }
 
 
@@ -484,7 +608,14 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 		// not a number, or not followed by a whitespace, so fallback to regular tokenizing
 		sToken = (const char *) m_pTokenizer->GetToken ();
 		if ( !sToken )
-			return 0;
+		{
+			m_iPendingNulls = m_pTokenizer->GetOvershortCount ();
+			if ( !m_iPendingNulls )
+				return 0;
+			m_iPendingNulls--;
+			lvalp->pNode = AddKeyword ( NULL );
+			return TOK_KEYWORD;
+		}
 
 		// now let's do some token post-processing
 		m_bWasBlended = m_pTokenizer->TokenIsBlended();
@@ -507,6 +638,40 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 			m_tPendingToken.tInt.iValue = iVal;
 			m_tPendingToken.tInt.iStrIndex = -1;
 			m_iAtomPos -= 1; // skip NEAR
+			break;
+		}
+
+		// handle SENTENCE
+		if ( sToken && p && !m_pTokenizer->m_bPhrase && !strcasecmp ( sToken, "sentence" ) && !strncmp ( p, "SENTENCE", 8 ) )
+		{
+			// we just lexed our next token
+			m_iPendingType = TOK_SENTENCE;
+			m_iAtomPos -= 1;
+			break;
+		}
+
+		// handle PARAGRAPH
+		if ( sToken && p && !m_pTokenizer->m_bPhrase && !strcasecmp ( sToken, "paragraph" ) && !strncmp ( p, "PARAGRAPH", 9 ) )
+		{
+			// we just lexed our next token
+			m_iPendingType = TOK_PARAGRAPH;
+			m_iAtomPos -= 1;
+			break;
+		}
+
+		// handle ZONE
+		if ( sToken && p && !m_pTokenizer->m_bPhrase && !strncmp ( p, "ZONE:", 5 )
+			&& ( sphIsAlpha(p[5]) || p[5]=='(' ) )
+		{
+			// ParseZone() will update tokenizer buffer ptr as needed
+			int iVec = ParseZone ( p+5 );
+			if ( iVec<0 )
+				return -1;
+
+			// we just lexed our next token
+			m_iPendingType = TOK_ZONE;
+			m_tPendingToken.iZoneVec = iVec;
+			m_iAtomPos -= 1;
 			break;
 		}
 
@@ -632,7 +797,7 @@ XQNode_t * XQParser_t::AddKeyword ( XQNode_t * pLeft, XQNode_t * pRight )
 }
 
 
-XQNode_t * XQParser_t::AddOp ( XQOperator_e eOp, XQNode_t * pLeft, XQNode_t * pRight )
+XQNode_t * XQParser_t::AddOp ( XQOperator_e eOp, XQNode_t * pLeft, XQNode_t * pRight, int iOpArg )
 {
 	/////////
 	// unary
@@ -655,12 +820,11 @@ XQNode_t * XQParser_t::AddOp ( XQOperator_e eOp, XQNode_t * pLeft, XQNode_t * pR
 
 	// left spec always tries to infect the nodes to the right, only brackets can stop it
 	// eg. '@title hello' vs 'world'
-	if ( pLeft->m_bFieldSpec )
-		pRight->SetFieldSpec ( pLeft->m_uFieldMask, pLeft->m_iFieldMaxPos );
+	pRight->CopySpecs ( pLeft );
 
 	// build a new node
 	XQNode_t * pResult = NULL;
-	if ( pLeft->m_dChildren.GetLength() && pLeft->GetOp()==eOp )
+	if ( pLeft->m_dChildren.GetLength() && pLeft->GetOp()==eOp && pLeft->m_iOpArg==iOpArg )
 	{
 		pLeft->m_dChildren.Add ( pRight );
 		pResult = pLeft;
@@ -668,6 +832,7 @@ XQNode_t * XQParser_t::AddOp ( XQOperator_e eOp, XQNode_t * pLeft, XQNode_t * pR
 	{
 		XQNode_t * pNode = new XQNode_t();
 		pNode->SetOp ( eOp, pLeft, pRight );
+		pNode->m_iOpArg = iOpArg;
 		m_dSpawned.Add ( pNode );
 		pResult = pNode;
 	}
@@ -829,6 +994,28 @@ static void DeleteNodesWOFields ( XQNode_t * pNode )
 }
 
 
+static bool CheckQuorum ( XQNode_t * pNode, CSphString * pError )
+{
+	assert ( pError );
+	if ( !pNode )
+		return true;
+
+	if ( pNode->GetOp()==SPH_QUERY_QUORUM && pNode->m_iOpArg<=0 )
+	{
+		pError->SetSprintf ( "quorum threshold too low (%d)", pNode->m_iOpArg );
+		return false;
+	}
+
+	bool bValid = true;
+	ARRAY_FOREACH_COND ( i, pNode->m_dChildren, bValid )
+	{
+		bValid &= CheckQuorum ( pNode->m_dChildren[i], pError );
+	}
+
+	return bValid;
+}
+
+
 static void FixupDegenerates ( XQNode_t * pNode )
 {
 	if ( !pNode )
@@ -850,6 +1037,9 @@ bool XQParser_t::Parse ( XQQuery_t & tParsed, const char * sQuery, const ISphTok
 	CSphScopedPtr<ISphTokenizer> pMyTokenizer ( pTokenizer->Clone ( true ) );
 	pMyTokenizer->AddSpecials ( "()|-!@~\"/^$<" );
 	pMyTokenizer->EnableQueryParserMode ( true );
+
+	// most outcomes are errors
+	SafeDelete ( tParsed.m_pRoot );
 
 	// check for relaxed syntax
 	const char * OPTION_RELAXED = "@@relaxed";
@@ -886,12 +1076,18 @@ bool XQParser_t::Parse ( XQQuery_t & tParsed, const char * sQuery, const ISphTok
 	}
 
 	DeleteNodesWOFields ( m_pRoot );
-	FixupDegenerates ( m_pRoot );
 	m_pRoot = SweepNulls ( m_pRoot );
+	FixupDegenerates ( m_pRoot );
 
 	if ( !FixupNots ( m_pRoot ) )
 	{
 		Cleanup ();
+		return false;
+	}
+
+	if ( !CheckQuorum ( m_pRoot, &m_pParsed->m_sParseError ) )
+	{
+		Cleanup();
 		return false;
 	}
 
@@ -902,12 +1098,9 @@ bool XQParser_t::Parse ( XQQuery_t & tParsed, const char * sQuery, const ISphTok
 		return false;
 	}
 
+	// all ok; might want to create a dummy node to indicate that
 	m_dSpawned.Reset();
-	if ( m_pRoot )
-	{
-		SafeDelete ( tParsed.m_pRoot );
-		tParsed.m_pRoot = m_pRoot;
-	}
+	tParsed.m_pRoot = m_pRoot ? m_pRoot : new XQNode_t ();
 	return true;
 }
 
@@ -1384,11 +1577,11 @@ public:
 	{}
 
 	// actual method for processing tree and reveal (extract) common subtrees
-	void transform ( const CSphVector<XQNode_t*> & dTrees )
+	void Transform ( int iXQ, const XQQuery_t * pXQ )
 	{
 		// collect all non-unique nodes
-		ARRAY_FOREACH ( i, dTrees )
-			if ( !BuildAssociations ( dTrees[i] ) )
+		for ( int i=0; i<iXQ; i++ )
+			if ( !BuildAssociations ( pXQ[i].m_pRoot ) )
 				return;
 
 		// count and order all non-unique nodes
@@ -1396,8 +1589,8 @@ public:
 			return;
 
 		// create and collect bitmask for every node
-		ARRAY_FOREACH ( i, dTrees )
-			BuildBitmasks ( dTrees[i] );
+		for ( int i=0; i<iXQ; i++ )
+			BuildBitmasks ( pXQ[i].m_pRoot );
 
 		// intersect all bitmasks one-by-one, and also intersect all intersections
 		CalcIntersections();
@@ -1406,8 +1599,8 @@ public:
 		MakeQueries();
 
 		// ... and finally - process all our trees.
-		ARRAY_FOREACH ( i, dTrees )
-			Reorganize ( dTrees[i] );
+		for ( int i=0; i<iXQ; i++ )
+			Reorganize ( pXQ[i].m_pRoot );
 	}
 };
 
@@ -1494,20 +1687,20 @@ static void SignCommonSubtrees ( XQNode_t * pTree, CSubtreeHash & hSubTrees )
 }
 
 
-int sphMarkCommonSubtrees ( const CSphVector<XQNode_t*> & dTrees )
+int sphMarkCommonSubtrees ( int iXQ, const XQQuery_t * pXQ )
 {
-	if ( !dTrees.GetLength() )
+	if ( iXQ<=0 || !pXQ )
 		return 0;
 
 	{ // Optional reorganize tree to extract common parts
-		RevealCommon_t ( SPH_QUERY_AND ).transform ( dTrees );
-		RevealCommon_t ( SPH_QUERY_OR ).transform ( dTrees );
+		RevealCommon_t ( SPH_QUERY_AND ).Transform ( iXQ, pXQ );
+		RevealCommon_t ( SPH_QUERY_OR ).Transform ( iXQ, pXQ );
 	}
 
 	// flag common subtrees and refcount them
 	CSubtreeHash hSubtrees;
-	ARRAY_FOREACH ( i, dTrees )
-		FlagCommonSubtrees ( dTrees[i], hSubtrees );
+	for ( int i=0; i<iXQ; i++ )
+		FlagCommonSubtrees ( pXQ[i].m_pRoot, hSubtrees );
 
 	// number marked subtrees and assign them order numbers.
 	int iOrder = 0;
@@ -1517,12 +1710,12 @@ int sphMarkCommonSubtrees ( const CSphVector<XQNode_t*> & dTrees )
 			hSubtrees.IterateGet().m_iOrder = iOrder++;
 
 	// copy the flags and orders to original trees
-	ARRAY_FOREACH ( i, dTrees )
-		SignCommonSubtrees ( dTrees[i], hSubtrees );
+	for ( int i=0; i<iXQ; i++ )
+		SignCommonSubtrees ( pXQ[i].m_pRoot, hSubtrees );
 
 	return iOrder;
 }
 
 //
-// $Id: sphinxquery.cpp 2352 2010-06-23 14:58:49Z shodan $
+// $Id: sphinxquery.cpp 2801 2011-04-30 18:11:48Z shodan $
 //

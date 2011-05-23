@@ -57,7 +57,7 @@ module Sphinx
     # Current client-side command implementation versions
     
     # search command version
-    VER_COMMAND_SEARCH   = 0x117
+    VER_COMMAND_SEARCH   = 0x118
     # excerpt command version
     VER_COMMAND_EXCERPT  = 0x102
     # update command version
@@ -1010,9 +1010,13 @@ module Sphinx
       # Connect to searchd server.
       def Connect
         begin
-          sock = TCPSocket.new(@host, @port)
-        rescue
-          @error = "connection to #{@host}:#{@port} failed"
+          if @host[0,1]=='/'
+            sock = UNIXSocket.new(@host)
+          else
+            sock = TCPSocket.new(@host, @port)
+          end
+        rescue => err
+          @error = "connection to #{@host}:#{@port} failed (error=#{err})"
           raise SphinxConnectError, @error
         end
         
@@ -1097,9 +1101,9 @@ module Sphinx
         command_ver = Sphinx::Client.const_get('VER_COMMAND_' + cmd)
         
         sock = self.Connect
-        len = request.to_s.length + (additional != nil ? 4 : 0)
+        len = request.to_s.length + (additional != nil ? 8 : 0)
         header = [command_id, command_ver, len].pack('nnN')
-        header << [additional].pack('N') if additional != nil
+        header << [0, additional].pack('NN') if additional != nil
         sock.send(header + request.to_s, 0)
         response = self.GetResponse(sock, command_ver)
         return Response.new(response)

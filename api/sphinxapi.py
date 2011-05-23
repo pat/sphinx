@@ -1,11 +1,11 @@
 #
-# $Id: sphinxapi.py 2376 2010-06-29 14:08:19Z shodan $
+# $Id: sphinxapi.py 2694 2011-03-03 07:28:56Z tomat $
 #
 # Python version of Sphinx searchd client (Python API)
 #
 # Copyright (c) 2006, Mike Osadnik
-# Copyright (c) 2006-2010, Andrew Aksyonoff
-# Copyright (c) 2008-2010, Sphinx Technologies Inc
+# Copyright (c) 2006-2011, Andrew Aksyonoff
+# Copyright (c) 2008-2011, Sphinx Technologies Inc
 # All rights reserved
 #
 # This program is free software; you can redistribute it and/or modify
@@ -30,8 +30,8 @@ SEARCHD_COMMAND_PERSIST		= 4
 SEARCHD_COMMAND_FLUSHATTRS	= 7
 
 # current client-side command implementation versions
-VER_COMMAND_SEARCH		= 0x117
-VER_COMMAND_EXCERPT		= 0x102
+VER_COMMAND_SEARCH		= 0x118
+VER_COMMAND_EXCERPT		= 0x103
 VER_COMMAND_UPDATE		= 0x102
 VER_COMMAND_KEYWORDS	= 0x100
 VER_COMMAND_FLUSHATTRS	= 0x100
@@ -333,7 +333,7 @@ class SphinxClient:
 		"""
 		assert(isinstance(weights, list))
 		for w in weights:
-			assert(isinstance(w, int))
+			AssertUInt32 ( w )
 		self._weights = weights
 
 
@@ -344,7 +344,7 @@ class SphinxClient:
 		assert(isinstance(weights,dict))
 		for key,val in weights.items():
 			assert(isinstance(key,str))
-			assert(isinstance(val,int))
+			AssertUInt32 ( val )
 		self._fieldweights = weights
 
 
@@ -355,7 +355,7 @@ class SphinxClient:
 		assert(isinstance(weights,dict))
 		for key,val in weights.items():
 			assert(isinstance(key,str))
-			assert(isinstance(val,int))
+			AssertUInt32(val)
 		self._indexweights = weights
 
 
@@ -380,7 +380,7 @@ class SphinxClient:
 		assert iter(values)
 
 		for value in values:
-			assert(isinstance(value, int))
+			AssertInt32 ( value )
 
 		self._filters.append ( { 'type':SPH_FILTER_VALUES, 'attr':attribute, 'exclude':exclude, 'values':values } )
 
@@ -391,8 +391,8 @@ class SphinxClient:
 		Only match records if 'attribute' value is beetwen 'min_' and 'max_' (inclusive).
 		"""
 		assert(isinstance(attribute, str))
-		assert(isinstance(min_, int))
-		assert(isinstance(max_, int))
+		AssertInt32(min_)
+		AssertInt32(max_)
 		assert(min_<=max_)
 
 		self._filters.append ( { 'type':SPH_FILTER_RANGE, 'attr':attribute, 'exclude':exclude, 'min':min_, 'max':max_ } )
@@ -500,7 +500,8 @@ class SphinxClient:
 		Add query to batch.
 		"""
 		# build request
-		req = [pack('>5L', self._offset, self._limit, self._mode, self._ranker, self._sort)]
+		req = []
+		req.append ( pack('>5L', self._offset, self._limit, self._mode, self._ranker, self._sort) )
 		req.append(pack('>L', len(self._sortby)))
 		req.append(self._sortby)
 
@@ -611,8 +612,8 @@ class SphinxClient:
 			return None
 
 		req = ''.join(self._reqs)
-		length = len(req)+4
-		req = pack('>HHLL', SEARCHD_COMMAND_SEARCH, VER_COMMAND_SEARCH, length, len(self._reqs))+req
+		length = len(req)+8
+		req = pack('>HHLLL', SEARCHD_COMMAND_SEARCH, VER_COMMAND_SEARCH, length, 0, len(self._reqs))+req
 		sock.send(req)
 
 		response = self._GetResponse(sock, VER_COMMAND_SEARCH)
@@ -771,6 +772,7 @@ class SphinxClient:
 		opts.setdefault('limit_words', 0)
 		opts.setdefault('around', 5)
 		opts.setdefault('start_passage_id', 1)
+		opts.setdefault('passage_boundary', 'none')
 
 		# build request
 		# v.1.0 req
@@ -784,6 +786,7 @@ class SphinxClient:
 		if opts.get('force_all_words'):	flags |= 64
 		if opts.get('load_files'):		flags |= 128
 		if opts.get('allow_empty'):		flags |= 256
+		if opts.get('emit_zones'):		flags |= 256
 		
 		# mode=0, flags
 		req = [pack('>2L', 0, flags)]
@@ -814,6 +817,8 @@ class SphinxClient:
 		req.append(pack('>L', int(opts['start_passage_id'])))
 		req.append(pack('>L', len(opts['html_strip_mode'])))
 		req.append((opts['html_strip_mode']))
+		req.append(pack('>L', len(opts['passage_boundary'])))
+		req.append((opts['passage_boundary']))
 
 		# documents
 		req.append(pack('>L', len(docs)))
@@ -876,30 +881,34 @@ class SphinxClient:
 		for attr in attrs:
 			assert ( isinstance ( attr, str ) )
 		for docid, entry in values.items():
-			assert ( isinstance ( docid, int ) )
+			AssertUInt32(docid)
 			assert ( isinstance ( entry, list ) )
 			assert ( len(attrs)==len(entry) )
 			for val in entry:
 				if mva:
 					assert ( isinstance ( val, list ) )
 					for vals in val:
-						assert ( isinstance ( vals, int ))
+						AssertInt32(vals)
 				else:
-					assert ( isinstance ( val, int ) )
+					AssertInt32(val)
 
 		# build request
 		req = [ pack('>L',len(index)), index ]
 
 		req.append ( pack('>L',len(attrs)) )
+		mva_attr = 0
+		if mva: mva_attr = 1
 		for attr in attrs:
 			req.append ( pack('>L',len(attr)) + attr )
-			req.append ( pack('>L', 1 if mva else 0 ) )
+			req.append ( pack('>L', mva_attr ) )
 
 		req.append ( pack('>L',len(values)) )
 		for docid, entry in values.items():
 			req.append ( pack('>Q',docid) )
 			for val in entry:
-				req.append ( pack('>L',count(val) if mva else val) )
+				val_len = val
+				if mva: val_len = len ( val )
+				req.append ( pack('>L',val_len ) )
 				if mva:
 					for vals in val:
 						req.append ( pack ('>L',vals) )
@@ -1029,6 +1038,14 @@ class SphinxClient:
 		tag = unpack ( '>L', response[0:4] )[0]
 		return tag
 
+def AssertInt32 ( value ):
+	assert(isinstance(value, (int, long)))
+	assert(value>=-2**32-1 and value<=2**32-1)
+
+def AssertUInt32 ( value ):
+	assert(isinstance(value, (int, long)))
+	assert(value>=0 and value<=2**32-1)
+		
 #
-# $Id: sphinxapi.py 2376 2010-06-29 14:08:19Z shodan $
+# $Id: sphinxapi.py 2694 2011-03-03 07:28:56Z tomat $
 #

@@ -1,10 +1,10 @@
 //
-// $Id: sphinxutils.cpp 2395 2010-07-13 13:31:13Z shodan $
+// $Id: sphinxutils.cpp 2810 2011-05-09 18:59:08Z shodan $
 //
 
 //
-// Copyright (c) 2001-2010, Andrew Aksyonoff
-// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// Copyright (c) 2001-2011, Andrew Aksyonoff
+// Copyright (c) 2008-2011, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -21,12 +21,18 @@
 #include <ctype.h>
 #include <fcntl.h>
 #include <errno.h>
+#if HAVE_EXECINFO_H
+#include <execinfo.h>
+#endif
 
 #if USE_WINDOWS
-	#include <io.h> // for ::open on windows
+#include <io.h> // for ::open on windows
+#include <dbghelp.h>
+#pragma comment(linker, "/defaultlib:dbghelp.lib")
+#pragma message("Automatically linking with dbghelp.lib")
 #else
-	#include <sys/wait.h>
-	#include <signal.h>
+#include <sys/wait.h>
+#include <signal.h>
 #endif
 
 /////////////////////////////////////////////////////////////////////////////
@@ -171,6 +177,7 @@ static KeyDesc_t g_dKeysSource[] =
 	{ "sql_field_string",		KEY_LIST, NULL },
 	{ "sql_field_str2wordcount",	KEY_LIST, NULL },
 	{ "sql_file_field",			KEY_LIST, NULL },
+	{ "sql_column_buffers",		0, NULL },
 	{ NULL,						0, NULL }
 };
 
@@ -230,6 +237,10 @@ static KeyDesc_t g_dKeysIndex[] =
 	{ "rt_attr_timestamp",		KEY_LIST, NULL },
 	{ "rt_attr_string",			KEY_LIST, NULL },
 	{ "rt_mem_limit",			0, NULL },
+	{ "dict",					0, NULL },
+	{ "index_sp",				0, NULL },
+	{ "index_zones",			0, NULL },
+	{ "blend_mode",				0, NULL },
 	{ NULL,						0, NULL }
 };
 
@@ -265,7 +276,7 @@ static KeyDesc_t g_dKeysSearchd[] =
 	{ "attr_flush_period",		0, NULL },
 	{ "max_packet_size",		0, NULL },
 	{ "mva_updates_pool",		0, NULL },
-	{ "crash_log_path",			0, NULL },
+	{ "crash_log_path",			KEY_DEPRECATED, NULL },
 	{ "max_filters",			0, NULL },
 	{ "max_filter_values",		0, NULL },
 	{ "listen_backlog",			0, NULL },
@@ -275,10 +286,21 @@ static KeyDesc_t g_dKeysSearchd[] =
 	{ "subtree_docs_cache",		0, NULL },
 	{ "subtree_hits_cache",		0, NULL },
 	{ "workers",				0, NULL },
+	{ "prefork",				0, NULL },
 	{ "dist_threads",			0, NULL },
 	{ "binlog_flush",			0, NULL },
 	{ "binlog_path",			0, NULL },
 	{ "binlog_max_log_size",	0, NULL },
+	{ "thread_stack",			0, NULL },
+	{ "expansion_limit",		0, NULL },
+	{ "compat_sphinxql_magics",	0, NULL },
+	{ "rt_flush_period",		0, NULL },
+	{ "query_log_format",		0, NULL },
+	{ "mysql_version_string",	0, NULL },
+	{ "plugin_dir",				0, NULL },
+	{ "collation_server",		0, NULL },
+	{ "collation_libc_locale",	0, NULL },
+	{ "watchdog",				0, NULL },
 	{ NULL,						0, NULL }
 };
 
@@ -480,6 +502,15 @@ bool CSphConfigParser::TryToExec ( char * pBuffer, char * pEnd, const char * szF
 	{
 		// can be interrupted by pretty much anything (e.g. SIGCHLD from other searchd children)
 		iResult = waitpid ( iChild, &iStatus, 0 );
+
+		// they say this can happen if child exited and SIGCHLD was ignored
+		// a cleaner one would be to temporary handle it here, but can we be bothered
+		if ( iResult==-1 && errno==ECHILD )
+		{
+			iResult = iChild;
+			iStatus = 0;
+		}
+
 		if ( iResult==-1 && errno!=EINTR )
 		{
 			snprintf ( m_sError, sizeof ( m_sError ), "waitpid() failed: [%d] %s", errno, strerror(errno) );
@@ -534,6 +565,15 @@ char * CSphConfigParser::GetBufferString ( char * szDest, int iMax, const char *
 	return szDest;
 }
 
+bool CSphConfigParser::ReParse ( const char * sFileName, const char * pBuffer )
+{
+	CSphConfig tOldConfig = m_tConf;
+	m_tConf.Reset();
+	if ( Parse ( sFileName, pBuffer ) )
+		return true;
+	m_tConf = tOldConfig;
+	return false;
+}
 
 bool CSphConfigParser::Parse ( const char * sFileName, const char * pBuffer )
 {
@@ -817,6 +857,7 @@ bool sphConfTokenizer ( const CSphConfigSection & hIndex, CSphTokenizerSettings 
 		tSettings.m_sSynonymsFile = hIndex.GetStr ( "synonyms" ); // deprecated option name
 	tSettings.m_sIgnoreChars = hIndex.GetStr ( "ignore_chars" );
 	tSettings.m_sBlendChars = hIndex.GetStr ( "blend_chars" );
+	tSettings.m_sBlendMode = hIndex.GetStr ( "blend_mode" );
 
 	// phrase boundaries
 	int iBoundaryStep = Max ( hIndex.GetInt ( "phrase_boundary_step" ), -1 );
@@ -832,11 +873,21 @@ void sphConfDictionary ( const CSphConfigSection & hIndex, CSphDictSettings & tS
 	tSettings.m_sStopwords = hIndex.GetStr ( "stopwords" );
 	tSettings.m_sWordforms = hIndex.GetStr ( "wordforms" );
 	tSettings.m_iMinStemmingLen = hIndex.GetInt ( "min_stemming_len", 1 );
+
+	if ( hIndex("dict") )
+	{
+		tSettings.m_bWordDict = false; // default to crc
+		if ( hIndex["dict"]=="keywords" )
+			tSettings.m_bWordDict = true;
+		else if ( hIndex["dict"]!="crc" )
+			fprintf ( stdout, "WARNING: unknown dict=%s, defaulting to crc\n", hIndex["dict"].cstr() );
+	}
 }
 
 
-void sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSettings )
+bool sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSettings, CSphString & sError )
 {
+	// misc settings
 	tSettings.m_iMinPrefixLen = Max ( hIndex.GetInt ( "min_prefix_len" ), 0 );
 	tSettings.m_iMinInfixLen = Max ( hIndex.GetInt ( "min_infix_len" ), 0 );
 	tSettings.m_iBoundaryStep = Max ( hIndex.GetInt ( "phrase_boundary_step" ), -1 );
@@ -844,6 +895,48 @@ void sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSetti
 	tSettings.m_iOvershortStep = Min ( Max ( hIndex.GetInt ( "overshort_step", 1 ), 0 ), 1 );
 	tSettings.m_iStopwordStep = Min ( Max ( hIndex.GetInt ( "stopword_step", 1 ), 0 ), 1 );
 
+	// prefix/infix fields
+	CSphString sFields;
+
+	sFields = hIndex.GetStr ( "prefix_fields" );
+	sFields.ToLower();
+	sphSplit ( tSettings.m_dPrefixFields, sFields.cstr() );
+
+	sFields = hIndex.GetStr ( "infix_fields" );
+	sFields.ToLower();
+	sphSplit ( tSettings.m_dInfixFields, sFields.cstr() );
+
+	if ( tSettings.m_iMinPrefixLen==0 && tSettings.m_dPrefixFields.GetLength()!=0 )
+	{
+		fprintf ( stdout, "WARNING: min_prefix_len=0, prefix_fields ignored\n" );
+		tSettings.m_dPrefixFields.Reset();
+	}
+
+	if ( tSettings.m_iMinInfixLen==0 && tSettings.m_dInfixFields.GetLength()!=0 )
+	{
+		fprintf ( stdout, "WARNING: min_infix_len=0, infix_fields ignored\n" );
+		tSettings.m_dInfixFields.Reset();
+	}
+
+	// the only way we could have both prefixes and infixes enabled is when specific field subsets are configured
+	if ( tSettings.m_iMinInfixLen>0 && tSettings.m_iMinPrefixLen>0
+		&& ( !tSettings.m_dPrefixFields.GetLength() || !tSettings.m_dInfixFields.GetLength() ) )
+	{
+		sError.SetSprintf ( "prefixes and infixes can not both be enabled on all fields" );
+		return false;
+	}
+
+	tSettings.m_dPrefixFields.Uniq();
+	tSettings.m_dInfixFields.Uniq();
+
+	ARRAY_FOREACH ( i, tSettings.m_dPrefixFields )
+		if ( tSettings.m_dInfixFields.Contains ( tSettings.m_dPrefixFields[i] ) )
+	{
+		sError.SetSprintf ( "field '%s' marked both as prefix and infix", tSettings.m_dPrefixFields[i].cstr() );
+		return false;
+	}
+
+	// html stripping
 	if ( hIndex ( "html_strip" ) )
 	{
 		tSettings.m_bHtmlStrip = hIndex.GetInt ( "html_strip" )!=0;
@@ -851,6 +944,7 @@ void sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSetti
 		tSettings.m_sHtmlRemoveElements = hIndex.GetStr ( "html_remove_elements" );
 	}
 
+	// docinfo
 	tSettings.m_eDocinfo = SPH_DOCINFO_EXTERN;
 	if ( hIndex("docinfo") )
 	{
@@ -861,6 +955,7 @@ void sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSetti
 			fprintf ( stdout, "WARNING: unknown docinfo=%s, defaulting to extern\n", hIndex["docinfo"].cstr() );
 	}
 
+	// hit format
 	tSettings.m_eHitFormat = SPH_HIT_FORMAT_INLINE;
 	if ( hIndex("hit_format") )
 	{
@@ -886,6 +981,13 @@ void sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSetti
 			}
 		}
 	}
+
+	// sentence and paragraph indexing
+	tSettings.m_bIndexSP = ( hIndex.GetInt ( "index_sp" )!=0 );
+	tSettings.m_sZones = hIndex.GetStr ( "index_zones" );
+
+	// all good
+	return true;
 }
 
 
@@ -910,8 +1012,10 @@ bool sphFixupIndexSettings ( CSphIndex * pIndex, const CSphConfigSection & hInde
 	if ( !pIndex->GetDictionary () )
 	{
 		CSphDictSettings tSettings;
+		if ( pIndex->m_bId32to64 )
+			tSettings.m_bCrc32 = true;
 		sphConfDictionary ( hIndex, tSettings );
-		CSphDict * pDict = sphCreateDictionaryCRC ( tSettings, pIndex->GetTokenizer (), sError );
+		CSphDict * pDict = sphCreateDictionaryCRC ( tSettings, pIndex->GetTokenizer (), sError, pIndex->GetName() );
 		if ( !pDict )
 			return false;
 
@@ -935,9 +1039,12 @@ bool sphFixupIndexSettings ( CSphIndex * pIndex, const CSphConfigSection & hInde
 			tSettings.m_sHtmlIndexAttrs = hIndex.GetStr ( "html_index_attrs" );
 			tSettings.m_sHtmlRemoveElements = hIndex.GetStr ( "html_remove_elements" );
 		}
+		tSettings.m_sZones = hIndex.GetStr ( "index_zones" );
 
 		pIndex->Setup ( tSettings );
 	}
+
+	pIndex->PostSetup();
 
 	return true;
 }
@@ -986,33 +1093,7 @@ const char * sphLoadConfig ( const char * sOptConfig, bool bQuiet, CSphConfigPar
 
 //////////////////////////////////////////////////////////////////////////
 
-#if USE_WINDOWS
-
-void sphSetupSignals ()
-{
-}
-
-#else
-
-static void DummyHandler ( int )
-{
-}
-
-void sphSetupSignals ()
-{
-	struct sigaction tAction;
-
-	sigfillset ( &tAction.sa_mask );
-	tAction.sa_flags = SA_NOCLDSTOP;
-	tAction.sa_handler = DummyHandler;
-	if ( sigaction ( SIGCHLD, &tAction, NULL )==-1 )
-		sphDie ( "sigaction() failed: [%d] %s", errno, strerror(errno) );
-}
-
-#endif
-
-typedef void ( * pLogger ) ( ESphLogLevel, const char *, va_list );
-static pLogger g_pLogger = NULL;
+static SphLogger_fn g_pLogger = NULL;
 
 inline void Log ( ESphLogLevel eLevel, const char * sFmt, va_list ap )
 {
@@ -1053,11 +1134,395 @@ void sphLogDebug ( const char * sFmt, ... )
 	va_end ( ap );
 }
 
-void sphSetLogger ( const void * pVoid )
+void sphLogDebugv ( const char * sFmt, ... )
 {
-	g_pLogger = (pLogger) pVoid;
+	va_list ap;
+	va_start ( ap, sFmt );
+	Log ( LOG_VERBOSE_DEBUG, sFmt, ap );
+	va_end ( ap );
 }
 
+void sphLogDebugvv ( const char * sFmt, ... )
+{
+	va_list ap;
+	va_start ( ap, sFmt );
+	Log ( LOG_VERY_VERBOSE_DEBUG, sFmt, ap );
+	va_end ( ap );
+}
+
+void sphSetLogger ( SphLogger_fn fnLog )
+{
+	g_pLogger = fnLog;
+}
+
+//////////////////////////////////////////////////////////////////////////
+// CRASH REPORTING
+//////////////////////////////////////////////////////////////////////////
+
+template <typename Uint>
+static void UItoA ( char** ppOutput, Uint uVal, int iBase=10, int iWidth=0, int iPrec=0, const char cFill=' ' )
+{
+	assert ( ppOutput );
+	assert ( *ppOutput );
+
+	const char cDigits[] = "0123456789abcdef";
+
+	if ( iWidth && iPrec )
+	{
+		iPrec = iWidth;
+		iWidth = 0;
+	}
+
+	if ( !uVal )
+	{
+		if ( !iPrec && !iWidth )
+			*(*ppOutput)++ = cDigits[0];
+		else
+		{
+			while ( iPrec-- )
+				*(*ppOutput)++ = cDigits[0];
+			if ( iWidth )
+			{
+				while ( --iWidth )
+					*(*ppOutput)++ = cFill;
+				*(*ppOutput)++ = cDigits[0];
+			}
+		}
+		return;
+	}
+
+	const BYTE uMaxIndex = 31; // 20 digits for MAX_INT64 in decimal; let it be 31 (32 digits max).
+	char CBuf[uMaxIndex+1];
+	char *pRes = &CBuf[uMaxIndex];
+	char *& pOutput = *ppOutput;
+
+	while ( uVal )
+	{
+		*pRes-- = cDigits [ uVal % iBase ];
+		uVal /= iBase;
+	}
+
+	BYTE uLen = (BYTE)( uMaxIndex - (pRes-CBuf) );
+
+	if ( iWidth )
+		while ( uLen < iWidth )
+		{
+			*pOutput++ = cFill;
+			iWidth--;
+		}
+
+		if ( iPrec )
+		{
+			while ( uLen < iPrec )
+			{
+				*pOutput++=cDigits[0];
+				iPrec--;
+			}
+			iPrec = uLen-iPrec;
+		}
+
+		while ( pRes < CBuf+uMaxIndex-iPrec )
+			*pOutput++ = *++pRes;
+}
+
+
+static int sphVSprintf ( char * pOutput, const char * sFmt, va_list ap )
+{
+	enum eStates { SNORMAL, SPERCENT, SHAVEFILL, SINWIDTH, SINPREC };
+	eStates state = SNORMAL;
+	int iPrec = 0;
+	int iWidth = 0;
+	char cFill = ' ';
+	const char * pBegin = pOutput;
+	bool bHeadingSpace = true;
+
+	char c;
+	while ( ( c = *sFmt++ )!=0 )
+	{
+		// handle percent
+		if ( c=='%' )
+		{
+			if ( state==SNORMAL )
+			{
+				state = SPERCENT;
+				iPrec = 0;
+				iWidth = 0;
+				cFill = ' ';
+			} else
+			{
+				state = SNORMAL;
+				*pOutput++ = c;
+			}
+			continue;
+		}
+
+		// handle regular chars
+		if ( state==SNORMAL )
+		{
+			*pOutput++ = c;
+			continue;
+		}
+
+		// handle modifiers
+		switch ( c )
+		{
+		case '0':
+			if ( state==SPERCENT )
+			{
+				cFill = '0';
+				state = SHAVEFILL;
+				break;
+			}
+		case '1': case '2': case '3':
+		case '4': case '5': case '6':
+		case '7': case '8': case '9':
+			if ( state==SPERCENT || state==SHAVEFILL )
+			{
+				state = SINWIDTH;
+				iWidth = c - '0';
+			} else if ( state==SINWIDTH )
+				iWidth = iWidth * 10 + c - '0';
+			else if ( state==SINPREC )
+				iPrec = iPrec * 10 + c - '0';
+			break;
+
+		case '-':
+			if ( state==SPERCENT )
+				bHeadingSpace = false;
+			else
+				state = SNORMAL; // FIXME? means that bad/unhandled syntax with dash will be just ignored
+			break;
+
+		case '.':
+			state = SINPREC;
+			iPrec = 0;
+			break;
+
+		case 's': // string
+			{
+				const char * pValue = va_arg ( ap, const char * );
+				int iValue = strlen ( pValue );
+
+				if ( iWidth && bHeadingSpace )
+					while ( iValue < iWidth-- )
+						*pOutput++ = ' ';
+
+				if ( iPrec && iPrec < iValue )
+					while ( iPrec-- )
+						*pOutput++ = *pValue++;
+				else
+					while ( *pValue )
+						*pOutput++ = *pValue++;
+
+				if ( iWidth && !bHeadingSpace )
+					while ( iValue < iWidth-- )
+						*pOutput++ = ' ';
+
+				state = SNORMAL;
+				break;
+			}
+
+		case 'p': // pointer
+			{
+				void * pValue = va_arg ( ap, void * );
+				uint64_t uValue = uint64_t ( pValue );
+				UItoA ( &pOutput, uValue, 16, iWidth, iPrec, cFill );
+				state = SNORMAL;
+				break;
+			}
+
+		case 'x': // hex integer
+		case 'd': // decimal integer
+			{
+				DWORD uValue = va_arg ( ap, DWORD );
+				UItoA ( &pOutput, uValue, ( c=='x' ) ? 16 : 10, iWidth, iPrec, cFill );
+				state = SNORMAL;
+				break;
+			}
+
+		case 'l': // decimal int64
+			{
+				int64_t iValue = va_arg ( ap, int64_t );
+				UItoA ( &pOutput, iValue, 10, iWidth, iPrec, cFill );
+				state = SNORMAL;
+				break;
+			}
+
+		default:
+			state = SNORMAL;
+			*pOutput++ = c;
+		}
+	}
+
+	// final zero to EOL
+	*pOutput++ = '\n';
+	return pOutput - pBegin;
+}
+
+
+bool sphWrite ( int iFD, const void * pBuf, size_t iSize )
+{
+	return ( iSize==(size_t)::write ( iFD, pBuf, iSize ) );
+}
+
+
+static char g_sSafeInfoBuf [ 1024 ];
+
+void sphSafeInfo ( int iFD, const char * sFmt, ... )
+{
+	if ( iFD<0 || !sFmt )
+		return;
+
+	va_list ap;
+	va_start ( ap, sFmt );
+	int iLen = sphVSprintf ( g_sSafeInfoBuf, sFmt, ap ); // FIXME! make this vsnprintf
+	va_end ( ap );
+	sphWrite ( iFD, g_sSafeInfoBuf, iLen );
+}
+
+
+#if !USE_WINDOWS
+
+#define SPH_BACKTRACE_ADDR_COUNT 128
+static void * g_pBacktraceAddresses [SPH_BACKTRACE_ADDR_COUNT];
+
+void sphBacktrace ( int iFD, bool bSafe )
+{
+	if ( iFD<0 )
+		return;
+
+	sphSafeInfo ( iFD, "-------------- backtrace begins here ---------------" );
+	sphSafeInfo ( iFD, "Sphinx " SPHINX_VERSION );
+#ifdef COMPILER
+	sphSafeInfo ( iFD, "Program compiled with " COMPILER );
+#endif
+
+#ifdef OS_UNAME
+	sphSafeInfo ( iFD, "Host OS is "OS_UNAME );
+#endif
+
+	bool bOk = true;
+
+	void * pMyStack = NULL;
+	int iStackSize = 0;
+	if ( !bSafe )
+	{
+		pMyStack = sphMyStack();
+		iStackSize = sphMyStackSize();
+	}
+	sphSafeInfo ( iFD, "Stack bottom = 0x%p, thread stack size = 0x%x", pMyStack, iStackSize );
+
+	while ( pMyStack && !bSafe )
+	{
+		sphSafeInfo ( iFD, "begin of manual backtrace:" );
+		BYTE ** pFramePointer = NULL;
+
+		int iFrameCount = 0;
+		int iReturnFrameCount = sphIsLtLib() ? 2 : 1;
+
+#ifdef __i386__
+#define SIGRETURN_FRAME_OFFSET 17
+		__asm __volatile__ ( "movl %%ebp,%0":"=r"(pFramePointer):"r"(pFramePointer) );
+#endif
+
+#ifdef __x86_64__
+#define SIGRETURN_FRAME_OFFSET 23
+		__asm __volatile__ ( "movq %%rbp,%0":"=r"(pFramePointer):"r"(pFramePointer) );
+#endif
+
+		if ( !pFramePointer )
+		{
+			sphSafeInfo ( iFD, "Frame pointer is null, backtrace failed (did you build with -fomit-frame-pointer?)" );
+			break;
+		}
+
+		if ( !pMyStack || (BYTE*) pMyStack > (BYTE*) &pFramePointer )
+		{
+			int iRound = Min ( 65536, iStackSize );
+			pMyStack = (void *) ( ( (size_t) &pFramePointer + iRound ) & ~(size_t)65535 );
+			sphSafeInfo ( iFD, "Something wrong with thread stack, backtrace may be incorrect (fp=%p)", pFramePointer );
+
+			if ( pFramePointer > (BYTE**) pMyStack || pFramePointer < (BYTE**) pMyStack - iStackSize )
+			{
+				sphSafeInfo ( iFD, "Wrong stack limit or frame pointer, backtrace failed (fp=%p, stack=%p, stacksize=%d)", pFramePointer, pMyStack, iStackSize );
+				break;
+			}
+		}
+
+		sphSafeInfo ( iFD, "Stack looks OK, attempting backtrace." );
+
+		BYTE** pNewFP;
+		while ( pFramePointer < (BYTE**) pMyStack )
+		{
+			pNewFP = (BYTE**) *pFramePointer;
+			sphSafeInfo ( iFD, "%p", iFrameCount==iReturnFrameCount? *(pFramePointer + SIGRETURN_FRAME_OFFSET) : *(pFramePointer + 1) );
+
+			bOk = pNewFP > pFramePointer;
+			if ( !bOk ) break;
+
+			pFramePointer = pNewFP;
+			iFrameCount++;
+		}
+
+		if ( !bOk )
+			sphSafeInfo ( iFD, "Something wrong in frame pointers, backtrace failed (fp=%p)", pNewFP );
+
+		break;
+	}
+
+#if HAVE_BACKTRACE
+	sphSafeInfo ( iFD, "begin of system backtrace:" );
+	int iDepth = backtrace ( g_pBacktraceAddresses, SPH_BACKTRACE_ADDR_COUNT );
+#if HAVE_BACKTRACE_SYMBOLS
+	sphSafeInfo ( iFD, "begin of system symbols:" );
+	backtrace_symbols_fd ( g_pBacktraceAddresses, iDepth, iFD );
+#elif !HAVE_BACKTRACE_SYMBOLS
+	sphSafeInfo ( iFD, "begin of manual symbols:" );
+	for ( int i=0; i<Depth; i++ )
+		sphSafeInfo ( iFD, "%p", g_pBacktraceAddresses[i] );
+#endif // HAVE_BACKTRACE_SYMBOLS
+#endif // !HAVE_BACKTRACE
+
+	if ( bOk )
+		sphSafeInfo ( iFD, "Backtrace looks OK. Now you have to do following steps:\n"
+							"  1. Run the command over the crashed binary (for example, 'indexer'):\n"
+							"     nm -n indexer > indexer.sym\n"
+							"  2. Attach the binary, generated .sym and the text of backtrace (see above) to the bug report.\n"
+							"Also you can read the section about resolving backtraces in the documentation.");
+	sphSafeInfo ( iFD, "-------------- backtrace ends here ---------------" );
+}
+
+#else // USE_WINDOWS
+
+void sphBacktrace ( EXCEPTION_POINTERS * pExc, const char * sFile )
+{
+	if ( !pExc || !sFile || !(*sFile) )
+	{
+		sphInfo ( "can't generate minidump" );
+		return;
+	}
+
+	HANDLE hFile = CreateFile ( sFile, GENERIC_WRITE, 0, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0 );
+	if ( hFile==INVALID_HANDLE_VALUE )
+	{
+		sphInfo ( "can't create minidump file '%s'", sFile );
+		return;
+	}
+
+	MINIDUMP_EXCEPTION_INFORMATION tExcInfo;
+	tExcInfo.ExceptionPointers = pExc;
+	tExcInfo.ClientPointers = FALSE;
+	tExcInfo.ThreadId = GetCurrentThreadId();
+
+	bool bDumped = ( MiniDumpWriteDump ( GetCurrentProcess(), GetCurrentProcessId(), hFile, MiniDumpNormal, &tExcInfo, 0, 0 )==TRUE );
+	CloseHandle ( hFile );
+
+	if ( !bDumped )
+		sphInfo ( "can't dump minidump" );
+}
+
+#endif // USE_WINDOWS
+
 //
-// $Id: sphinxutils.cpp 2395 2010-07-13 13:31:13Z shodan $
+// $Id: sphinxutils.cpp 2810 2011-05-09 18:59:08Z shodan $
 //

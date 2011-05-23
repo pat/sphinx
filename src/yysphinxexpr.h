@@ -31,46 +31,66 @@
    enum yytokentype {
      TOK_CONST_INT = 258,
      TOK_CONST_FLOAT = 259,
-     TOK_ATTR_INT = 260,
-     TOK_ATTR_BITS = 261,
-     TOK_ATTR_FLOAT = 262,
-     TOK_ATTR_MVA = 263,
-     TOK_FUNC = 264,
-     TOK_FUNC_IN = 265,
-     TOK_ID = 266,
-     TOK_WEIGHT = 267,
-     TOK_CONST_LIST = 268,
-     TOK_ATTR_SINT = 269,
-     TOK_OR = 270,
-     TOK_AND = 271,
-     TOK_NE = 272,
-     TOK_EQ = 273,
-     TOK_GTE = 274,
-     TOK_LTE = 275,
-     TOK_NOT = 276,
-     TOK_NEG = 277
+     TOK_CONST_STRING = 260,
+     TOK_ATTR_INT = 261,
+     TOK_ATTR_BITS = 262,
+     TOK_ATTR_FLOAT = 263,
+     TOK_ATTR_MVA = 264,
+     TOK_ATTR_STRING = 265,
+     TOK_FUNC = 266,
+     TOK_FUNC_IN = 267,
+     TOK_USERVAR = 268,
+     TOK_UDF = 269,
+     TOK_ATID = 270,
+     TOK_ATWEIGHT = 271,
+     TOK_ID = 272,
+     TOK_WEIGHT = 273,
+     TOK_COUNT = 274,
+     TOK_DISTINCT = 275,
+     TOK_CONST_LIST = 276,
+     TOK_ATTR_SINT = 277,
+     TOK_OR = 278,
+     TOK_AND = 279,
+     TOK_NE = 280,
+     TOK_EQ = 281,
+     TOK_GTE = 282,
+     TOK_LTE = 283,
+     TOK_MOD = 284,
+     TOK_DIV = 285,
+     TOK_NOT = 286,
+     TOK_NEG = 287
    };
 #endif
 #define TOK_CONST_INT 258
 #define TOK_CONST_FLOAT 259
-#define TOK_ATTR_INT 260
-#define TOK_ATTR_BITS 261
-#define TOK_ATTR_FLOAT 262
-#define TOK_ATTR_MVA 263
-#define TOK_FUNC 264
-#define TOK_FUNC_IN 265
-#define TOK_ID 266
-#define TOK_WEIGHT 267
-#define TOK_CONST_LIST 268
-#define TOK_ATTR_SINT 269
-#define TOK_OR 270
-#define TOK_AND 271
-#define TOK_NE 272
-#define TOK_EQ 273
-#define TOK_GTE 274
-#define TOK_LTE 275
-#define TOK_NOT 276
-#define TOK_NEG 277
+#define TOK_CONST_STRING 260
+#define TOK_ATTR_INT 261
+#define TOK_ATTR_BITS 262
+#define TOK_ATTR_FLOAT 263
+#define TOK_ATTR_MVA 264
+#define TOK_ATTR_STRING 265
+#define TOK_FUNC 266
+#define TOK_FUNC_IN 267
+#define TOK_USERVAR 268
+#define TOK_UDF 269
+#define TOK_ATID 270
+#define TOK_ATWEIGHT 271
+#define TOK_ID 272
+#define TOK_WEIGHT 273
+#define TOK_COUNT 274
+#define TOK_DISTINCT 275
+#define TOK_CONST_LIST 276
+#define TOK_ATTR_SINT 277
+#define TOK_OR 278
+#define TOK_AND 279
+#define TOK_NE 280
+#define TOK_EQ 281
+#define TOK_GTE 282
+#define TOK_LTE 283
+#define TOK_MOD 284
+#define TOK_DIV 285
+#define TOK_NOT 286
+#define TOK_NEG 287
 
 
 
@@ -80,9 +100,9 @@
 typedef union YYSTYPE {
 	int64_t			iConst;			// constant value
 	float			fConst;			// constant value
-	int				iAttrLocator;	// attribute locator (rowitem for int/float; offset+size for bits)
+	uint64_t		iAttrLocator;	// attribute locator (rowitem for int/float; offset+size for bits)
 	int				iFunc;			// function id
-	int				iNode;			// node index
+	int				iNode;			// node, or uservar, or udf index
 } YYSTYPE;
 /* Line 1204 of yacc.c.  */
 

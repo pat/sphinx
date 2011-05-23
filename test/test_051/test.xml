@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 
 <test>
-<name>snippets vs exact_phrase</name>
+<name>snippets vs exact_phrase + snippets vs passage duplication</name>
 
 <config>
 searchd
@@ -60,6 +60,59 @@ foreach ( $words as $query )
 	$results [] = $query;
 	$results [] = $reply;
 }
+
+$text = 'A native of Honolulu, Hawaii, Obama is a graduate of Columbia University and Harvard Law School, where he waas the president of the Harvard Law Review. He was a community organizer in Chicago before earning his law degree. He worrked as a civil rights attorney in Chicago and taught constitutional law at the University of Chicago Law School from 19992 to 2004.Obama served three terms in the Illinois Senate from 1997 to 2004.';
+$query = '"University and Harvard Law School" obama';
+$reply = $client->BuildExcerpts ( array($text), 'idx', $query ,array('query_mode'=>true, 'around'=>2) );
+$results [] = $query;
+$results [] = $reply;
+
+$text = 'This is a large house. Its a doggy house. The doggy house is most doggy here. There is no any doggy house around.';
+$query = '"the doggy house"';
+$reply = $client->BuildExcerpts ( array($text), 'idx', $query,
+	array('query_mode'=>true, 'around'=> 2, 'weight_order'=>true, 'limit_words'=>20) );
+$results [] = $query;
+$results [] = $reply;
+
+$query = 'the doggy house';
+
+$reply = $client->BuildExcerpts ( array($text), 'idx', $query, array( 'around'=> 3, 'limit'=>100, 'limit_passages'=>1 ) );
+$results [] = $query;
+$results [] = $reply;
+
+$reply = $client->BuildExcerpts ( array($text), 'idx', $query, array( 'around'=> 3, 'exact_phrase'=>true, 'limit'=>100, 'limit_passages'=>1 ) );
+$results [] = $query;
+$results [] = $reply;
+
+$reply = $client->BuildExcerpts ( array($text), 'idx', $query, array('around'=> 3, 'limit_words'=>6, 'exact_phrase'=>true) );
+$results [] = $query;
+$results [] = $reply;
+
+$query = 'is most';
+$reply = $client->BuildExcerpts ( array($text), 'idx', $query, array('around'=> 2, 'limit_words'=>4) );
+$results [] = $query;
+$results [] = $reply;
+
+$query = 'is house';
+$reply = $client->BuildExcerpts ( array($text), 'idx', $query, array('around'=> 2, 'before_match'=>'<start of %PASSAGE_ID%>', 'after_match'=>'<%PASSAGE_ID% ends>') );
+$results [] = $query;
+$results [] = $reply;
+
+$query = 'is house';
+$reply = $client->BuildExcerpts ( array($text), 'idx', $query, array('around'=> 2, 'limit_words'=>10, 'before_match'=>'%PASSAGE_ID% !-! ', 'after_match'=>' !-! %PASSAGE_ID%', 'start_passage_id'=>1000) );
+$results [] = $query;
+$results [] = $reply;
+
+$query = 'is house';
+$reply = $client->BuildExcerpts ( array($text), 'idx', $query, array('around'=> 2, 'limit_words'=>10, 'before_match'=>'<b>', 'after_match'=>'</b %PASSAGE_ID%>', 'start_passage_id'=>1000) );
+$results [] = $query;
+$results [] = $reply;
+
+$query = 'is house';
+$reply = $client->BuildExcerpts ( array($text), 'idx', $query, array('around'=> 2, 'limit_words'=>10, 'before_match'=>'<b %PASSAGE_ID%>', 'after_match'=>'</b>', 'start_passage_id'=>1000) );
+$results [] = $query;
+$results [] = $reply;
+
 ]]></custom_test>
 
 </test>

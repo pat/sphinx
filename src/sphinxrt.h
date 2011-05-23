@@ -1,10 +1,10 @@
 //
-// $Id: sphinxrt.h 2321 2010-06-03 20:08:57Z shodan $
+// $Id: sphinxrt.h 2775 2011-04-14 07:52:22Z tomat $
 //
 
 //
-// Copyright (c) 2001-2010, Andrew Aksyonoff
-// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// Copyright (c) 2001-2011, Andrew Aksyonoff
+// Copyright (c) 2008-2011, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -17,12 +17,13 @@
 #define _sphinxrt_
 
 #include "sphinx.h"
+#include "sphinxutils.h"
 
 /// RAM based updateable backend interface
 class ISphRtIndex : public CSphIndex
 {
 public:
-	explicit ISphRtIndex ( const char * sName ) : CSphIndex ( sName ) {}
+	explicit ISphRtIndex ( const char * sIndexName, const char * sName ) : CSphIndex ( sIndexName, sName ) {}
 
 	/// get internal schema (to use for Add calls)
 	virtual const CSphSchema & GetInternalSchema () const { return m_tSchema; }
@@ -33,11 +34,11 @@ public:
 
 	/// insert/update document in current txn
 	/// fails in case of two open txns to different indexes
-	virtual bool AddDocument ( const CSphVector<CSphWordHit> & dHits, const CSphMatch & tDoc, const char ** ppStr, CSphString & sError ) = 0;
+	virtual bool AddDocument ( ISphHits * pHits, const CSphMatch & tDoc, const char ** ppStr, CSphString & sError ) = 0;
 
 	/// delete document in current txn
 	/// fails in case of two open txns to different indexes
-	virtual bool DeleteDocument ( SphDocID_t uDoc, CSphString & sError ) = 0;
+	virtual bool DeleteDocument ( const SphDocID_t * pDocs, int iDocs, CSphString & sError ) = 0;
 
 	/// commit pending changes
 	virtual void Commit () = 0;
@@ -48,13 +49,14 @@ public:
 	/// dump index data to disk
 	virtual void DumpToDisk ( const char * sFilename ) = 0;
 
-	/// getter for name
-	virtual const char * GetName () = 0;
+	/// check and flush index memory to disk
+	virtual void CheckRamFlush () = 0;
 };
 
 /// initialize subsystem
 class CSphConfigSection;
-void sphRTInit ( const CSphConfigSection & hSearchd );
+void sphRTInit ();
+void sphRTConfigure ( const CSphConfigSection & hSearchd, bool bTestMode );
 
 /// deinitialize subsystem
 void sphRTDone ();
@@ -65,11 +67,13 @@ ISphRtIndex * sphCreateIndexRT ( const CSphSchema & tSchema, const char * sIndex
 /// Get current txn index
 ISphRtIndex * sphGetCurrentIndexRT();
 
+typedef void ProgressCallbackSimple_t ();
+
 /// replay stored binlog
-void sphReplayBinlog ( const CSphVector < ISphRtIndex * > & dRtIndices );
+void sphReplayBinlog ( const SmallStringHash_T<CSphIndex*> & hIndexes, ProgressCallbackSimple_t * pfnProgressCallback=NULL );
 
 #endif // _sphinxrt_
 
 //
-// $Id: sphinxrt.h 2321 2010-06-03 20:08:57Z shodan $
+// $Id: sphinxrt.h 2775 2011-04-14 07:52:22Z tomat $
 //

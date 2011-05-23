@@ -16,6 +16,8 @@ $agent_port_sql		= 6707;
 
 if ( array_key_exists ( "SPHINXDAEMON", $_ENV ) && $_ENV["SPHINXDAEMON"] ) 
 	$sd_address = $_ENV["SPHINXDAEMON"];
+else if ( array_key_exists ( "SPHINXDAEMON", $_SERVER ) && $_SERVER["SPHINXDAEMON"] )
+	$sd_address = $_SERVER["SPHINXDAEMON"];
 
 $agents 			= array (
 	array ( "address" => $sd_address, "port" => $sd_port, "sqlport" => $sd_sphinxql_port ),
@@ -27,6 +29,9 @@ $index_data_path	= "data";
 $g_model	= false;
 $g_id64		= false;
 $g_strict	= false;
+$g_skipdemo = false;
+$g_usemarks = true; // that we mark the output of every test in the searchd.log and query.log
+$g_strictverbose = false;
 
 $windows = isset($_SERVER["WINDIR"]) || isset($_SERVER["windir"]) || isset($_SERVER["HOMEDRIVE"]);
 $action_retries			= 20;

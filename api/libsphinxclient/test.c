@@ -1,10 +1,10 @@
 //
-// $Id: test.c 2399 2010-07-15 11:05:40Z tomat $
+// $Id: test.c 2616 2011-01-01 02:33:06Z shodan $
 //
 
 //
-// Copyright (c) 2001-2010, Andrew Aksyonoff
-// Copyright (c) 2008-2010, Sphinx Technologies Inc
+// Copyright (c) 2001-2011, Andrew Aksyonoff
+// Copyright (c) 2008-2011, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -22,6 +22,10 @@
 #endif
 
 #include "sphinxclient.h"
+
+static sphinx_bool g_smoke = SPH_FALSE;
+static int g_failed = 0;
+
 
 void die ( const char * template, ... )
 {
@@ -49,19 +53,15 @@ void net_init ()
 }
 
 
-void test_query ( sphinx_client * client, sphinx_bool test_extras )
+void test_query ( sphinx_client * client, const char * query )
 {
 	sphinx_result * res;
-	const char *query, *index;
+	const char *index;
 	int i, j, k;
 	unsigned int * mva;
 	const char * field_names[2];
 	int field_weights[2];
 
-	sphinx_uint64_t override_docid = 4;
-	unsigned int override_value = 456;
-
-	query = "test";
 	index = "test1";
 
 	field_names[0] = "title";
@@ -72,18 +72,22 @@ void test_query ( sphinx_client * client, sphinx_bool test_extras )
 	field_weights[0] = 1;
 	field_weights[1] = 1;
 
-	if ( test_extras )
+	res = sphinx_query ( client, query, index, NULL );
+
+	if ( !res )
 	{
-		sphinx_add_override ( client, "group_id", &override_docid, 1, &override_value );
-		sphinx_set_select ( client, "*, group_id*1000+@id*10 AS q" );
+		g_failed += ( res==NULL );
+
+		if ( !g_smoke )
+			die ( "query failed: %s", sphinx_error(client) );
 	}
 
-	res = sphinx_query ( client, query, index, NULL );
-	if ( !res )
-		die ( "query failed: %s", sphinx_error(client) );
+	if ( g_smoke )
+		printf ( "Query '%s' retrieved %d of %d matches.\n", query, res->total, res->total_found );
+	else
+		printf ( "Query '%s' retrieved %d of %d matches in %d.%03d sec.\n",
+			query, res->total, res->total_found, res->time_msec/1000, res->time_msec%1000 );
 
-	printf ( "Query '%s' retrieved %d of %d matches in %d.%03d sec.\n",
-		query, res->total, res->total_found, res->time_msec/1000, res->time_msec%1000 );
 	printf ( "Query stats:\n" );
 	for ( i=0; i<res->num_words; i++ )
 		printf ( "\t'%s' found %d times in %d documents\n",
@@ -146,6 +150,62 @@ void test_excerpt ( sphinx_client * client )
 		printf ( "exact_phrase=%d\n", j );
 
 		res = sphinx_build_excerpts ( client, ndocs, docs, index, words, &opts );
+
+		if ( !res )
+		{
+			g_failed += ( res==NULL );
+			if ( !g_smoke )
+				die ( "query failed: %s", sphinx_error(client) );
+		}
+
+		for ( i=0; i<ndocs; i++ )
+			printf ( "n=%d, res=%s\n", 1+i, res[i] );
+		printf ( "\n" );
+	}
+}
+
+
+void test_excerpt_spz ( sphinx_client * client )
+{
+	const char * docs[] =
+	{
+		"<efx_unidentified_table>"
+		"The institutional investment manager it. Is Filing this report and."
+		"<efx_test>"
+		"It is signed hereby represent. That it is all information."
+		"are It or is"
+		"</efx_test>"
+		"<efx_2>"
+		"cool It is cooler"
+		"</efx_2>"
+		"It is another place!"
+		"</efx_unidentified_table>"
+	};
+	const int ndocs = sizeof(docs)/sizeof(docs[0]);
+	const char * words = "it is";
+	const char * index = "test1";
+	sphinx_excerpt_options opts;
+	char ** res;
+	int i, j;
+
+	sphinx_init_excerpt_options ( &opts );
+	opts.limit = 150;
+	opts.limit_passages = 8;
+	opts.around = 8;
+	opts.html_strip_mode = "strip";
+	opts.passage_boundary = "zone";
+	opts.emit_zones = SPH_TRUE;
+
+	for ( j=0; j<2; j++ )
+	{
+		if ( j==1 )
+		{
+			opts.passage_boundary = "sentence";
+			opts.emit_zones = SPH_FALSE;
+		}
+		printf ( "passage_boundary=%s\n", opts.passage_boundary );
+
+		res = sphinx_build_excerpts ( client, ndocs, docs, index, words, &opts );
 		if ( !res )
 			die ( "query failed: %s", sphinx_error(client) );
 
@@ -164,6 +224,9 @@ void test_update ( sphinx_client * client, sphinx_uint64_t id )
 
 	res = sphinx_update_attributes ( client, "test1", 1, &attr, 1, &id, &val );
 	if ( res<0 )
+		g_failed++;
+
+	if ( res<0 )
 		printf ( "update failed: %s\n\n", sphinx_error(client) );
 	else
 		printf ( "update success, %d rows updated\n\n", res );
@@ -171,16 +234,19 @@ void test_update ( sphinx_client * client, sphinx_uint64_t id )
 
 void test_update_mva ( sphinx_client * client )
 {
-	const char * attr = "mva";
-	const sphinx_uint64_t id = 75;
-	const unsigned int vals[] = { 333, 431, 555 };
+	const char * attr = "tag";
+	const sphinx_uint64_t id = 3;
+	const unsigned int vals[] = { 7, 77, 177 };
 	int res;
 
 	res = sphinx_update_attributes_mva ( client, "test1", attr, id, sizeof(vals)/sizeof(vals[0]), vals );
 	if ( res<0 )
+		g_failed++;
+
+	if ( res<0 )
 		printf ( "update mva failed: %s\n\n", sphinx_error(client) );
 	else
-		printf ( "update success, %d rows updated\n\n", res );
+		printf ( "update mva success, %d rows updated\n\n", res );
 }
 
 
@@ -190,6 +256,9 @@ void test_keywords ( sphinx_client * client )
 	sphinx_keyword_info * words;
 
 	words = sphinx_build_keywords ( client, "hello test one", "test1", SPH_TRUE, &nwords );
+
+	g_failed += ( words==NULL );
+
 	if ( !words )
 	{
 		printf ( "build_keywords failed: %s\n\n", sphinx_error(client) );
@@ -213,6 +282,7 @@ void test_status ( sphinx_client * client )
 	status = sphinx_status ( client, &num_rows, &num_cols );
 	if ( !status )
 	{
+		g_failed++;
 		printf ( "status failed: %s\n\n", sphinx_error(client) );
 		return;
 	}
@@ -220,19 +290,68 @@ void test_status ( sphinx_client * client )
 	k = 0;
 	for ( i=0; i<num_rows; i++ )
 	{
-		for ( j=0; j<num_cols; j++, k++ )
-			printf ( ( j==0 ) ? "%s:" : " %s", status[k] );
-		printf ( "\n" );
+		if ( !g_smoke || ( strstr ( status[k], "time" )==NULL && strstr ( status[k], "wall" )==NULL ) )
+		{
+			for ( j=0; j<num_cols; j++, k++ )
+				printf ( ( j==0 ) ? "%s:" : " %s", status[k] );
+			printf ( "\n" );
+		} else
+			k += num_cols;
 	}
 	printf ( "\n" );
 
 	sphinx_status_destroy ( status, num_rows, num_cols );
 }
 
-
-int main ()
+void test_group_by ( sphinx_client * client, const char * attr )
 {
+	sphinx_set_groupby ( client, attr, SPH_GROUPBY_ATTR, "@group asc" );
+	test_query ( client, "is" );
+
+	sphinx_reset_groupby ( client );
+}
+
+void test_filter ( sphinx_client * client )
+{
+	const char * attr_group = "group_id";
+	const char * attr_mva = "tag";
+	sphinx_int64_t filter_group = { 1 };
+	sphinx_int64_t filter_mva = { 7 };
+	int i;
+	sphinx_bool mva;
+
+	for ( i=0; i<2; i++ )
+	{
+		mva = ( i==1 );
+		sphinx_add_filter ( client, mva ? attr_mva : attr_group, 1, mva ? &filter_mva : &filter_group, SPH_FALSE );
+		test_query ( client, "is" );
+
+		sphinx_reset_filters ( client );
+	}
+}
+
+void title ( const char * name )
+{
+	if ( g_smoke || !name )
+		return;
+
+	printf ( "-> % s <-\n\n", name );
+}
+
+int main ( int argc, char ** argv )
+{
+	int i, port = 0;
 	sphinx_client * client;
+	sphinx_uint64_t override_docid = 2;
+	unsigned int override_value = 2000;
+
+	for ( i=1; i<argc; i++ )
+	{
+		if ( strcmp ( argv[i], "--smoke" )==0 )
+			g_smoke = SPH_TRUE;
+		else if ( strcmp ( argv[i], "--port" )==0 && i+1<argc )
+			port = (int)strtoul ( argv[i+1], NULL, 10 );
+	}
 
 	net_init ();
 
@@ -240,29 +359,94 @@ int main ()
 	if ( !client )
 		die ( "failed to create client" );
 
-	test_query ( client, SPH_FALSE );
-	test_excerpt ( client );
-	test_update ( client, 75 );
-	test_update_mva ( client );
-	test_query ( client, SPH_FALSE );
-	test_keywords ( client );
-	test_query ( client, SPH_TRUE );
+	if ( port )
+		sphinx_set_server ( client, "127.0.0.1", port );
 
+	sphinx_set_match_mode ( client, SPH_MATCH_EXTENDED2 );
+	sphinx_set_sort_mode ( client, SPH_SORT_RELEVANCE, NULL );
+
+	// excerpt + keywords
+	title ( "excerpt" );
+	test_excerpt ( client );
+	test_excerpt_spz ( client );
+
+	title ( "keywords" );
+	test_keywords ( client );
+
+	// search phase 0
+	title ( "search phase 0" );
+	test_query ( client, "is" );
+	test_query ( client, "is test" );
+	test_query ( client, "test number" );
+
+	// group_by (attr; mva) + filter
+	title ( "group_by (attr; mva) + filter" );
+	title ( "group_by attr" );
+	test_group_by ( client, "group_id" );
+	// group_by mva
+	title ( "group_by mva" );
+	test_group_by ( client, "tag" );
+	// filter
+	title ( "filter" );
+	test_filter ( client );
+
+	// update (attr; mva) + sort (descending id)
+	title ( "update (attr; mva) + sort (descending id)" );
+	test_update ( client, 2 );
+	test_update_mva ( client );
+	sphinx_set_sort_mode ( client, SPH_SORT_EXTENDED, "idd desc" );
+	test_query ( client, "is" );
+
+	// persistence connection
 	sphinx_open ( client );
-	test_update ( client, 688 );
-	test_update ( client, 252 );
-	test_query ( client, SPH_FALSE );
+
+	// update (attr) + sort (default)
+	title ( "update (attr) + sort (default)" );
+	test_update ( client, 4 );
+	test_update ( client, 3 );
+	sphinx_set_sort_mode ( client, SPH_SORT_RELEVANCE, NULL );
+	test_query ( client, "is" );
+
 	sphinx_cleanup ( client );
-	test_query ( client, SPH_FALSE );
+
+	// group_by (attr; mva) + filter + post update
+	title ( "group_by (attr; mva) +  filter + post update" );
+	title ( "group_by attr" );
+	test_group_by ( client, "group_id" );
+	title ( "group_by mva" );
+	test_group_by ( client, "tag" );
+	title ( "filter" );
+	test_filter ( client );
+
+	// select
+	title ( "select" );
+	sphinx_set_select ( client, "*, group_id*1000+@id*10 AS q" );
+	test_query ( client, "is" );
+
+	// override
+	title ( "override" );
+	sphinx_add_override ( client, "group_id", &override_docid, 1, &override_value );
+	test_query ( client, "is" );
+
+	// group_by (override attr)
+	title ( "group_by (override attr)" );
+	test_group_by ( client, "group_id" );
 
 	sphinx_close ( client );
 
 	test_status ( client );
 
 	sphinx_destroy ( client );
+
+	if ( g_smoke && g_failed )
+	{
+		printf ( "%d error(s)\n", g_failed );
+		exit ( 1 );
+	}
+
 	return 0;
 }
 
 //
-// $Id: test.c 2399 2010-07-15 11:05:40Z tomat $
+// $Id: test.c 2616 2011-01-01 02:33:06Z shodan $
 //
