@@ -1,5 +1,5 @@
 #
-# $Id: sphinxapi.py 2694 2011-03-03 07:28:56Z tomat $
+# $Id: sphinxapi.py 2970 2011-09-23 16:50:22Z klirichek $
 #
 # Python version of Sphinx searchd client (Python API)
 #
@@ -27,13 +27,15 @@ SEARCHD_COMMAND_EXCERPT		= 1
 SEARCHD_COMMAND_UPDATE		= 2
 SEARCHD_COMMAND_KEYWORDS	= 3
 SEARCHD_COMMAND_PERSIST		= 4
+SEARCHD_COMMAND_STATUS		= 5
 SEARCHD_COMMAND_FLUSHATTRS	= 7
 
 # current client-side command implementation versions
-VER_COMMAND_SEARCH		= 0x118
-VER_COMMAND_EXCERPT		= 0x103
+VER_COMMAND_SEARCH		= 0x119
+VER_COMMAND_EXCERPT		= 0x104
 VER_COMMAND_UPDATE		= 0x102
 VER_COMMAND_KEYWORDS	= 0x100
+VER_COMMAND_STATUS		= 0x100
 VER_COMMAND_FLUSHATTRS	= 0x100
 
 # known searchd status codes
@@ -60,7 +62,8 @@ SPH_RANK_PROXIMITY		= 4
 SPH_RANK_MATCHANY		= 5
 SPH_RANK_FIELDMASK		= 6
 SPH_RANK_SPH04			= 7
-SPH_RANK_TOTAL			= 8
+SPH_RANK_EXPR			= 8
+SPH_RANK_TOTAL			= 9
 
 # known sort modes
 SPH_SORT_RELEVANCE		= 0
@@ -84,7 +87,8 @@ SPH_ATTR_BOOL			= 4
 SPH_ATTR_FLOAT			= 5
 SPH_ATTR_BIGINT			= 6
 SPH_ATTR_STRING			= 7
-SPH_ATTR_MULTI			= 0X40000000L
+SPH_ATTR_MULTI			= 0X40000001L
+SPH_ATTR_MULTI64		= 0X40000002L
 
 SPH_ATTR_TYPES = (SPH_ATTR_NONE,
 				  SPH_ATTR_INTEGER,
@@ -94,7 +98,8 @@ SPH_ATTR_TYPES = (SPH_ATTR_NONE,
 				  SPH_ATTR_FLOAT,
 				  SPH_ATTR_BIGINT,
 				  SPH_ATTR_STRING,
-				  SPH_ATTR_MULTI)
+				  SPH_ATTR_MULTI,
+				  SPH_ATTR_MULTI64)
 
 # known grouping functions
 SPH_GROUPBY_DAY	 		= 0
@@ -134,7 +139,9 @@ class SphinxClient:
 		self._anchor		= {}							# geographical anchor point
 		self._indexweights	= {}							# per-index weights
 		self._ranker		= SPH_RANK_PROXIMITY_BM25		# ranking mode
+		self._rankexpr		= ''							# ranking expression for SPH_RANK_EXPR
 		self._maxquerytime	= 0								# max query time, milliseconds (default is 0, do not limit)
+		self._timeout = 1.0										# connection timeout
 		self._fieldweights	= {}							# per-field-name weights
 		self._overrides		= {}							# per-query attribute values overrides
 		self._select		= '*'							# select-list (attributes or expressions, with optional aliases)
@@ -178,6 +185,13 @@ class SphinxClient:
 		self._port = port
 		self._path = None
 
+	def SetConnectTimeout ( self, timeout ):
+		"""
+		Set connection timeout ( float second )
+		"""
+		assert (isinstance(timeout, float))
+		# set timeout to 0 make connaection non-blocking that is wrong so timeout got clipped to reasonable minimum
+		self._timeout = max ( 0.001, timeout )
 					
 	def _Connect (self):
 		"""
@@ -205,6 +219,7 @@ class SphinxClient:
 				addr = ( self._host, self._port )
 				desc = '%s;%s' % addr
 			sock = socket.socket ( af, socket.SOCK_STREAM )
+			sock.settimeout ( self._timeout )
 			sock.connect ( addr )
 		except socket.error, msg:
 			if sock:
@@ -308,12 +323,13 @@ class SphinxClient:
 		self._mode = mode
 
 
-	def SetRankingMode (self, ranker):
+	def SetRankingMode ( self, ranker, rankexpr='' ):
 		"""
 		Set ranking mode.
 		"""
 		assert(ranker>=0 and ranker<SPH_RANK_TOTAL)
 		self._ranker = ranker
+		self._rankexpr = rankexpr
 
 
 	def SetSortMode ( self, mode, clause='' ):
@@ -501,7 +517,11 @@ class SphinxClient:
 		"""
 		# build request
 		req = []
-		req.append ( pack('>5L', self._offset, self._limit, self._mode, self._ranker, self._sort) )
+		req.append(pack('>4L', self._offset, self._limit, self._mode, self._ranker))
+		if self._ranker==SPH_RANK_EXPR:
+			req.append(pack('>L', len(self._rankexpr)))
+			req.append(self._rankexpr)
+		req.append(pack('>L', self._sort))
 		req.append(pack('>L', len(self._sortby)))
 		req.append(self._sortby)
 
@@ -708,13 +728,22 @@ class SphinxClient:
 						if slen>0:
 							match['attrs'][attrs[i][0]] = response[p:p+slen]
 						p += slen-4
-					elif attrs[i][1] == (SPH_ATTR_MULTI | SPH_ATTR_INTEGER):
+					elif attrs[i][1] == SPH_ATTR_MULTI:
 						match['attrs'][attrs[i][0]] = []
 						nvals = unpack('>L', response[p:p+4])[0]
 						p += 4
 						for n in range(0,nvals,1):
 							match['attrs'][attrs[i][0]].append(unpack('>L', response[p:p+4])[0])
 							p += 4
+						p -= 4
+					elif attrs[i][1] == SPH_ATTR_MULTI64:
+						match['attrs'][attrs[i][0]] = []
+						nvals = unpack('>L', response[p:p+4])[0]
+						nvals = nvals/2
+						p += 4
+						for n in range(0,nvals,1):
+							match['attrs'][attrs[i][0]].append(unpack('>q', response[p:p+8])[0])
+							p += 8
 						p -= 4
 					else:
 						match['attrs'][attrs[i][0]] = unpack('>L', response[p:p+4])[0]
@@ -786,7 +815,8 @@ class SphinxClient:
 		if opts.get('force_all_words'):	flags |= 64
 		if opts.get('load_files'):		flags |= 128
 		if opts.get('allow_empty'):		flags |= 256
-		if opts.get('emit_zones'):		flags |= 256
+		if opts.get('emit_zones'):		flags |= 512
+		if opts.get('load_files_scattered'):	flags |= 1024
 		
 		# mode=0, flags
 		req = [pack('>2L', 0, flags)]
@@ -993,6 +1023,40 @@ class SphinxClient:
 
 		return res
 
+	def Status ( self ):
+		"""
+		Get the status
+		"""
+
+		# connect, send query, get response
+		sock = self._Connect()
+		if not sock:
+			return None
+
+		req = pack ( '>2HLL', SEARCHD_COMMAND_STATUS, VER_COMMAND_STATUS, 4, 1 )
+		wrote = sock.send ( req )
+
+		response = self._GetResponse ( sock, VER_COMMAND_STATUS )
+		if not response:
+			return None
+
+		# parse response
+		res = []
+
+		p = 8
+		max_ = len(response)
+
+		while p<max_:
+			length = unpack ( '>L', response[p:p+4] )[0]
+			k = response[p+4:p+length+4]
+			p += 4+length
+			length = unpack ( '>L', response[p:p+4] )[0]
+			v = response[p+4:p+length+4]
+			p += 4+length
+			res += [[k, v]]
+
+		return res
+
 	### persistent connections
 
 	def Open(self):
@@ -1047,5 +1111,5 @@ def AssertUInt32 ( value ):
 	assert(value>=0 and value<=2**32-1)
 		
 #
-# $Id: sphinxapi.py 2694 2011-03-03 07:28:56Z tomat $
+# $Id: sphinxapi.py 2970 2011-09-23 16:50:22Z klirichek $
 #

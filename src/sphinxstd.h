@@ -1,5 +1,5 @@
 //
-// $Id: sphinxstd.h 2810 2011-05-09 18:59:08Z shodan $
+// $Id: sphinxstd.h 2996 2011-11-02 11:30:13Z shodan $
 //
 
 //
@@ -95,7 +95,7 @@ typedef int __declspec("SAL_nokernel") __declspec("SAL_nodriver") __prefast_flag
 
 #if USE_ODBC
 // UnixODBC compatible DWORD
-#if defined(__alpha) || defined(__sparcv9) || defined(__LP64__) || (defined(__HOS_AIX__) && defined(_LP64))
+#if defined(__alpha) || defined(__sparcv9) || defined(__LP64__) || (defined(__HOS_AIX__) && defined(_LP64)) || defined(__APPLE__)
 typedef unsigned int		DWORD;
 #else
 typedef unsigned long		DWORD;
@@ -154,8 +154,13 @@ typedef unsigned long long uint64_t;
 #define UINT64_FMT "%" PRIu64
 #define INT64_FMT "%" PRIi64
 
+#ifndef UINT64_MAX
 #define UINT64_MAX U64C(0xffffffffffffffff)
+#endif
+
+#ifndef INT64_MAX
 #define INT64_MAX I64C(0x7fffffffffffffff)
+#endif
 
 STATIC_SIZE_ASSERT ( uint64_t, 8 );
 STATIC_SIZE_ASSERT ( int64_t, 8 );
@@ -441,6 +446,9 @@ void sphHeapSort ( T * pData, int iCount, U COMP, V ACC )
 template < typename T, typename U, typename V >
 void sphSort ( T * pData, int iCount, U COMP, V ACC )
 {
+	if ( iCount<2 )
+		return;
+
 	typedef T * P;
 	P st0[32], st1[32], a, b, i, j;
 	typename V::MEDIAN_TYPE x;
@@ -962,6 +970,16 @@ protected:
 #define ARRAY_FOREACH_COND(_index,_array,_cond) \
 	for ( int _index=0; _index<_array.GetLength() && (_cond); _index++ )
 
+#define ARRAY_ANY(_res,_array,_cond) \
+	false; \
+	for ( int _any=0; _any<_array.GetLength() && !_res; _any++ ) \
+		_res |= ( _cond ); \
+
+#define ARRAY_ALL(_res,_array,_cond) \
+	true; \
+	for ( int _all=0; _all<_array.GetLength() && _res; _all++ ) \
+		_res &= ( _cond ); \
+
 //////////////////////////////////////////////////////////////////////////
 
 /// swap-vector policy (for non-copyable classes)
@@ -1067,7 +1085,7 @@ public:
 
 /// simple dynamic hash
 /// keeps the order, so Iterate() return the entries in the order they was inserted
-template < typename T, typename KEY, typename HASHFUNC, int LENGTH, int STEP >
+template < typename T, typename KEY, typename HASHFUNC, int LENGTH >
 class CSphOrderedHash
 {
 protected:
@@ -1143,7 +1161,7 @@ public:
 
 	/// add new entry
 	/// returns true on success
-	/// returns false if this key is alredy hashed
+	/// returns false if this key is already hashed
 	bool Add ( const T & tValue, const KEY & tKey )
 	{
 		unsigned int uHash = ( (unsigned int) HASHFUNC::Hash ( tKey ) ) % LENGTH;
@@ -1267,7 +1285,7 @@ public:
 	}
 
 	/// copying
-	const CSphOrderedHash<T,KEY,HASHFUNC,LENGTH,STEP> & operator = ( const CSphOrderedHash<T,KEY,HASHFUNC,LENGTH,STEP> & rhs )
+	const CSphOrderedHash<T,KEY,HASHFUNC,LENGTH> & operator = ( const CSphOrderedHash<T,KEY,HASHFUNC,LENGTH> & rhs )
 	{
 		if ( this!=&rhs )
 		{
@@ -1281,7 +1299,7 @@ public:
 	}
 
 	/// copyint ctor
-	CSphOrderedHash<T,KEY,HASHFUNC,LENGTH,STEP> ( const CSphOrderedHash<T,KEY,HASHFUNC,LENGTH,STEP> & rhs )
+	CSphOrderedHash<T,KEY,HASHFUNC,LENGTH> ( const CSphOrderedHash<T,KEY,HASHFUNC,LENGTH> & rhs )
 		: m_pFirstByOrder ( NULL )
 		, m_pLastByOrder ( NULL )
 		, m_iLength ( 0 )
@@ -1692,7 +1710,7 @@ struct CSphStrHashFunc
 
 /// small hash with string keys
 template < typename T >
-class SmallStringHash_T : public CSphOrderedHash < T, CSphString, CSphStrHashFunc, 256, 13 > {};
+class SmallStringHash_T : public CSphOrderedHash < T, CSphString, CSphStrHashFunc, 256 > {};
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -1928,11 +1946,14 @@ public:
 	explicit CSphProcessSharedMutex ( int iExtraSize=0 );
 	void	Lock () const;
 	void	Unlock () const;
+	bool	TimedLock ( int tmSpin ) const; // wait at least tmSpin microseconds the lock will available
+	const char * GetError () const;
 
 protected:
 #if !USE_WINDOWS
 	CSphSharedBuffer<BYTE>		m_pStorage;
 	pthread_mutex_t *			m_pMutex;
+	CSphString					m_sError;
 #endif
 };
 
@@ -2095,8 +2116,220 @@ private:
 #endif
 };
 
+// small bitvector of 256 elements.
+class CSphSmallBitvec
+{
+public:
+	static const int iTOTALBITS = 256;
+
+private:
+	static const int iELEMBITS = sizeof(DWORD) * 8;
+	static const int iBYTESIZE = iTOTALBITS / 8;
+	static const int IELEMENTS = iTOTALBITS / iELEMBITS;
+	static const DWORD uALLBITS = ~(0UL);
+	STATIC_ASSERT ( IELEMENTS>=1, 8_BITS_MINIMAL_SIZE_OF_VECTOR );
+
+public:
+	DWORD m_dFieldsMask[IELEMENTS];
+
+public:
+	// no custom cstr and d-tor - to be usable from inside unions
+	// deep copy for it is ok - so, no explicit copying constructor and operator=
+
+	// old-fashion layer to work with DWORD (32-bit) mask.
+	// all bits above 32 assumed to be unset.
+	void Assign32 ( DWORD uMask )
+	{
+		Unset();
+		m_dFieldsMask[0] = uMask;
+	}
+
+	DWORD GetMask32 () const
+	{
+		return (DWORD) ( m_dFieldsMask[0] & 0xFFFFFFFFUL );
+	}
+
+	// set n-th bit, or all
+	void Set ( int iIdx=-1 )
+	{
+		assert ( iIdx < iTOTALBITS );
+		if ( iIdx<0 )
+			for ( int i=0; i<IELEMENTS; i++ )
+				m_dFieldsMask[i] = uALLBITS;
+		else
+			m_dFieldsMask[iIdx/iELEMBITS] |= 1UL << ( iIdx & ( iELEMBITS-1 ) );
+	}
+
+	// unset n-th bit, or all
+	void Unset ( int iIdx=-1 )
+	{
+		assert ( iIdx < iTOTALBITS );
+		if ( iIdx<0 )
+			for ( int i=0; i<IELEMENTS; i++ )
+				m_dFieldsMask[i] = 0UL;
+		else
+			m_dFieldsMask[iIdx/iELEMBITS] &= ~(1UL << ( iIdx & ( iELEMBITS-1 ) ));
+	}
+
+	// test if n-th bit is set
+	bool Test ( int iIdx ) const
+	{
+		assert ( iIdx>=0 && iIdx<iTOTALBITS );
+		return ( m_dFieldsMask[iIdx/iELEMBITS] & ( 1UL << ( iIdx & ( iELEMBITS-1 ) ) ) )!=0;
+	}
+
+	// test the given mask (with &-operator)
+	bool Test ( const CSphSmallBitvec& dParam ) const
+	{
+		for ( int i=0; i<IELEMENTS; i++ )
+			if ( m_dFieldsMask[i] & dParam.m_dFieldsMask[i] )
+				return true;
+		return false;
+	}
+
+	// test if all bits are set or unset
+	bool TestAll ( bool bSet=false ) const
+	{
+		DWORD uTest = bSet?uALLBITS:0;
+		for ( int i=0; i<IELEMENTS; i++ )
+			if ( m_dFieldsMask[i]!=uTest )
+				return false;
+		return true;
+	}
+
+	friend CSphSmallBitvec operator & ( const CSphSmallBitvec& dFirst, const CSphSmallBitvec& dSecond );
+	friend CSphSmallBitvec operator | ( const CSphSmallBitvec& dFirst, const CSphSmallBitvec& dSecond );
+	friend bool operator == ( const CSphSmallBitvec& dFirst, const CSphSmallBitvec& dSecond );
+	CSphSmallBitvec& operator |= ( const CSphSmallBitvec& dSecond )
+	{
+		if ( &dSecond!=this )
+			for ( int i=0; i<IELEMENTS; i++ )
+				m_dFieldsMask[i] |= dSecond.m_dFieldsMask[i];
+		return *this;
+	}
+
+	// cut out all the bits over given number
+	void LimitBits ( int iBits )
+	{
+		if ( iBits>=iTOTALBITS )
+			return;
+
+		int iMaskPos = iBits / iELEMBITS;
+		DWORD uMask = ( 1UL << ( iBits % iELEMBITS ) ) - 1;
+		m_dFieldsMask[iMaskPos++] &= uMask;
+		for ( ; iMaskPos < IELEMENTS; iMaskPos++ )
+			m_dFieldsMask[iMaskPos] = 0UL;
+	}
+
+	void Negate()
+	{
+		for ( int i=0; i<IELEMENTS; i++ )
+			m_dFieldsMask[i] = ~m_dFieldsMask[i];
+	}
+};
+
+#if USE_WINDOWS
+#pragma warning(push,1)
+#pragma warning(disable:4701)
+#endif
+
+inline CSphSmallBitvec operator & ( const CSphSmallBitvec& dFirst, const CSphSmallBitvec& dSecond )
+{
+	if ( &dFirst==&dSecond )
+		return dFirst;
+
+	CSphSmallBitvec dResult;
+	for ( int i=0; i<CSphSmallBitvec::IELEMENTS; i++ )
+			dResult.m_dFieldsMask[i] = dFirst.m_dFieldsMask[i] & dSecond.m_dFieldsMask[i];
+	return dResult;
+}
+
+inline CSphSmallBitvec operator | ( const CSphSmallBitvec& dFirst, const CSphSmallBitvec& dSecond )
+{
+	if ( &dFirst==&dSecond )
+		return dFirst;
+
+	CSphSmallBitvec dResult;
+	for ( int i=0; i<CSphSmallBitvec::IELEMENTS; i++ )
+		dResult.m_dFieldsMask[i] = dFirst.m_dFieldsMask[i] | dSecond.m_dFieldsMask[i];
+	return dResult;
+}
+
+inline bool operator == ( const CSphSmallBitvec& dFirst, const CSphSmallBitvec& dSecond )
+{
+	if ( &dFirst==&dSecond )
+		return true;
+
+	return !memcmp ( &dFirst.m_dFieldsMask, &dSecond.m_dFieldsMask, CSphSmallBitvec::iBYTESIZE );
+}
+
+inline bool operator != ( const CSphSmallBitvec& dFirst, const CSphSmallBitvec& dSecond )
+{
+	return !( dFirst==dSecond );
+}
+
+#if USE_WINDOWS
+#pragma warning(pop)
+#endif
+
+//////////////////////////////////////////////////////////////////////////
+
+/// generic dynamic bitvector
+/// with a preallocated part for small-size cases, and a dynamic route for big-size ones
+class CSphBitvec
+{
+protected:
+	DWORD *		m_pData;
+	DWORD		m_uStatic[4];
+	int			m_iElements;
+
+public:
+	CSphBitvec ()
+		: m_pData ( NULL )
+		, m_iElements ( 0 )
+	{}
+
+	~CSphBitvec ()
+	{
+		if ( m_pData && m_pData!=m_uStatic )
+			SafeDeleteArray ( m_pData );
+	}
+
+	void Init ( int iElements )
+	{
+		assert ( iElements>0 );
+		m_iElements = iElements;
+		if ( iElements > int(sizeof(m_uStatic)*8) )
+		{
+			int iSize = (m_iElements+31)/32;
+			m_pData = new DWORD [ iSize ];
+			memset ( m_pData, 0, sizeof(DWORD)*iSize );
+		} else
+		{
+			m_pData = m_uStatic;
+			for ( int i=0; i<int(sizeof(m_uStatic)/sizeof(m_uStatic[0])); i++ )
+				m_uStatic[i] = 0;
+		}
+	}
+
+	bool BitGet ( int iIndex ) const
+	{
+		assert ( m_pData );
+		assert ( iIndex>=0 );
+		assert ( iIndex<m_iElements );
+		return ( m_pData [ iIndex>>5 ] & ( 1UL<<( iIndex&31 ) ) )!=0; // NOLINT
+	}
+
+	void BitSet ( int iIndex )
+	{
+		assert ( iIndex>=0 );
+		assert ( iIndex<m_iElements );
+		m_pData [ iIndex>>5 ] |= ( 1UL<<( iIndex&31 ) ); // NOLINT
+	}
+};
+
 #endif // _sphinxstd_
 
 //
-// $Id: sphinxstd.h 2810 2011-05-09 18:59:08Z shodan $
+// $Id: sphinxstd.h 2996 2011-11-02 11:30:13Z shodan $
 //

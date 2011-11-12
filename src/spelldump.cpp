@@ -1,5 +1,5 @@
 //
-// $Id: spelldump.cpp 2616 2011-01-01 02:33:06Z shodan $
+// $Id: spelldump.cpp 2968 2011-09-23 16:31:11Z shodan $
 //
 
 //
@@ -976,7 +976,7 @@ struct WordLess
 	}
 };
 
-typedef CSphOrderedHash < CSphVector<MapInfo_t>, CSphString, CSphStrHashFunc, 100000, 13 > WordMap_t;
+typedef CSphOrderedHash < CSphVector<MapInfo_t>, CSphString, CSphStrHashFunc, 100000 > WordMap_t;
 
 static void EmitResult ( WordMap_t & tMap , const CSphString & sFrom, const CSphString & sTo, char cRuleA = 0, char cRuleB = 0 )
 {
@@ -1191,5 +1191,5 @@ int main ( int iArgs, char ** dArgs )
 }
 
 //
-// $Id: spelldump.cpp 2616 2011-01-01 02:33:06Z shodan $
+// $Id: spelldump.cpp 2968 2011-09-23 16:31:11Z shodan $
 //

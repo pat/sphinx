@@ -1,5 +1,5 @@
 //
-// $Id: test.c 2616 2011-01-01 02:33:06Z shodan $
+// $Id: test.c 2992 2011-10-30 20:31:23Z tomat $
 //
 
 //
@@ -57,7 +57,7 @@ void test_query ( sphinx_client * client, const char * query )
 {
 	sphinx_result * res;
 	const char *index;
-	int i, j, k;
+	int i, j, k, mva_len;
 	unsigned int * mva;
 	const char * field_names[2];
 	int field_weights[2];
@@ -104,11 +104,13 @@ void test_query ( sphinx_client * client, const char * query )
 			printf ( ", %s=", res->attr_names[j] );
 			switch ( res->attr_types[j] )
 			{
-			case SPH_ATTR_MULTI | SPH_ATTR_INTEGER:
+			case SPH_ATTR_MULTI64:
+			case SPH_ATTR_MULTI:
 				mva = sphinx_get_mva ( res, i, j );
+				mva_len = *mva++;
 				printf ( "(" );
-				for ( k=0; k<(int)mva[0]; k++ )
-					printf ( k ? ",%u" : "%u", mva[1+k] );
+				for ( k=0; k<mva_len; k++ )
+					printf ( k ? ",%u" : "%u", ( res->attr_types[j]==SPH_ATTR_MULTI ? mva[k] : (unsigned int)sphinx_get_mva64_value ( mva, k ) ) );
 				printf ( ")" );
 				break;
 
@@ -143,6 +145,7 @@ void test_excerpt ( sphinx_client * client )
 	sphinx_init_excerpt_options ( &opts );
 	opts.limit = 60;
 	opts.around = 3;
+	opts.allow_empty = SPH_TRUE;
 
 	for ( j=0; j<2; j++ )
 	{
@@ -213,6 +216,76 @@ void test_excerpt_spz ( sphinx_client * client )
 			printf ( "n=%d, res=%s\n", 1+i, res[i] );
 		printf ( "\n" );
 	}
+}
+
+
+void test_persist_work ( sphinx_client * client )
+{
+	char * docs[] = { NULL };
+	const char words[] = "that is";
+	const char * index = "test1";
+	const char filler[] = " no need to worry about ";
+	sphinx_excerpt_options opts;
+	char ** res;
+	char * doc;
+	int i ;
+
+	// should be in sync with sphinxclient.c MAX_PACKET_LEN
+	i = 8*1024*1024 + 50;
+	docs[0] = malloc ( i );
+	if ( !docs[0] )
+		die ( "malloc failed at test_persist_work" );
+
+	memcpy ( docs[0], words, sizeof(words)-1 );
+	doc = docs[0] + sizeof(words)-1;
+	while ( ( doc + sizeof(filler) )<docs[0]+i )
+	{
+		memcpy ( doc, filler, sizeof(filler)-1 );
+		doc += sizeof(filler)-1;
+	}
+	*doc = '\0';
+
+	sphinx_open ( client );
+
+	for ( i=0; i<2; i++ )
+	{
+		if ( i==0 )
+		{
+			sphinx_init_excerpt_options ( &opts );
+			opts.limit = 0;
+			opts.limit_passages = 0;
+			opts.around = 0;
+			opts.html_strip_mode = "none";
+			opts.query_mode = SPH_TRUE;
+		} else
+		{
+			sphinx_init_excerpt_options ( &opts );
+			opts.limit = 500;
+			opts.limit_words = 10;
+			opts.limit_passages = 2;
+			opts.around = 5;
+			opts.html_strip_mode = "none";
+			opts.query_mode = SPH_TRUE;
+
+			*( docs[0]+sizeof(words)+100 ) = '\0';
+		}
+
+		printf ( "n=%d,\t", i );
+		res = sphinx_build_excerpts ( client, 1, docs, index, words, &opts );
+
+		if ( !res )
+		{
+			g_failed += ( res==NULL && i ); // 1st query fails, 2nd works
+			printf ( "query failed: %s", sphinx_error(client) );
+		} else
+		{
+			printf ( "res=%s", res[0] );
+			free ( res );
+		}
+		printf ( "\n" );
+	}
+	sphinx_close ( client );
+	printf ( "\n" );
 }
 
 
@@ -436,6 +509,10 @@ int main ( int argc, char ** argv )
 
 	test_status ( client );
 
+	// long queries
+	title ( "long queries vs persist connection" );
+	test_persist_work ( client );
+
 	sphinx_destroy ( client );
 
 	if ( g_smoke && g_failed )
@@ -448,5 +525,5 @@ int main ( int argc, char ** argv )
 }
 
 //
-// $Id: test.c 2616 2011-01-01 02:33:06Z shodan $
+// $Id: test.c 2992 2011-10-30 20:31:23Z tomat $
 //

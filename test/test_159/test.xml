@@ -38,7 +38,7 @@ index rt
 	type			= rt
     docinfo			= extern
     charset_type	= sbcs
-	path			= <data_path/>/plain
+	path			= <data_path/>/rt
 
 	rt_attr_uint	= IDD1
 	rt_attr_uint	= iDD2
@@ -109,6 +109,12 @@ INSERT INTO `test_table` VALUES
 <sphinxql>select * from dist where match ('cat | eats') order by Str1 asc</sphinxql>
 <sphinxql>select * from dist where match ('cat | eats') order by Str1 asc, sTr2 desc</sphinxql>
 <sphinxql>select * from dist where match ('cat | eats') order by Str1 asc, Idd1 asc</sphinxql>
+<!-- regression missed string pool in grouper on match -->
+<sphinxql>select * from dist where match ('cat | eats') group by str1 within group order by id desc</sphinxql>
+<sphinxql>select * from dist group by str2  within group order by id desc</sphinxql>
+<!-- regression sorter gives first matches instead bests -->
+<sphinxql>select id, str1 from rt group by idd1 order by id asc limit 0,2 option max_matches=2</sphinxql>
+<sphinxql>select id, str1 from rt group by idd1 order by id asc limit 2,2 option max_matches=4</sphinxql>
 </sphqueries>
 
 </test>

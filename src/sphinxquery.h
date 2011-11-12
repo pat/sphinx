@@ -1,5 +1,5 @@
 //
-// $Id: sphinxquery.h 2801 2011-04-30 18:11:48Z shodan $
+// $Id: sphinxquery.h 2914 2011-08-13 15:54:34Z tomat $
 //
 
 //
@@ -37,6 +37,7 @@ struct XQKeyword_t
 	bool				m_bFieldEnd;	///< must occur at very end
 	DWORD				m_uStarPosition;
 	bool				m_bExpanded;	///< added by prefix expansion
+	bool				m_bExcluded;	///< excluded by query (rval to operator NOT)
 
 	XQKeyword_t ()
 		: m_iAtomPos ( -1 )
@@ -44,6 +45,7 @@ struct XQKeyword_t
 		, m_bFieldEnd ( false )
 		, m_uStarPosition ( STAR_NONE )
 		, m_bExpanded ( false )
+		, m_bExcluded ( false )
 	{}
 
 	XQKeyword_t ( const char * sWord, int iPos )
@@ -53,6 +55,7 @@ struct XQKeyword_t
 		, m_bFieldEnd ( false )
 		, m_uStarPosition ( STAR_NONE )
 		, m_bExpanded ( false )
+		, m_bExcluded ( false )
 	{}
 };
 
@@ -93,7 +96,7 @@ public:
 	CSphVector<XQNode_t*>	m_dChildren;	///< non-plain node children
 
 	bool					m_bFieldSpec;	///< whether field spec was already explicitly set
-	DWORD					m_uFieldMask;	///< fields mask (spec part)
+	CSphSmallBitvec			m_dFieldMask;	///< fields mask (spec part)
 	int						m_iFieldMaxPos;	///< max position within field (spec part)
 
 	CSphVector<int>			m_dZones;		///< zone indexes in per-query zones list
@@ -113,13 +116,14 @@ public:
 		, m_iCounter ( 0 )
 		, m_iMagicHash ( 0 )
 		, m_bFieldSpec ( false )
-		, m_uFieldMask ( 0xFFFFFFFFUL )
 		, m_iFieldMaxPos ( 0 )
 		, m_iOpArg ( 0 )
 		, m_iAtomPos ( -1 )
 		, m_bVirtuallyPlain ( false )
 		, m_bNotWeighted ( false )
-	{}
+	{
+		m_dFieldMask.Set();
+	}
 
 	/// dtor
 	~XQNode_t ()
@@ -136,7 +140,7 @@ public:
 	}
 
 	/// setup field limits
-	void SetFieldSpec ( DWORD uMask, int iMaxPos );
+	void SetFieldSpec ( const CSphSmallBitvec& uMask, int iMaxPos );
 
 	/// setup zone limits
 	void SetZoneSpec ( const CSphVector<int> & dZones );
@@ -237,7 +241,7 @@ struct XQQuery_t : public ISphNoncopyable
 /// parses the query and returns the resulting tree
 /// return false and fills tQuery.m_sParseError on error
 /// WARNING, parsed tree might be NULL (eg. if query was empty)
-bool	sphParseExtendedQuery ( XQQuery_t & tQuery, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict );
+bool	sphParseExtendedQuery ( XQQuery_t & tQuery, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict, int iStopwordStep );
 
 /// analyse vector of trees and tag common parts of them (to cache them later)
 int		sphMarkCommonSubtrees ( int iXQ, const XQQuery_t * pXQ );
@@ -245,5 +249,5 @@ int		sphMarkCommonSubtrees ( int iXQ, const XQQuery_t * pXQ );
 #endif // _sphinxquery_
 
 //
-// $Id: sphinxquery.h 2801 2011-04-30 18:11:48Z shodan $
+// $Id: sphinxquery.h 2914 2011-08-13 15:54:34Z tomat $
 //

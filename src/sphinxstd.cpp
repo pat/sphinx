@@ -1,5 +1,5 @@
 //
-// $Id: sphinxstd.cpp 2740 2011-03-22 15:39:59Z klirichek $
+// $Id: sphinxstd.cpp 3000 2011-11-05 15:53:22Z shodan $
 //
 
 //
@@ -736,16 +736,31 @@ CSphProcessSharedMutex::CSphProcessSharedMutex ( int iExtraSize )
 	m_pMutex = NULL;
 
 	pthread_mutexattr_t tAttr;
-	if ( pthread_mutexattr_init ( &tAttr ) || pthread_mutexattr_setpshared ( &tAttr, PTHREAD_PROCESS_SHARED ) )
+	int iRes = pthread_mutexattr_init ( &tAttr );
+	if ( iRes )
+	{
+		m_sError.SetSprintf ( "pthread_mutexattr_init, errno=%d", iRes );
 		return;
+	}
+	iRes = pthread_mutexattr_setpshared ( &tAttr, PTHREAD_PROCESS_SHARED );
+	if ( iRes )
+	{
+		m_sError.SetSprintf ( "pthread_mutexattr_setpshared, errno = %d", iRes );
+		return;
+	}
 
 	CSphString sError, sWarning;
 	if ( !m_pStorage.Alloc ( sizeof(pthread_mutex_t) + iExtraSize, sError, sWarning ) )
+	{
+		m_sError.SetSprintf ( "storage.alloc, error='%s', warning='%s'", sError.cstr(), sWarning.cstr() );
 		return;
+	}
 
 	m_pMutex = (pthread_mutex_t*) m_pStorage.GetWritePtr ();
-	if ( pthread_mutex_init ( m_pMutex, &tAttr ) )
+	iRes = pthread_mutex_init ( m_pMutex, &tAttr );
+	if ( iRes )
 	{
+		m_sError.SetSprintf ( "pthread_mutex_init, errno=%d ", iRes );
 		m_pMutex = NULL;
 		m_pStorage.Reset ();
 		return;
@@ -773,6 +788,57 @@ void CSphProcessSharedMutex::Unlock () const
 		pthread_mutex_unlock ( m_pMutex );
 #endif
 }
+
+
+bool CSphProcessSharedMutex::TimedLock ( int tmSpin ) const
+{
+#if USE_WINDOWS
+	return false;
+#else
+	if ( !m_pMutex )
+		return false;
+
+#if defined(HAVE_PTHREAD_MUTEX_TIMEDLOCK) && defined(HAVE_CLOCK_GETTIME)
+	struct timespec tp;
+	clock_gettime ( CLOCK_REALTIME, &tp );
+
+	tp.tv_nsec += tmSpin * 1000;
+	if ( tp.tv_nsec > 1000000 )
+	{
+		int iDelta = (int)( tp.tv_nsec / 1000000 );
+		tp.tv_sec += iDelta * 1000000;
+		tp.tv_nsec -= iDelta * 1000000;
+	}
+
+	return ( pthread_mutex_timedlock ( m_pMutex, &tp )==0 );
+#else
+	int iRes = EBUSY;
+	int64_t tmTill = sphMicroTimer() + tmSpin;
+	do
+	{
+		iRes = pthread_mutex_trylock ( m_pMutex );
+		if ( iRes==EBUSY )
+			sphSleepMsec ( 0 );
+	} while ( iRes==EBUSY && sphMicroTimer()<tmTill );
+
+	if ( iRes==EBUSY )
+		iRes = pthread_mutex_trylock ( m_pMutex );
+
+	return iRes!=0;
+#endif // HAVE_PTHREAD_MUTEX_TIMEDLOCK && HAVE_CLOCK_GETTIME
+#endif // USE_WINDOWS
+}
+
+
+const char * CSphProcessSharedMutex::GetError() const
+{
+	const char * sError = NULL;
+#if !USE_WINDOWS
+	sError = m_sError.cstr();
+#endif
+	return sError;
+}
+
 
 //////////////////////////////////////////////////////////////////////////
 // THREADING FUNCTIONS
@@ -1236,5 +1302,5 @@ bool CSphRwlock::Unlock ()
 #endif
 
 //
-// $Id: sphinxstd.cpp 2740 2011-03-22 15:39:59Z klirichek $
+// $Id: sphinxstd.cpp 3000 2011-11-05 15:53:22Z shodan $
 //

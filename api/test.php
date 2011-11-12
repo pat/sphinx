@@ -1,7 +1,7 @@
 <?php
 
 //
-// $Id: test.php 2081 2009-11-18 18:13:43Z shodan $
+// $Id: test.php 2903 2011-08-04 13:30:49Z shodan $
 //
 
 require ( "sphinxapi.php" );
@@ -58,6 +58,7 @@ $filter = "group_id";
 $filtervals = array();
 $distinct = "";
 $sortby = "";
+$sortexpr = "";
 $limit = 20;
 $ranker = SPH_RANK_PROXIMITY_BM25;
 $select = "";
@@ -145,7 +146,7 @@ if ( $res===false )
 			foreach ( $res["attrs"] as $attrname => $attrtype )
 			{
 				$value = $docinfo["attrs"][$attrname];
-				if ( $attrtype & SPH_ATTR_MULTI )
+				if ( $attrtype==SPH_ATTR_MULTI || $attrtype==SPH_ATTR_MULTI64 )
 				{
 					$value = "(" . join ( ",", $value ) .")";
 				} else
@@ -162,7 +163,7 @@ if ( $res===false )
 }
 
 //
-// $Id: test.php 2081 2009-11-18 18:13:43Z shodan $
+// $Id: test.php 2903 2011-08-04 13:30:49Z shodan $
 //
 
 ?>

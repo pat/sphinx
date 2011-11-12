@@ -1,5 +1,5 @@
 //
-// $Id: testrt.cpp 2775 2011-04-14 07:52:22Z tomat $
+// $Id: testrt.cpp 2948 2011-09-11 23:24:14Z tomat $
 //
 
 //
@@ -71,6 +71,7 @@ void DoSearch ( CSphIndex * pIndex )
 void DoIndexing ( CSphSource * pSrc, ISphRtIndex * pIndex )
 {
 	CSphString sError;
+	CSphVector<DWORD> dMvas;
 
 	int64_t tmStart = sphMicroTimer ();
 	int64_t tmAvgCommit = 0;
@@ -85,7 +86,7 @@ void DoIndexing ( CSphSource * pSrc, ISphRtIndex * pIndex )
 			sphDie ( "iterate-hits failed: %s", sError.cstr() );
 
 		if ( pSrc->m_tDocInfo.m_iDocID )
-			pIndex->AddDocument ( pHitsNext, pSrc->m_tDocInfo, NULL, sError );
+			pIndex->AddDocument ( pHitsNext, pSrc->m_tDocInfo, NULL, dMvas, sError );
 
 		if ( ( pSrc->GetStats().m_iTotalDocuments % COMMIT_STEP )==0 || !pSrc->m_tDocInfo.m_iDocID )
 		{
@@ -195,8 +196,8 @@ int main ()
 	sphRTInit();
 	sphRTConfigure ( tRTConfig, true );
 	SmallStringHash_T< CSphIndex * > dTemp;
-	sphReplayBinlog ( dTemp );
-	ISphRtIndex * pIndex = sphCreateIndexRT ( tSchema, "testrt", 32*1024*1024, "data/dump" );
+	sphReplayBinlog ( dTemp, 0 );
+	ISphRtIndex * pIndex = sphCreateIndexRT ( tSchema, "testrt", 32*1024*1024, "data/dump", false );
 	pIndex->SetTokenizer ( pTok ); // index will own this pair from now on
 	pIndex->SetDictionary ( pDict );
 	if ( !pIndex->Prealloc ( false, false, sError ) )
@@ -256,5 +257,5 @@ int main ()
 }
 
 //
-// $Id: testrt.cpp 2775 2011-04-14 07:52:22Z tomat $
+// $Id: testrt.cpp 2948 2011-09-11 23:24:14Z tomat $
 //

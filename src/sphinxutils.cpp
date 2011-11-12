@@ -1,5 +1,5 @@
 //
-// $Id: sphinxutils.cpp 2810 2011-05-09 18:59:08Z shodan $
+// $Id: sphinxutils.cpp 2891 2011-07-19 15:55:08Z klirichek $
 //
 
 //
@@ -159,6 +159,7 @@ static KeyDesc_t g_dKeysSource[] =
 	{ "xmlpipe_attr_bool",		KEY_LIST, NULL },
 	{ "xmlpipe_attr_float",		KEY_LIST, NULL },
 	{ "xmlpipe_attr_multi",		KEY_LIST, NULL },
+	{ "xmlpipe_attr_multi_64",	KEY_LIST, NULL },
 	{ "xmlpipe_attr_string",	KEY_LIST, NULL },
 	{ "xmlpipe_attr_wordcount",	KEY_LIST, NULL },
 	{ "xmlpipe_field_string",	KEY_LIST, NULL },
@@ -236,6 +237,8 @@ static KeyDesc_t g_dKeysIndex[] =
 	{ "rt_attr_float",			KEY_LIST, NULL },
 	{ "rt_attr_timestamp",		KEY_LIST, NULL },
 	{ "rt_attr_string",			KEY_LIST, NULL },
+	{ "rt_attr_multi",			KEY_LIST, NULL },
+	{ "rt_attr_multi_64",		KEY_LIST, NULL },
 	{ "rt_mem_limit",			0, NULL },
 	{ "dict",					0, NULL },
 	{ "index_sp",				0, NULL },
@@ -253,6 +256,7 @@ static KeyDesc_t g_dKeysIndexer[] =
 	{ "max_xmlpipe2_field",		0, NULL },
 	{ "max_file_field_buffer",	0, NULL },
 	{ "write_buffer",			0, NULL },
+	{ "on_file_field_error",	0, NULL },
 	{ NULL,						0, NULL }
 };
 
@@ -301,6 +305,7 @@ static KeyDesc_t g_dKeysSearchd[] =
 	{ "collation_server",		0, NULL },
 	{ "collation_libc_locale",	0, NULL },
 	{ "watchdog",				0, NULL },
+	{ "prefork_rotation_throttle", 0, NULL },
 	{ NULL,						0, NULL }
 };
 
@@ -956,6 +961,7 @@ bool sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSetti
 	}
 
 	// hit format
+	// TODO! add the description into documentation.
 	tSettings.m_eHitFormat = SPH_HIT_FORMAT_INLINE;
 	if ( hIndex("hit_format") )
 	{
@@ -1105,7 +1111,7 @@ void sphWarning ( const char * sFmt, ... )
 {
 	va_list ap;
 	va_start ( ap, sFmt );
-	Log ( LOG_WARNING, sFmt, ap );
+	Log ( SPH_LOG_WARNING, sFmt, ap );
 	va_end ( ap );
 }
 
@@ -1114,7 +1120,7 @@ void sphInfo ( const char * sFmt, ... )
 {
 	va_list ap;
 	va_start ( ap, sFmt );
-	Log ( LOG_INFO, sFmt, ap );
+	Log ( SPH_LOG_INFO, sFmt, ap );
 	va_end ( ap );
 }
 
@@ -1122,7 +1128,7 @@ void sphLogFatal ( const char * sFmt, ... )
 {
 	va_list ap;
 	va_start ( ap, sFmt );
-	Log ( LOG_FATAL, sFmt, ap );
+	Log ( SPH_LOG_FATAL, sFmt, ap );
 	va_end ( ap );
 }
 
@@ -1130,7 +1136,7 @@ void sphLogDebug ( const char * sFmt, ... )
 {
 	va_list ap;
 	va_start ( ap, sFmt );
-	Log ( LOG_DEBUG, sFmt, ap );
+	Log ( SPH_LOG_DEBUG, sFmt, ap );
 	va_end ( ap );
 }
 
@@ -1138,7 +1144,7 @@ void sphLogDebugv ( const char * sFmt, ... )
 {
 	va_list ap;
 	va_start ( ap, sFmt );
-	Log ( LOG_VERBOSE_DEBUG, sFmt, ap );
+	Log ( SPH_LOG_VERBOSE_DEBUG, sFmt, ap );
 	va_end ( ap );
 }
 
@@ -1146,7 +1152,7 @@ void sphLogDebugvv ( const char * sFmt, ... )
 {
 	va_list ap;
 	va_start ( ap, sFmt );
-	Log ( LOG_VERY_VERBOSE_DEBUG, sFmt, ap );
+	Log ( SPH_LOG_VERY_VERBOSE_DEBUG, sFmt, ap );
 	va_end ( ap );
 }
 
@@ -1392,7 +1398,6 @@ void sphBacktrace ( int iFD, bool bSafe )
 		return;
 
 	sphSafeInfo ( iFD, "-------------- backtrace begins here ---------------" );
-	sphSafeInfo ( iFD, "Sphinx " SPHINX_VERSION );
 #ifdef COMPILER
 	sphSafeInfo ( iFD, "Program compiled with " COMPILER );
 #endif
@@ -1428,6 +1433,10 @@ void sphBacktrace ( int iFD, bool bSafe )
 #ifdef __x86_64__
 #define SIGRETURN_FRAME_OFFSET 23
 		__asm __volatile__ ( "movq %%rbp,%0":"=r"(pFramePointer):"r"(pFramePointer) );
+#endif
+
+#ifndef SIGRETURN_FRAME_OFFSET
+#define SIGRETURN_FRAME_OFFSET 0
 #endif
 
 		if ( !pFramePointer )
@@ -1524,5 +1533,5 @@ void sphBacktrace ( EXCEPTION_POINTERS * pExc, const char * sFile )
 #endif // USE_WINDOWS
 
 //
-// $Id: sphinxutils.cpp 2810 2011-05-09 18:59:08Z shodan $
+// $Id: sphinxutils.cpp 2891 2011-07-19 15:55:08Z klirichek $
 //

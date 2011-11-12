@@ -57,6 +57,16 @@ AC_PROG_CC
 AC_PROG_CXX
 AC_PROG_RANLIB
 
+AC_COMPILE_IFELSE([
+#ifdef __GNUC__
+#if __GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ > 3)
+void main() {}
+#else
+syntax error
+#endif
+#endif
+], [], [AC_MSG_ERROR([Gcc version error. Minspec is 3.4])])
+
 AC_DEFINE_UNQUOTED([COMPILER],"$CC `$CC -dumpversion`",[Define to be the name of the compiler.])
 AC_DEFINE_UNQUOTED([OS_UNAME],"`uname -a`",[Full name OS])
 
@@ -72,6 +82,7 @@ AC_CHECK_HEADER(expat.h,[have_expat_h=yes],[have_expat_h=no])
 AC_CHECK_HEADER(iconv.h,[have_iconv_h=yes],[have_iconv_h=no])
 AC_CHECK_HEADER(zlib.h,[have_zlib_h=yes],[have_zlib_h=no])
 AC_CHECK_HEADER(sql.h,[have_sql_h=yes],[have_sql_h=no])
+AC_CHECK_HEADER(syslog.h,[have_syslog_h=yes],[have_syslog_h=no])
 
 dnl --------------------------------------------------------------------------
 
@@ -137,8 +148,7 @@ dnl ---
 # check for pthreads
 
 dnl helper that runs a test program and checks for success
-AC_DEFUN([PTHREADS_TRY_RUN],[
-AC_TRY_RUN([
+pthread_prog="
 #include <pthread.h>
 #include <stddef.h>
 
@@ -157,10 +167,34 @@ int main ()
 	pthread_mutexattr_init ( &mattr );
 	return pthread_create ( &thd, NULL, thread_routine, &data );
 }
-], [pthreads_try_run=yes], [pthreads_try_run=no], [pthreads_try_run=no])
+"
 
-if test $pthreads_try_run = yes; then
-	$1
+AC_DEFUN([PTHREADS_TRY_RUNCOMPILE],[
+if test x$cross_compiling = xno ; then
+	AC_TRY_RUN($pthread_prog, [pthreads_try_run=yes], [pthreads_try_run=no], [pthreads_try_run=no])
+	if test x$pthreads_try_run = xyes ; then
+		$1
+	fi
+else
+	AC_COMPILE_IFELSE($pthread_prog, [pthreads_try_compile=yes], [pthreads_try_compile=no], [pthreads_try_compile=no])
+	if test x$pthreads_try_compile = xyes ; then
+		$1
+	fi
+fi
+])
+
+
+AC_DEFUN([PTHREADS_TRY_RUNLINK],[
+if test x$cross_compiling = xno ; then
+	AC_TRY_RUN($pthread_prog, [pthreads_try_run=yes], [pthreads_try_run=no], [pthreads_try_run=no])
+	if test x$pthreads_try_run = xyes ; then
+		$1
+	fi
+else
+	AC_LINK_IFELSE($pthread_prog, [pthreads_try_link=yes], [pthreads_try_link=no], [pthreads_try_link=no])
+	if test x$pthreads_try_link = xyes ; then
+		$1
+	fi
 fi
 ])
 
@@ -171,7 +205,7 @@ AC_CACHE_CHECK([for CFLAGS needed for pthreads], [sphinx_cv_pthreads_cflags],
 	for flag in none -kthread -pthread -pthreads -mt -mthreads -Kthread -threads; do
 		CFLAGS=$save_cflags
 	test "x$flag" != "xnone" && CFLAGS="$CFLAGS $flag"
-		PTHREADS_TRY_RUN([
+		PTHREADS_TRY_RUNCOMPILE([
 			sphinx_cv_pthreads_cflags="$flag"
 			break
 		])
@@ -190,11 +224,11 @@ fi
 AC_CACHE_CHECK([for LIBS needed for pthreads], [sphinx_cv_pthreads_libs], [
 	save_libs=$LIBS
 	for lib in -lpthread -lpthreads -lc_r; do
-	LIBS="$save_libs $lib"
-	PTHREADS_TRY_RUN([
-		sphinx_cv_pthreads_libs=$lib
-		break
-	])
+		LIBS="$save_libs $lib"
+		PTHREADS_TRY_RUNLINK([
+			sphinx_cv_pthreads_libs=$lib
+			break
+		])
 	done
 	LIBS=$save_libs
 ])
@@ -207,10 +241,16 @@ fi
 # final check
 AC_MSG_CHECKING([for pthreads])
 if test x$have_pthreads = xyes; then
-	AC_MSG_RESULT([found])
+	if test x$cross_compiling = xno; then
+		AC_MSG_RESULT([found])
+	else
+		AC_MSG_RESULT([assumed as found (cross-compiling)])
+	fi
 else
 	AC_MSG_ERROR([no working pthreads library found])
 fi
+
+AC_CHECK_FUNCS([pthread_mutex_timedlock])
 
 dnl ---
 
@@ -405,7 +445,26 @@ fi
 
 dnl ---
 
-AC_MSG_CHECKING([for unaligned RAM access])
+
+AC_ARG_WITH([syslog],
+	AC_HELP_STRING([--with-syslog], [compile with possibility to use syslog for logging (default is no)]),
+	[ac_cv_use_syslog=$withval], [ac_cv_use_syslog=no]
+)
+AC_MSG_CHECKING([for Syslog])
+if test [ $ac_cv_use_syslog != no ]; then
+	if test [ $have_syslog_h = yes ]; then
+		AC_DEFINE([USE_SYSLOG],1,[define to use POSIX Syslog for logging])
+		AC_MSG_RESULT([yes])
+	else
+		AC_MSG_RESULT([no])
+	fi
+else
+	AC_MSG_RESULT([disabled])
+fi
+
+dnl ---
+
+AC_CACHE_CHECK([for unaligned RAM access],[sphinx_cv_unaligned_ram_access],[
 AC_LANG_PUSH([C++])
 AC_RUN_IFELSE(
 	[AC_LANG_PROGRAM([[
@@ -429,12 +488,17 @@ AC_RUN_IFELSE(
 			return 1;
 		// all seems ok
 		return 0;]])],
-	[AC_MSG_RESULT([yes])
-		AC_DEFINE([UNALIGNED_RAM_ACCESS],1,[whether unaligned RAM access is possible])],
-	[AC_MSG_RESULT([no])
-		AC_DEFINE([UNALIGNED_RAM_ACCESS],0)],
-	[AC_MSG_RESULT([unknown (cross-compiling), assume yes])
-		AC_DEFINE([UNALIGNED_RAM_ACCESS],1)])
+	[sphinx_cv_unaligned_ram_access=yes],
+	[sphinx_cv_unaligned_ram_access=no],
+	[AC_MSG_RESULT([unknown (cross-compiling), assume no])
+		sphinx_cv_unaligned_ram_access=no])
+])
+
+if test x$sphinx_cv_unaligned_ram_access = xyes ; then
+	AC_DEFINE([UNALIGNED_RAM_ACCESS],1,[whether unaligned RAM access is possible])
+else
+	AC_DEFINE([UNALIGNED_RAM_ACCESS],0)
+fi
 
 # check endianness
 AC_C_BIGENDIAN(
@@ -458,7 +522,7 @@ fi
 CONFDIR=`eval echo "${my_op_prefix}"`
 AC_SUBST(CONFDIR)
 
-AC_CONFIG_FILES([Makefile src/Makefile libstemmer_c/Makefile sphinx.conf.dist:sphinx.conf.in \
+AC_CONFIG_FILES([Makefile src/Makefile libstemmer_c/Makefile doc/Makefile sphinx.conf.dist:sphinx.conf.in \
 	sphinx-min.conf.dist:sphinx-min.conf.in])
 AC_OUTPUT
 

@@ -1,5 +1,5 @@
 //
-// $Id: sphinxsearch.h 2808 2011-05-06 01:44:22Z shodan $
+// $Id: sphinxsearch.h 2990 2011-10-23 13:23:17Z klirichek $
 //
 
 //
@@ -47,6 +47,7 @@ public:
 	int				m_iTermPos;
 	int				m_iAtomPos;		///< word position, from query
 	bool			m_bExpanded;	///< added by prefix expansion
+	bool			m_bExcluded;	///< excluded by the query (rval to operator NOT)
 
 	// setup by QwordSetup()
 	int				m_iDocs;		///< document count, from wordlist
@@ -54,9 +55,12 @@ public:
 	bool			m_bHasHitlist;	///< hitlist presence flag
 
 	// iterator state
-	DWORD			m_uFields;		///< current match fields
+	CSphSmallBitvec m_dQwordFields;	///< current match fields
 	DWORD			m_uMatchHits;	///< current match hits count
 	SphOffset_t		m_iHitlistPos;	///< current position in hitlist, from doclist
+
+protected:
+	bool			m_bAllFieldsKnown; ///< whether the all match fields is known, or only low 32.
 
 public:
 	ISphQword ()
@@ -64,24 +68,29 @@ public:
 		, m_iTermPos ( 0 )
 		, m_iAtomPos ( 0 )
 		, m_bExpanded ( false )
+		, m_bExcluded ( false )
 		, m_iDocs ( 0 )
 		, m_iHits ( 0 )
 		, m_bHasHitlist ( true )
-		, m_uFields ( 0 )
 		, m_uMatchHits ( 0 )
 		, m_iHitlistPos ( 0 )
-	{}
+		, m_bAllFieldsKnown ( false )
+	{
+		m_dQwordFields.Unset();
+	}
 	virtual ~ISphQword () {}
 
 	virtual const CSphMatch &	GetNextDoc ( DWORD * pInlineDocinfo ) = 0;
 	virtual void				SeekHitlist ( SphOffset_t uOff ) = 0;
 	virtual Hitpos_t			GetNextHit () = 0;
+	virtual void				CollectHitMask ();
 
 	virtual void Reset ()
 	{
 		m_iDocs = 0;
 		m_iHits = 0;
-		m_uFields = 0;
+		m_dQwordFields.Unset();
+		m_bAllFieldsKnown = false;
 		m_uMatchHits = 0;
 		m_iHitlistPos = 0;
 	}
@@ -137,7 +146,7 @@ public:
 };
 
 /// factory
-ISphRanker * sphCreateRanker ( const XQQuery_t & tXQ, ESphRankMode eRankMode, CSphQueryResult * pResult, const ISphQwordSetup & tTermSetup, const CSphQueryContext & tCtx );
+ISphRanker * sphCreateRanker ( const XQQuery_t & tXQ, const CSphQuery * pQuery, CSphQueryResult * pResult, const ISphQwordSetup & tTermSetup, const CSphQueryContext & tCtx );
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -189,5 +198,5 @@ public:
 #endif // _sphinxsearch_
 
 //
-// $Id: sphinxsearch.h 2808 2011-05-06 01:44:22Z shodan $
+// $Id: sphinxsearch.h 2990 2011-10-23 13:23:17Z klirichek $
 //

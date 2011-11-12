@@ -1,5 +1,5 @@
 //
-// $Id: indexer.cpp 2810 2011-05-09 18:59:08Z shodan $
+// $Id: indexer.cpp 2964 2011-09-20 20:07:12Z tomat $
 //
 
 //
@@ -47,6 +47,8 @@ int				g_iMemLimit				= 0;
 int				g_iMaxXmlpipe2Field		= 0;
 int				g_iWriteBuffer			= 0;
 int				g_iMaxFileFieldBuffer	= 1024*1024;
+
+ESphOnFileFieldError	g_eOnFileFieldError = FFE_IGNORE_FIELD;
 
 const int		EXT_COUNT = 8;
 const char *	g_dExt[EXT_COUNT] = { "sph", "spa", "spi", "spd", "spp", "spm", "spk", "sps" };
@@ -285,17 +287,17 @@ void ShowProgress ( const CSphIndexProgress * pProgress, bool bPhaseEnd )
 
 static void Logger ( ESphLogLevel eLevel, const char * sFmt, va_list ap )
 {
-	if ( eLevel>=LOG_DEBUG )
+	if ( eLevel>=SPH_LOG_DEBUG )
 		return;
 
 	switch ( eLevel )
 	{
-		case LOG_FATAL: fprintf ( stdout, "FATAL: " ); break;
-		case LOG_WARNING: fprintf ( stdout, "WARNING: " ); break;
-		case LOG_INFO: fprintf ( stdout, "WARNING: " ); break;
-		case LOG_DEBUG: // yes, I know that this branch will never execute because of the condition above.
-		case LOG_VERBOSE_DEBUG:
-		case LOG_VERY_VERBOSE_DEBUG: fprintf ( stdout, "DEBUG: " ); break;
+		case SPH_LOG_FATAL: fprintf ( stdout, "FATAL: " ); break;
+		case SPH_LOG_WARNING: fprintf ( stdout, "WARNING: " ); break;
+		case SPH_LOG_INFO: fprintf ( stdout, "WARNING: " ); break;
+		case SPH_LOG_DEBUG: // yes, I know that this branch will never execute because of the condition above.
+		case SPH_LOG_VERBOSE_DEBUG:
+		case SPH_LOG_VERY_VERBOSE_DEBUG: fprintf ( stdout, "DEBUG: " ); break;
 	}
 
 	vfprintf ( stdout, sFmt, ap );
@@ -310,7 +312,7 @@ bool ParseMultiAttr ( const char * sBuf, CSphColumnInfo & tAttr, const char * sS
 	// format is as follows:
 	//
 	// multi-valued-attr := ATTR-TYPE ATTR-NAME 'from' SOURCE-TYPE [;QUERY] [;RANGE-QUERY]
-	// ATTR-TYPE := 'uint' | 'timestamp'
+	// ATTR-TYPE := 'uint' | 'timestamp' | 'bigint'
 	// SOURCE-TYPE := 'field' | 'query' | 'ranged-query'
 
 	const char * sTok = NULL;
@@ -334,7 +336,8 @@ bool ParseMultiAttr ( const char * sBuf, CSphColumnInfo & tAttr, const char * sS
 	LOC_SPACE0(); LOC_TOK();
 	if ( LOC_TOKEQ("uint") )				tAttr.m_eAttrType = SPH_ATTR_UINT32SET;
 	else if ( LOC_TOKEQ("timestamp") )		tAttr.m_eAttrType = SPH_ATTR_UINT32SET;
-	else									LOC_ERR ( "attr type ('uint' or 'timestamp')", sTok );
+	else if ( LOC_TOKEQ("bigint") )			tAttr.m_eAttrType = SPH_ATTR_UINT64SET;
+	else									LOC_ERR ( "attr type ('uint' or 'timestamp' or 'bigint')", sTok );
 
 	// handle ATTR-NAME
 	LOC_SPACE1(); LOC_TOK ();
@@ -607,6 +610,7 @@ bool SqlParamsConfigure ( CSphSourceParams_SQL & tParams, const CSphConfigSectio
 
 	tParams.m_iMaxFileBufferSize = g_iMaxFileFieldBuffer;
 	tParams.m_iRefRangeStep = tParams.m_iRangeStep;
+	tParams.m_eOnFileFieldError = g_eOnFileFieldError;
 
 	// unpack
 	if ( !ConfigureUnpack ( hSource("unpack_zlib"), SPH_UNPACK_ZLIB, tParams, sSourceName ) )
@@ -1220,6 +1224,13 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 bool DoMerge ( const CSphConfigSection & hDst, const char * sDst,
 	const CSphConfigSection & hSrc, const char * sSrc, CSphVector<CSphFilterSettings> & tPurge, bool bRotate, bool bMergeKillLists )
 {
+	// progress bar
+	if ( !g_bQuiet )
+	{
+		fprintf ( stdout, "merging index '%s' into index '%s'...\n", sSrc, sDst );
+		fflush ( stdout );
+	}
+
 	// check config
 	if ( !hDst("path") )
 	{
@@ -1362,6 +1373,7 @@ extern int64_t g_iIndexerPoolStartHit;
 void sigsegv ( int sig )
 {
 	sphSafeInfo ( STDERR_FILENO, "*** Oops, indexer crashed! Please send the following report to developers." );
+	sphSafeInfo ( STDERR_FILENO, "Sphinx " SPHINX_VERSION );
 	sphSafeInfo ( STDERR_FILENO, "-------------- report begins here ---------------" );
 	sphSafeInfo ( STDERR_FILENO, "Current document: docid=%l, hits=%l", g_iIndexerCurrentDocID, g_iIndexerCurrentHits );
 	sphSafeInfo ( STDERR_FILENO, "Current batch: minid=%l, maxid=%l", g_iIndexerCurrentRangeMin, g_iIndexerCurrentRangeMax );
@@ -1404,11 +1416,13 @@ LONG WINAPI sigsegv ( EXCEPTION_POINTERS * pExc )
 {
 	const char * sFail1 = "*** Oops, indexer crashed! Please send ";
 	const char * sFail2 = " minidump file to developers.\n";
+	const char * sFailVer = "Sphinx " SPHINX_VERSION "\n";
 
 	sphBacktrace ( pExc, g_sMinidump );
 	::write ( STDERR_FILENO, sFail1, strlen(sFail1) );
 	::write ( STDERR_FILENO, g_sMinidump, strlen(g_sMinidump) );
 	::write ( STDERR_FILENO, sFail2, strlen(sFail2) );
+	::write ( STDERR_FILENO, sFailVer, strlen(sFailVer) );
 
 	CRASH_EXIT;
 }
@@ -1673,6 +1687,19 @@ int main ( int argc, char ** argv )
 		g_iWriteBuffer = hIndexer.GetSize ( "write_buffer", 1024*1024 );
 		g_iMaxFileFieldBuffer = Max ( 1024*1024, hIndexer.GetSize ( "max_file_field_buffer", 8*1024*1024 ) );
 
+		if ( hIndexer("on_file_field_error") )
+		{
+			const CSphString & sVal = hIndexer["on_file_field_error"];
+			if ( sVal=="ignore_field" )
+				g_eOnFileFieldError = FFE_IGNORE_FIELD;
+			else if ( sVal=="skip_document" )
+				g_eOnFileFieldError = FFE_SKIP_DOCUMENT;
+			else if ( sVal=="fail_index" )
+				g_eOnFileFieldError = FFE_FAIL_INDEX;
+			else
+				sphDie ( "unknown on_field_field_error value (must be one of ignore_field, skip_document, fail_index)" );
+		}
+
 		sphSetThrottling ( hIndexer.GetInt ( "max_iops", 0 ), hIndexer.GetSize ( "max_iosize", 0 ) );
 	}
 
@@ -1795,5 +1822,5 @@ int main ( int argc, char ** argv )
 }
 
 //
-// $Id: indexer.cpp 2810 2011-05-09 18:59:08Z shodan $
+// $Id: indexer.cpp 2964 2011-09-20 20:07:12Z tomat $
 //

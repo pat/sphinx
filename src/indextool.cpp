@@ -1,5 +1,5 @@
 //
-// $Id: indextool.cpp 2814 2011-05-13 14:38:48Z tomat $
+// $Id: indextool.cpp 2948 2011-09-11 23:24:14Z tomat $
 //
 
 //
@@ -16,6 +16,7 @@
 #include "sphinx.h"
 #include "sphinxutils.h"
 #include "sphinxint.h"
+#include "sphinxrt.h"
 #include <time.h>
 
 
@@ -192,9 +193,26 @@ int main ( int argc, char ** argv )
 			sphDie ( "index '%s': missing 'path' in config'\n", sIndex.cstr() );
 
 		// preload that index
-		pIndex = sphCreateIndexPhrase ( sIndex.cstr(), hConf["index"][sIndex]["path"].cstr() );
+		CSphString sError;
+		if ( hConf["index"][sIndex]("type") && hConf["index"][sIndex]["type"]=="rt" )
+		{
+			CSphSchema tSchema;
+			bool bDictKeywords = false;
+			if ( hConf["index"][sIndex].Exists ( "dict" ) )
+				bDictKeywords = ( hConf["index"][sIndex]["dict"]=="keywords" );
+
+			if ( sphRTSchemaConfigure ( hConf["index"][sIndex], &tSchema, &sError ) )
+				pIndex = sphCreateIndexRT ( tSchema, sIndex.cstr(), 32*1024*1024, hConf["index"][sIndex]["path"].cstr(), bDictKeywords );
+		} else
+		{
+			pIndex = sphCreateIndexPhrase ( sIndex.cstr(), hConf["index"][sIndex]["path"].cstr() );
+		}
+
 		if ( !pIndex )
-			sphDie ( "index '%s': failed to create", sIndex.cstr() );
+			sphDie ( "index '%s': failed to create (%s)", sIndex.cstr(), sError.cstr() );
+
+		// don't need any long load operations
+		pIndex->SetWordlistPreload ( false );
 
 		CSphString sWarn;
 		if ( !pIndex->Prealloc ( false, bStripPath, sWarn ) )
@@ -535,5 +553,5 @@ void DoOptimization ( const CSphString & sIndex, const CSphConfig & hConf )
 }
 
 //
-// $Id: indextool.cpp 2814 2011-05-13 14:38:48Z tomat $
+// $Id: indextool.cpp 2948 2011-09-11 23:24:14Z tomat $
 //

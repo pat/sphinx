@@ -1,5 +1,5 @@
 //
-// $Id: sphinxexpr.h 2651 2011-01-27 20:59:49Z shodan $
+// $Id: sphinxexpr.h 2976 2011-10-01 02:56:53Z shodan $
 //
 
 //
@@ -35,7 +35,8 @@ enum ESphAttr
 	SPH_ATTR_BIGINT		= 6,			///< signed 64-bit integer
 	SPH_ATTR_STRING		= 7,			///< string (binary; in-memory)
 	SPH_ATTR_WORDCOUNT	= 8,			///< string word count (integer at search time,tokenized and counted at indexing time)
-	SPH_ATTR_UINT32SET	= 0x40000001UL	///< MVA, set of unsigned 32-bit integers
+	SPH_ATTR_UINT32SET	= 0x40000001UL,	///< MVA, set of unsigned 32-bit integers
+	SPH_ATTR_UINT64SET	= 0x40000002UL	///< MVA, set of unsigned 64-bit integers
 };
 
 /// expression evaluator
@@ -72,11 +73,42 @@ public:
 	virtual void GetDependencyColumns ( CSphVector<int> & ) const {}
 };
 
+/// hook to extend expressions
+/// lets one to add her own identifier and function handlers
+struct ISphExprHook
+{
+	virtual ~ISphExprHook () {}
+	/// checks for an identifier known to the hook
+	/// returns -1 on failure, a non-negative OID on success
+	virtual int IsKnownIdent ( const char * sIdent ) = 0;
+
+	/// checks for a valid function call
+	/// returns -1 on failure, a non-negative OID on success (possibly adjusted)
+	virtual int IsKnownFunc ( const char * sFunc ) = 0;
+
+	/// create node by OID
+	virtual ISphExpr * CreateNode ( int iID, ISphExpr * pLeft ) = 0;
+
+	/// get identifier return type by OID
+	virtual ESphAttr GetIdentType ( int iID ) = 0;
+
+	/// get function return type by OID and argument types vector
+	/// must return SPH_ATTR_NONE and fill the message on failure
+	virtual ESphAttr GetReturnType ( int iID, const CSphVector<ESphAttr> & dArgs, bool bAllConst, CSphString & sError ) = 0;
+
+	/// recursive scope check
+	virtual void CheckEnter ( int iID ) = 0;
+
+	/// recursive scope check
+	virtual void CheckExit ( int iID ) = 0;
+};
+
 /// parses given expression, builds evaluator
 /// returns NULL and fills sError on failure
 /// returns pointer to evaluator on success
 /// fills pAttrType with result type (for now, can be SPH_ATTR_SINT or SPH_ATTR_FLOAT)
-ISphExpr * sphExprParse ( const char * sExpr, const CSphSchema & tSchema, ESphAttr * pAttrType, bool * pUsesWeight, CSphString & sError, CSphSchema * pExtra=NULL );
+/// fills pUsesWeight with a flag whether match relevance is referenced in expression AST
+ISphExpr * sphExprParse ( const char * sExpr, const CSphSchema & tSchema, ESphAttr * pAttrType, bool * pUsesWeight, CSphString & sError, CSphSchema * pExtra=NULL, ISphExprHook * pHook=NULL );
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -92,5 +124,5 @@ bool sphUDFDrop ( const char * szFunc, CSphString & sError );
 #endif // _sphinxexpr_
 
 //
-// $Id: sphinxexpr.h 2651 2011-01-27 20:59:49Z shodan $
+// $Id: sphinxexpr.h 2976 2011-10-01 02:56:53Z shodan $
 //

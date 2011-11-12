@@ -1,5 +1,5 @@
 /*
- * $Id: test.java 2081 2009-11-18 18:13:43Z shodan $
+ * $Id: test.java 2876 2011-07-08 15:23:04Z tomat $
  */
 
 package org.sphx.api;
@@ -116,7 +116,7 @@ public class test
 			{
 				System.out.print ( ", " + res.attrNames[a] + "=" );
 
-				if ( ( res.attrTypes[a] & SphinxClient.SPH_ATTR_MULTI )!=0 )
+				if ( res.attrTypes[a]==SphinxClient.SPH_ATTR_MULTI || res.attrTypes[a]==SphinxClient.SPH_ATTR_MULTI64 )
 				{
 					System.out.print ( "(" );
 					long[] attrM = (long[]) info.attrValues.get(a);
@@ -160,5 +160,5 @@ public class test
 }
 
 /*
- * $Id: test.java 2081 2009-11-18 18:13:43Z shodan $
+ * $Id: test.java 2876 2011-07-08 15:23:04Z tomat $
  */

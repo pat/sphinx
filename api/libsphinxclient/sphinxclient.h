@@ -1,5 +1,5 @@
 //
-// $Id: sphinxclient.h 2654 2011-01-31 01:20:58Z kevg $
+// $Id: sphinxclient.h 2876 2011-07-08 15:23:04Z tomat $
 //
 
 //
@@ -84,7 +84,8 @@ enum
 	SPH_ATTR_FLOAT			= 5,
 	SPH_ATTR_BIGINT			= 6,
 	SPH_ATTR_STRING			= 7,
-	SPH_ATTR_MULTI			= 0x40000000UL
+	SPH_ATTR_MULTI			= 0x40000001UL,
+	SPH_ATTR_MULTI64		= 0x40000002UL
 };
 
 /// known grouping functions
@@ -228,6 +229,7 @@ int							sphinx_get_weight				( sphinx_result * result, int match );
 sphinx_int64_t				sphinx_get_int					( sphinx_result * result, int match, int attr );
 float						sphinx_get_float				( sphinx_result * result, int match, int attr );
 unsigned int *				sphinx_get_mva					( sphinx_result * result, int match, int attr );
+sphinx_uint64_t				sphinx_get_mva64_value			( unsigned int * mva, int i );
 const char *				sphinx_get_string				( sphinx_result * result, int match, int attr );
 
 void						sphinx_init_excerpt_options		( sphinx_excerpt_options * opts );
@@ -247,5 +249,5 @@ void						sphinx_status_destroy			( char ** status, int num_rows, int num_cols )
 #endif // _sphinxclient_
 
 //
-// $Id: sphinxclient.h 2654 2011-01-31 01:20:58Z kevg $
+// $Id: sphinxclient.h 2876 2011-07-08 15:23:04Z tomat $
 //

@@ -38,6 +38,40 @@ index test
 		<variant>charset_type = sbcs</variant>
 	</dynamic>
 }
+
+source test1
+{
+	type			= mysql
+	<sql_settings/>
+	sql_query		= SELECT 1 as document_id, 'zzzzzz buzzzz' as text
+}
+
+index test1
+{
+	source	= test1
+	path	= <data_path/>/test1
+
+	blend_chars = ., @,
+	charset_type = utf-8
+	min_word_len = 2
+}
+
+source test2
+{
+	type			= mysql
+	<sql_settings/>
+	sql_query		= SELECT 1 as document_id, 'dummy a11-22 text' as text UNION SELECT 2 as document_id, 'dummy 11-22 text' as text
+}
+
+index test2
+{
+	source	= test2
+	path	= <data_path/>/test2
+
+	blend_chars = -, @,
+	charset_type = utf-8
+}
+
 </config>
 
 <db_create>
@@ -74,68 +108,78 @@ INSERT INTO test_table VALUES
 </db_insert>
 
 <queries>
-	<query mode="extended2">bbb|ccc</query>
-	<query mode="extended2">bbb@ccc</query>
+	<query mode="extended2" index="test">bbb|ccc</query>
+	<query mode="extended2" index="test">bbb@ccc</query>
 
-	<query mode="extended2">bbb\|ccc</query>
-	<query mode="extended2">bbb\@ccc</query>
+	<query mode="extended2" index="test">bbb\|ccc</query>
+	<query mode="extended2" index="test">bbb\@ccc</query>
 
-	<query mode="extended2">bbb ccc</query>
-	<query mode="extended2">"bbb ccc"</query>
+	<query mode="extended2" index="test">bbb ccc</query>
+	<query mode="extended2" index="test">"bbb ccc"</query>
 
-	<query mode="extended2">aaa|eee|ccc</query>
-	<query mode="extended2">aaa\|eee\|ccc</query>
-	<query mode="extended2">"aaa|eee|ccc"</query>
-	<query mode="extended2">"aaa\|eee\|ccc"</query>
+	<query mode="extended2" index="test">aaa|eee|ccc</query>
+	<query mode="extended2" index="test">aaa\|eee\|ccc</query>
+	<query mode="extended2" index="test">"aaa|eee|ccc"</query>
+	<query mode="extended2" index="test">"aaa\|eee\|ccc"</query>
 
-	<query mode="extended2">a+b+c+d</query>
-	<query mode="extended2">a+b+c+d e</query>
-	<query mode="extended2">"a+b+c+d e f"</query>
-	<query mode="extended2">"a+b+c+d e+f|g"</query>
+	<query mode="extended2" index="test">a+b+c+d</query>
+	<query mode="extended2" index="test">a+b+c+d e</query>
+	<query mode="extended2" index="test">"a+b+c+d e f"</query>
+	<query mode="extended2" index="test">"a+b+c+d e+f|g"</query>
 
-	<query mode="extended2">"bbb@ccc ddd @eee"</query>
-	<query mode="extended2">"ddd @eee fff@ggg@hhh"</query>
-	<query mode="extended2">"fff@ggg@hhh iii@ kkk"</query>
+	<query mode="extended2" index="test">"bbb@ccc ddd @eee"</query>
+	<query mode="extended2" index="test">"ddd @eee fff@ggg@hhh"</query>
+	<query mode="extended2" index="test">"fff@ggg@hhh iii@ kkk"</query>
 
-	<query mode="extended2" expect_error="1">@</query>
-	<query mode="extended2">\@</query>
+	<query mode="extended2" expect_error="1" index="test">@</query>
+	<query mode="extended2" index="test">\@</query>
 
-	<query mode="extended2" expect_error="1">@eee kkk</query>
-	<query mode="extended2">\@eee kkk</query>
+	<query mode="extended2" expect_error="1" index="test">@eee kkk</query>
+	<query mode="extended2" index="test">\@eee kkk</query>
 
-	<query mode="extended2">aaa\*ccc</query>
-	<query mode="extended2">aaa*ccc</query>
+	<query mode="extended2" index="test">aaa\*ccc</query>
+	<query mode="extended2" index="test">aaa*ccc</query>
   
-	<query mode="extended2">bbb\*ccc</query>
-	<query mode="extended2">bbb*ccc</query>
+	<query mode="extended2" index="test">bbb\*ccc</query>
+	<query mode="extended2" index="test">bbb*ccc</query>
 
-	<query mode="extended2"> bbb ccc</query>
-	<query mode="extended2">"bbb ccc"</query>
+	<query mode="extended2" index="test"> bbb ccc</query>
+	<query mode="extended2" index="test">"bbb ccc"</query>
 
-	<query mode="extended2">fff\*ggg</query>
-	<query mode="extended2">fff*ggg</query>
-	<query mode="extended2">fff*ggg*hhh</query>
+	<query mode="extended2" index="test">fff\*ggg</query>
+	<query mode="extended2" index="test">fff*ggg</query>
+	<query mode="extended2" index="test">fff*ggg*hhh</query>
 
-	<query mode="extended2">"bbb*ccc ddd"</query>
-	<query mode="extended2">"bbb*ccc ccc ddd"</query>
-	<query mode="extended2">bbb*ccc &lt;&lt; ddd</query>
+	<query mode="extended2" index="test">"bbb*ccc ddd"</query>
+	<query mode="extended2" index="test">"bbb*ccc ccc ddd"</query>
+	<query mode="extended2" index="test">bbb*ccc &lt;&lt; ddd</query>
 
-	<query mode="extended2">hello</query>
-	<query mode="extended2">"hello world"</query>
-	<query mode="extended2">hello U.S.A</query>
+	<query mode="extended2" index="test">hello</query>
+	<query mode="extended2" index="test">"hello world"</query>
+	<query mode="extended2" index="test">hello U.S.A</query>
 
-	<query mode="extended2">must</query>
-	<query mode="extended2">must\!\!\!</query>
-	<query mode="extended2">dude</query>
-	<query mode="extended2">\@dude</query>
+	<query mode="extended2" index="test">must</query>
+	<query mode="extended2" index="test">must\!\!\!</query>
+	<query mode="extended2" index="test">dude</query>
+	<query mode="extended2" index="test">\@dude</query>
 
-	<query mode="extended2">posse</query>
-	<query mode="extended2">posse\(\)</query>
-	<query mode="extended2">posse\[\]</query>
-	<query mode="extended2">posse\{\}</query>
-	<query mode="extended2">"posse()"</query>
-	<query mode="extended2">"posse[]"</query>
-	<query mode="extended2">"posse{}"</query>
+	<query mode="extended2" index="test">posse</query>
+	<query mode="extended2" index="test">posse\(\)</query>
+	<query mode="extended2" index="test">posse\[\]</query>
+	<query mode="extended2" index="test">posse\{\}</query>
+	<query mode="extended2" index="test">"posse()"</query>
+	<query mode="extended2" index="test">"posse[]"</query>
+	<query mode="extended2" index="test">"posse{}"</query>
 </queries>
+
+<sphqueries>
+	<!-- here is going regression blend vs special character within query-->
+	<sphinxql>select * from test1 where match ( 'zzzzzz  .(buzzzz)' )</sphinxql>
+	<!-- here is going regression many overshort tokens in query-->
+	<sphinxql>select * from test1 where match ( 'a+b' )</sphinxql>
+	<!-- here is going regression blend_char into a numeric-->
+	<sphinxql>select * from test2 where match ( 'a11-22' )</sphinxql>
+	<sphinxql>select * from test2 where match ( '11-22' )</sphinxql>
+</sphqueries>
 
 </test>

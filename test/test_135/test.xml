@@ -27,7 +27,10 @@ source src
 	<sql_settings/>
 	sql_query = SELECT id, text, section, mva1 FROM test_table
 	sql_attr_uint	= section
-	sql_attr_multi = uint mva1 from field mva1
+<Dynamic>	
+	<Variant>sql_attr_multi = uint mva1 from field mva1</Variant>
+	<Variant>sql_attr_multi = bigint mva1 from field mva1</Variant>
+</Dynamic>	
 }
 
 index idx_130
@@ -61,7 +64,9 @@ for ( $i = 0; $i < 4; $i++)
 	$error = "";
 	$startSta = StartSearchd ( 'config.conf', 'error.txt', 'searchd.pid', $error );
 	if ( $startSta == 0 || $startSta == 2 )
+	{
 		$results[] = "started=ok";
+	}
 	else
 		$results[] = sprintf("start.err=%d local=%s client=%s", $startSta, $error, $client->GetLastError());
 }
@@ -71,8 +76,7 @@ $results[] = $client->Query ( "test3");
 
 // final fixup; we don't want to compare times
 for ( $i=0; $i<count($results); $i++ )
-	if ( is_array($results[$i]) )
-		unset ( $results[$i]["time"] );
+	CompareResultSetFixup ( $results[$i], 0, true );
 
 ]]></custom_test>
 

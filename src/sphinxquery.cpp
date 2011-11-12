@@ -1,5 +1,5 @@
 //
-// $Id: sphinxquery.cpp 2801 2011-04-30 18:11:48Z shodan $
+// $Id: sphinxquery.cpp 2968 2011-09-23 16:31:11Z shodan $
 //
 
 //
@@ -33,13 +33,13 @@ public:
 					~XQParser_t () {}
 
 public:
-	bool			Parse ( XQQuery_t & tQuery, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict );
+	bool			Parse ( XQQuery_t & tQuery, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict, int iStopwordStep );
 
 	bool			Error ( const char * sTemplate, ... ) __attribute__ ( ( format ( printf, 2, 3 ) ) );
 	void			Warning ( const char * sTemplate, ... ) __attribute__ ( ( format ( printf, 2, 3 ) ) );
 
-	bool			AddField ( DWORD & uFields, const char * szField, int iLen );
-	bool			ParseFields ( DWORD & uFields, int & iMaxFieldPos );
+	bool			AddField ( CSphSmallBitvec & dFields, const char * szField, int iLen );
+	bool			ParseFields ( CSphSmallBitvec & uFields, int & iMaxFieldPos );
 	int				ParseZone ( const char * pZone );
 
 	bool			IsSpecial ( char c );
@@ -88,6 +88,8 @@ public:
 
 	bool					m_bQuoted;
 
+	bool					m_bEmptyStopword;
+
 	CSphVector<CSphString>	m_dIntTokens;
 
 	CSphVector < CSphVector<int> >	m_dZoneVecs;
@@ -110,13 +112,13 @@ void yyerror ( XQParser_t * pParser, const char * sMessage )
 
 //////////////////////////////////////////////////////////////////////////
 
-void XQNode_t::SetFieldSpec ( DWORD uMask, int iMaxPos )
+void XQNode_t::SetFieldSpec ( const CSphSmallBitvec& uMask, int iMaxPos )
 {
 	// set it, if we do not yet have one
 	if ( !m_bFieldSpec )
 	{
 		m_bFieldSpec = true;
-		m_uFieldMask = uMask;
+		m_dFieldMask = uMask;
 		m_iFieldMaxPos = iMaxPos;
 	}
 
@@ -143,7 +145,7 @@ void XQNode_t::CopySpecs ( const XQNode_t * pSpecs )
 		return;
 
 	if ( pSpecs->m_bFieldSpec )
-		SetFieldSpec ( pSpecs->m_uFieldMask, pSpecs->m_iFieldMaxPos );
+		SetFieldSpec ( pSpecs->m_dFieldMask, pSpecs->m_iFieldMaxPos );
 
 	if ( pSpecs->m_dZones.GetLength() )
 		SetZoneSpec ( pSpecs->m_dZones );
@@ -152,7 +154,7 @@ void XQNode_t::CopySpecs ( const XQNode_t * pSpecs )
 
 void XQNode_t::ClearFieldMask ()
 {
-	m_uFieldMask = 0xFFFFFFFFUL;
+	m_dFieldMask.Set();
 
 	ARRAY_FOREACH ( i, m_dChildren )
 		m_dChildren[i]->ClearFieldMask();
@@ -237,6 +239,7 @@ XQParser_t::XQParser_t ()
 	, m_bStopOnInvalid ( true )
 	, m_bWasBlended ( false )
 	, m_bQuoted ( false )
+	, m_bEmptyStopword ( false )
 {
 }
 
@@ -301,7 +304,7 @@ bool XQParser_t::IsSpecial ( char c )
 
 
 /// lookup field and add it into mask
-bool XQParser_t::AddField ( DWORD & uFields, const char * szField, int iLen )
+bool XQParser_t::AddField ( CSphSmallBitvec & dFields, const char * szField, int iLen )
 {
 	CSphString sField;
 	sField.SetBinary ( szField, iLen );
@@ -315,10 +318,10 @@ bool XQParser_t::AddField ( DWORD & uFields, const char * szField, int iLen )
 			Warning ( "no field '%s' found in schema", sField.cstr () );
 	} else
 	{
-		if ( iField>=32 )
-			return Error ( " max 32 fields allowed" );
+		if ( iField>=SPH_MAX_FIELDS )
+			return Error ( " max %d fields allowed", SPH_MAX_FIELDS );
 
-		uFields |= 1 << iField;
+		dFields.Set(iField);
 	}
 
 	return true;
@@ -326,9 +329,9 @@ bool XQParser_t::AddField ( DWORD & uFields, const char * szField, int iLen )
 
 
 /// parse fields block
-bool XQParser_t::ParseFields ( DWORD & uFields, int & iMaxFieldPos )
+bool XQParser_t::ParseFields ( CSphSmallBitvec & dFields, int & iMaxFieldPos )
 {
-	uFields = 0;
+	dFields.Unset();
 	iMaxFieldPos = 0;
 
 	const char * pPtr = m_pTokenizer->GetBufferPtr ();
@@ -350,7 +353,7 @@ bool XQParser_t::ParseFields ( DWORD & uFields, int & iMaxFieldPos )
 	} else if ( *pPtr=='*' )
 	{
 		// handle @*
-		uFields = 0xFFFFFFFF;
+		dFields.Set();
 		m_pTokenizer->SetBufferPtr ( pPtr+1 );
 		return true;
 
@@ -377,12 +380,12 @@ bool XQParser_t::ParseFields ( DWORD & uFields, int & iMaxFieldPos )
 			pPtr++;
 
 		assert ( pPtr-pFieldStart>0 );
-		if ( !AddField ( uFields, pFieldStart, pPtr-pFieldStart ) )
+		if ( !AddField ( dFields, pFieldStart, pPtr-pFieldStart ) )
 			return false;
 
 		m_pTokenizer->SetBufferPtr ( pPtr );
-		if ( bNegate && uFields )
-			uFields = ~uFields;
+		if ( bNegate && ( !dFields.TestAll() ) )
+			dFields.Negate();
 
 	} else
 	{
@@ -411,7 +414,7 @@ bool XQParser_t::ParseFields ( DWORD & uFields, int & iMaxFieldPos )
 
 			} else if ( *pPtr==',' )
 			{
-				if ( !AddField ( uFields, pFieldStart, pPtr-pFieldStart ) )
+				if ( !AddField ( dFields, pFieldStart, pPtr-pFieldStart ) )
 					return false;
 
 				pFieldStart = NULL;
@@ -419,12 +422,12 @@ bool XQParser_t::ParseFields ( DWORD & uFields, int & iMaxFieldPos )
 
 			} else if ( *pPtr==')' )
 			{
-				if ( !AddField ( uFields, pFieldStart, pPtr-pFieldStart ) )
+				if ( !AddField ( dFields, pFieldStart, pPtr-pFieldStart ) )
 					return false;
 
 				m_pTokenizer->SetBufferPtr ( ++pPtr );
-				if ( bNegate && uFields )
-					uFields = ~uFields;
+				if ( bNegate && ( !dFields.TestAll() ) )
+					dFields.Negate();
 
 				bOK = true;
 				break;
@@ -573,46 +576,55 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 		const char * sToken = p;
 		while ( p<sEnd && isdigit ( *(BYTE*)p ) ) p++;
 
-		if ( p>sToken && ( *p=='\0' || isspace ( *(BYTE*)p ) || IsSpecial(*p) ) )
+		static const int NUMBER_BUF_LEN = 10; // max strlen of int32
+
+		if ( p>sToken && p-sToken<NUMBER_BUF_LEN && ( *p=='\0' || isspace ( *(BYTE*)p ) || IsSpecial(*p) ) )
 		{
-			// got a number followed by a whitespace or special, handle it
-			char sNumberBuf[16];
-
-			int iNumberLen = Min ( (int)sizeof(sNumberBuf)-1, int(p-sToken) );
-			memcpy ( sNumberBuf, sToken, iNumberLen );
-			sNumberBuf[iNumberLen] = '\0';
-			m_tPendingToken.tInt.iValue = atoi ( sNumberBuf );
-
-			// check if it can be used as a keyword too
-			m_pTokenizer->SetBuffer ( (BYTE*)sNumberBuf, iNumberLen );
-			sToken = (const char*) m_pTokenizer->GetToken();
-			m_pTokenizer->SetBuffer ( m_sQuery, m_iQueryLen );
-			m_pTokenizer->SetBufferPtr ( p );
-
-			m_tPendingToken.tInt.iStrIndex = -1;
-			if ( sToken )
+			if ( m_pTokenizer->GetToken() && m_pTokenizer->TokenIsBlended() ) // number with blended should be tokenized as usual
 			{
-				m_dIntTokens.Add ( sToken );
-				if ( m_pDict->GetWordID ( (BYTE*)sToken ) )
-					m_tPendingToken.tInt.iStrIndex = m_dIntTokens.GetLength()-1;
-				else
-					m_dIntTokens.Pop();
-				m_iAtomPos++;
-			}
+				m_pTokenizer->SkipBlended();
+				m_pTokenizer->SetBufferPtr ( m_pLastTokenStart );
+			} else
+			{
+				// got not a very long number followed by a whitespace or special, handle it
+				char sNumberBuf[NUMBER_BUF_LEN];
 
-			m_iPendingNulls = 0;
-			m_iPendingType = TOK_INT;
-			break;
+				int iNumberLen = Min ( (int)sizeof(sNumberBuf)-1, int(p-sToken) );
+				memcpy ( sNumberBuf, sToken, iNumberLen );
+				sNumberBuf[iNumberLen] = '\0';
+				m_tPendingToken.tInt.iValue = atoi ( sNumberBuf );
+
+				// check if it can be used as a keyword too
+				m_pTokenizer->SetBuffer ( (BYTE*)sNumberBuf, iNumberLen );
+				sToken = (const char*) m_pTokenizer->GetToken();
+				m_pTokenizer->SetBuffer ( m_sQuery, m_iQueryLen );
+				m_pTokenizer->SetBufferPtr ( p );
+
+				m_tPendingToken.tInt.iStrIndex = -1;
+				if ( sToken )
+				{
+					m_dIntTokens.Add ( sToken );
+					if ( m_pDict->GetWordID ( (BYTE*)sToken ) )
+						m_tPendingToken.tInt.iStrIndex = m_dIntTokens.GetLength()-1;
+					else
+						m_dIntTokens.Pop();
+					m_iAtomPos++;
+				}
+
+				m_iPendingNulls = 0;
+				m_iPendingType = TOK_INT;
+				break;
+			}
 		}
 
-		// not a number, or not followed by a whitespace, so fallback to regular tokenizing
+		// not a number, long number, or number not followed by a whitespace, so fallback to regular tokenizing
 		sToken = (const char *) m_pTokenizer->GetToken ();
 		if ( !sToken )
 		{
 			m_iPendingNulls = m_pTokenizer->GetOvershortCount ();
 			if ( !m_iPendingNulls )
 				return 0;
-			m_iPendingNulls--;
+			m_iPendingNulls = 0;
 			lvalp->pNode = AddKeyword ( NULL );
 			return TOK_KEYWORD;
 		}
@@ -685,11 +697,11 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 			if ( sToken[0]=='@' )
 			{
 				// parse fields operator
-				if ( !ParseFields ( m_tPendingToken.tFieldLimit.uMask, m_tPendingToken.tFieldLimit.iMaxPos ) )
+				if ( !ParseFields ( m_tPendingToken.tFieldLimit.dMask, m_tPendingToken.tFieldLimit.iMaxPos ) )
 					return -1;
 
-				if ( m_pSchema->m_dFields.GetLength()!=32 )
-					m_tPendingToken.tFieldLimit.uMask &= ( 1UL<<m_pSchema->m_dFields.GetLength() )-1;
+				if ( m_pSchema->m_dFields.GetLength()!=SPH_MAX_FIELDS )
+					m_tPendingToken.tFieldLimit.dMask.LimitBits ( m_pSchema->m_dFields.GetLength() );
 
 				m_iPendingType = TOK_FIELDLIMIT;
 				break;
@@ -726,7 +738,12 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 		sTmp[MAX_BYTES-1] = '\0';
 
 		if ( !m_pDict->GetWordID ( sTmp ) )
+		{
 			sToken = NULL;
+			// stopwords with step=0 must not affect pos
+			if ( m_bEmptyStopword )
+				m_iAtomPos--;
+		}
 
 		// information about stars is lost after this point, so was have to save it now
 		DWORD uStarPosition = STAR_NONE;
@@ -842,7 +859,7 @@ XQNode_t * XQParser_t::AddOp ( XQOperator_e eOp, XQNode_t * pLeft, XQNode_t * pR
 	if ( pRight->m_bFieldSpec )
 	{
 		pResult->m_bFieldSpec = true;
-		pResult->m_uFieldMask = pRight->m_uFieldMask;
+		pResult->m_dFieldMask = pRight->m_dFieldMask;
 		pResult->m_iFieldMaxPos = pRight->m_iFieldMaxPos;
 	}
 
@@ -978,7 +995,7 @@ static void DeleteNodesWOFields ( XQNode_t * pNode )
 
 	for ( int i = 0; i < pNode->m_dChildren.GetLength (); )
 	{
-		if ( pNode->m_dChildren[i]->m_uFieldMask==0 )
+		if ( pNode->m_dChildren[i]->m_dFieldMask.TestAll() )
 		{
 			// this should be a leaf node
 			assert ( pNode->m_dChildren[i]->m_dChildren.GetLength()==0 );
@@ -1032,7 +1049,7 @@ static void FixupDegenerates ( XQNode_t * pNode )
 }
 
 
-bool XQParser_t::Parse ( XQQuery_t & tParsed, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict )
+bool XQParser_t::Parse ( XQQuery_t & tParsed, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict, int iStopwordStep )
 {
 	CSphScopedPtr<ISphTokenizer> pMyTokenizer ( pTokenizer->Clone ( true ) );
 	pMyTokenizer->AddSpecials ( "()|-!@~\"/^$<" );
@@ -1065,6 +1082,7 @@ bool XQParser_t::Parse ( XQQuery_t & tParsed, const char * sQuery, const ISphTok
 	m_iPendingType = 0;
 	m_pRoot = NULL;
 	m_bEmpty = true;
+	m_bEmptyStopword = ( iStopwordStep==0 );
 
 	m_pTokenizer->SetBuffer ( m_sQuery, m_iQueryLen );
 	int iRes = yyparse ( this );
@@ -1154,10 +1172,10 @@ static void xqDump ( XQNode_t * pNode, const CSphSchema & tSch, int iIndent )
 #endif
 
 
-bool sphParseExtendedQuery ( XQQuery_t & tParsed, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict )
+bool sphParseExtendedQuery ( XQQuery_t & tParsed, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict, int iStopwordStep )
 {
 	XQParser_t qp;
-	bool bRes = qp.Parse ( tParsed, sQuery, pTokenizer, pSchema, pDict );
+	bool bRes = qp.Parse ( tParsed, sQuery, pTokenizer, pSchema, pDict, iStopwordStep );
 
 #ifndef NDEBUG
 	if ( bRes && tParsed.m_pRoot )
@@ -1190,7 +1208,7 @@ static bool IsAppropriate ( XQNode_t * pTree )
 	return !( pTree->m_dWords.GetLength()==1 && pTree->GetOp()!=SPH_QUERY_NOT );
 }
 
-typedef CSphOrderedHash < DWORD, uint64_t, IdentityHash_fn, 128, 117 > CDwordHash;
+typedef CSphOrderedHash < DWORD, uint64_t, IdentityHash_fn, 128 > CDwordHash;
 
 // stores the pair of a tree, and the bitmask of common nodes
 // which contains the tree.
@@ -1288,7 +1306,7 @@ public:
 
 // for pairs of values builds and stores the association "key -> list of values"
 class CAssociations_t
-	: public CSphOrderedHash < Associations_t, uint64_t, IdentityHash_fn, 128, 117 >
+	: public CSphOrderedHash < Associations_t, uint64_t, IdentityHash_fn, 128 >
 {
 	int		m_iBits;			// number of non-unique associations
 public:
@@ -1483,7 +1501,7 @@ private:
 		if ( m_eOp==pTree->GetOp() )
 		{
 			// pBranch is for common subset of children, pOtherChildren is for the rest.
-			CSphOrderedHash < XQNode_t*, int, IdentityHash_fn, 64, 13 > hBranches;
+			CSphOrderedHash < XQNode_t*, int, IdentityHash_fn, 64 > hBranches;
 			XQNode_t * pOtherChildren = NULL;
 			int iBit;
 			int iOptimizations = 0;
@@ -1637,7 +1655,7 @@ struct MarkedNode_t
 	}
 };
 
-typedef CSphOrderedHash < MarkedNode_t, uint64_t, IdentityHash_fn, 128, 117 > CSubtreeHash;
+typedef CSphOrderedHash < MarkedNode_t, uint64_t, IdentityHash_fn, 128 > CSubtreeHash;
 
 /// check hashes, then check subtrees, then flag
 static void FlagCommonSubtrees ( XQNode_t * pTree, CSubtreeHash & hSubTrees, bool bFlag=true, bool bMarkIt=true )
@@ -1717,5 +1735,5 @@ int sphMarkCommonSubtrees ( int iXQ, const XQQuery_t * pXQ )
 }
 
 //
-// $Id: sphinxquery.cpp 2801 2011-04-30 18:11:48Z shodan $
+// $Id: sphinxquery.cpp 2968 2011-09-23 16:31:11Z shodan $
 //

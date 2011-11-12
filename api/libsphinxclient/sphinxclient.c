@@ -1,5 +1,5 @@
 //
-// $Id: sphinxclient.c 2694 2011-03-03 07:28:56Z tomat $
+// $Id: sphinxclient.c 2992 2011-10-30 20:31:23Z tomat $
 //
 
 //
@@ -200,7 +200,7 @@ sphinx_client * sphinx_create ( sphinx_bool copy_args )
 		return NULL;
 
 	// initialize defaults and return
-	client->ver_search				= 0x118; // 0x113 for 0.9.8, 0x116 for 0.9.9rc2
+	client->ver_search				= 0x119; // 0x113 for 0.9.8, 0x116 for 0.9.9rc2
 	client->copy_args				= copy_args;
 	client->head_alloc				= NULL;
 
@@ -488,9 +488,9 @@ sphinx_bool sphinx_set_limits ( sphinx_client * client, int offset, int limit, i
 
 	client->offset = offset;
 	client->limit = limit;
-	if ( max_matches>0 )
+	if ( max_matches>=0 )
 		client->max_matches = max_matches;
-	if ( cutoff>0 )
+	if ( cutoff>=0 )
 		client->cutoff = cutoff;
 	return SPH_TRUE;
 }
@@ -1665,6 +1665,9 @@ static void net_get_response ( int fd, sphinx_client * client )
 	// sanity check the length, alloc the buffer
 	if ( len<0 || len>MAX_PACKET_LEN )
 	{
+		sock_close ( fd );
+		if ( client->sock>0 )
+			client->sock = -1;
 		set_error ( client, "response length out of bounds (len=%d)", len );
 		return;
 	}
@@ -1672,6 +1675,9 @@ static void net_get_response ( int fd, sphinx_client * client )
 	response = malloc ( len );
 	if ( !response )
 	{
+		sock_close ( fd );
+		if ( client->sock>0 )
+			client->sock = -1;
 		set_error ( client, "malloc() failed (bytes=%d)", len );
 		return;
 	}
@@ -1910,12 +1916,18 @@ sphinx_result * sphinx_run_queries ( sphinx_client * client )
 			{
 				switch ( res->attr_types[k] )
 				{
-					case SPH_ATTR_MULTI | SPH_ATTR_INTEGER:
+					case SPH_ATTR_MULTI64:
+					case SPH_ATTR_MULTI:
 						/*!COMMIT this is totally unsafe on some arches (eg. SPARC)*/
 						pval->mva_value = (unsigned int *) p;
 						len = unpack_int ( &p );
 						for ( l=0; l<=len; l++ ) // including first one that is len
 							pval->mva_value[l] = ntohl ( pval->mva_value[l] );
+
+						if ( res->attr_types[k]==SPH_ATTR_MULTI64 )
+						{
+							pval->mva_value[0] = pval->mva_value[0]/2;
+						}
 						p += len*sizeof(unsigned int);
 						break;
 
@@ -2004,6 +2016,13 @@ unsigned int * sphinx_get_mva ( sphinx_result * result, int match, int attr )
 	union un_attr_value * pval;
 	pval = result->values_pool;
 	return pval [ (2+result->num_attrs)*match+2+attr ].mva_value;
+}
+
+sphinx_uint64_t sphinx_get_mva64_value ( unsigned int * mva, int i )
+{
+	sphinx_uint64_t uVal;
+	uVal = ( ( ( (sphinx_uint64_t)( mva[i*2] ) )<<32 ) | (sphinx_uint64_t)( mva[i*2+1] ) );
+	return uVal;
 }
 
 const char * sphinx_get_string ( sphinx_result * result, int match, int attr )
@@ -2454,5 +2473,5 @@ void sphinx_status_destroy ( char ** status, int num_rows, int num_cols )
 }
 
 //
-// $Id: sphinxclient.c 2694 2011-03-03 07:28:56Z tomat $
+// $Id: sphinxclient.c 2992 2011-10-30 20:31:23Z tomat $
 //

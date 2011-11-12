@@ -1,5 +1,5 @@
 //
-// $Id: sphinxexcerpt.h 2760 2011-04-06 06:27:54Z tomat $
+// $Id: sphinxexcerpt.h 2970 2011-09-23 16:50:22Z klirichek $
 //
 
 //
@@ -41,7 +41,7 @@ public:
 	bool			m_bWeightOrder;		///< whether to order best passages in document (default) or weight order
 	bool			m_bHighlightQuery;	///< whether try to highlight the whole query, or always word-by-word
 	bool			m_bForceAllWords;	///< whether to ignore limit until all needed keywords are highlighted (#448)
-	bool			m_bLoadFiles;		///< whether to interpret source as text or file name
+	int				m_iLoadFiles;		///< whether to interpret source as text (0) or file name (!0)
 	bool			m_bAllowEmpty;		///< whether to allow empty snippets (by default, return something from the start)
 	bool			m_bEmitZones;		///< whether to emit zone for passage
 	int				m_iRawFlags;		///< flags as they received from proto (to avoid coding/decoding to agents)
@@ -50,7 +50,7 @@ public:
 public:
 	int64_t			m_iSize;			///< file size, to sort to work-queue order
 	int				m_iSeq;				///< request order, to sort back to request order
-	int				m_iNext;			///< the next one in one-link list for batch processing
+	int				m_iNext;			///< the next one in one-link list for batch processing. -1 terminate the list. -2 sign of other (out-of-the-lists)
 	char *			m_sRes;				///< snippet result holder (NOT owned)
 	CSphString		m_sError;			///< snippet error message
 	bool			m_bHasBeforePassageMacro;
@@ -65,10 +65,10 @@ public:
 /// an excerpt generator
 /// returns a newly allocated string in encoding specified by tokenizer on success
 /// returns NULL on failure
-char * sphBuildExcerpt ( ExcerptQuery_t &, CSphDict *, ISphTokenizer *, const CSphSchema *, CSphIndex *, CSphString & sError, const CSphHTMLStripper * );
+char * sphBuildExcerpt ( ExcerptQuery_t &, CSphDict *, ISphTokenizer *, const CSphSchema *, CSphIndex *, CSphString & sError, const CSphHTMLStripper *, ISphTokenizer * );
 
 #endif // _sphinxexcerpt_
 
 //
-// $Id: sphinxexcerpt.h 2760 2011-04-06 06:27:54Z tomat $
+// $Id: sphinxexcerpt.h 2970 2011-09-23 16:50:22Z klirichek $
 //
