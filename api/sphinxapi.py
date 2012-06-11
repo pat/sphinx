@@ -1,11 +1,11 @@
 #
-# $Id: sphinxapi.py 2970 2011-09-23 16:50:22Z klirichek $
+# $Id: sphinxapi.py 3087 2012-01-30 23:07:35Z shodan $
 #
 # Python version of Sphinx searchd client (Python API)
 #
 # Copyright (c) 2006, Mike Osadnik
-# Copyright (c) 2006-2011, Andrew Aksyonoff
-# Copyright (c) 2008-2011, Sphinx Technologies Inc
+# Copyright (c) 2006-2012, Andrew Aksyonoff
+# Copyright (c) 2008-2012, Sphinx Technologies Inc
 # All rights reserved
 #
 # This program is free software; you can redistribute it and/or modify
@@ -1111,5 +1111,5 @@ def AssertUInt32 ( value ):
 	assert(value>=0 and value<=2**32-1)
 		
 #
-# $Id: sphinxapi.py 2970 2011-09-23 16:50:22Z klirichek $
+# $Id: sphinxapi.py 3087 2012-01-30 23:07:35Z shodan $
 #

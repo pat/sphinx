@@ -1,10 +1,10 @@
 //
-// $Id: search.cpp 2948 2011-09-11 23:24:14Z tomat $
+// $Id: search.cpp 3087 2012-01-30 23:07:35Z shodan $
 //
 
 //
-// Copyright (c) 2001-2011, Andrew Aksyonoff
-// Copyright (c) 2008-2011, Sphinx Technologies Inc
+// Copyright (c) 2001-2012, Andrew Aksyonoff
+// Copyright (c) 2008-2012, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -335,7 +335,7 @@ int main ( int argc, char ** argv )
 			return 1;
 		}
 
-		fprintf ( stdout, "index '%s': query '%s': returned %d matches of %d total in %d.%03d sec\n",
+		fprintf ( stdout, "index '%s': query '%s': returned %d matches of "INT64_FMT" total in %d.%03d sec\n",
 			sIndexName, sQuery, pResult->m_dMatches.GetLength(), pResult->m_iTotalMatches,
 			pResult->m_iQueryTime/1000, pResult->m_iQueryTime%1000 );
 
@@ -448,7 +448,7 @@ int main ( int argc, char ** argv )
 		while ( pResult->m_hWordStats.IterateNext() )
 		{
 			const CSphQueryResultMeta::WordStat_t & tStat = pResult->m_hWordStats.IterateGet();
-			fprintf ( stdout, "%d. '%s': %d documents, %d hits\n",
+			fprintf ( stdout, "%d. '%s': "INT64_FMT" documents, "INT64_FMT" hits\n",
 				iWord,
 				pResult->m_hWordStats.IterateGetKey().cstr(),
 				tStat.m_iDocs,
@@ -468,5 +468,5 @@ int main ( int argc, char ** argv )
 }
 
 //
-// $Id: search.cpp 2948 2011-09-11 23:24:14Z tomat $
+// $Id: search.cpp 3087 2012-01-30 23:07:35Z shodan $
 //

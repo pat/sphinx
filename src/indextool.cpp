@@ -1,10 +1,10 @@
 //
-// $Id: indextool.cpp 2948 2011-09-11 23:24:14Z tomat $
+// $Id: indextool.cpp 3087 2012-01-30 23:07:35Z shodan $
 //
 
 //
-// Copyright (c) 2001-2011, Andrew Aksyonoff
-// Copyright (c) 2008-2011, Sphinx Technologies Inc
+// Copyright (c) 2001-2012, Andrew Aksyonoff
+// Copyright (c) 2008-2012, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -553,5 +553,5 @@ void DoOptimization ( const CSphString & sIndex, const CSphConfig & hConf )
 }
 
 //
-// $Id: indextool.cpp 2948 2011-09-11 23:24:14Z tomat $
+// $Id: indextool.cpp 3087 2012-01-30 23:07:35Z shodan $
 //

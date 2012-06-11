@@ -1,10 +1,10 @@
 //
-// $Id: sphinxutils.cpp 2891 2011-07-19 15:55:08Z klirichek $
+// $Id: sphinxutils.cpp 3109 2012-02-19 14:13:20Z shodan $
 //
 
 //
-// Copyright (c) 2001-2011, Andrew Aksyonoff
-// Copyright (c) 2008-2011, Sphinx Technologies Inc
+// Copyright (c) 2001-2012, Andrew Aksyonoff
+// Copyright (c) 2008-2012, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -90,12 +90,23 @@ int CSphConfigSection::GetSize ( const char * sKey, int iDefault ) const
 	}
 
 	char * sErr;
-	int iRes = strtol ( sMemLimit, &sErr, 10 );
-	if ( !*sErr )
-		return iScale*iRes;
+	int64_t iRes = strtoll ( sMemLimit, &sErr, 10 );
 
-	// FIXME! report syntax error here
-	return iDefault;
+	if ( !*sErr )
+	{
+		iRes *= iScale;
+		if ( iRes>INT_MAX )
+		{
+			sphWarning ( "'%s = %s' clamped to INT_MAX", sKey, pEntry->cstr() );
+			iRes = INT_MAX;
+		}
+	} else
+	{
+		sphWarning ( "'%s = %s' parse error '%s'", sKey, pEntry->cstr(), sErr );
+		iRes = iDefault;
+	}
+
+	return (int)iRes;
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -158,6 +169,7 @@ static KeyDesc_t g_dKeysSource[] =
 	{ "xmlpipe_attr_str2ordinal",	KEY_LIST, NULL },
 	{ "xmlpipe_attr_bool",		KEY_LIST, NULL },
 	{ "xmlpipe_attr_float",		KEY_LIST, NULL },
+	{ "xmlpipe_attr_bigint",	KEY_LIST, NULL },
 	{ "xmlpipe_attr_multi",		KEY_LIST, NULL },
 	{ "xmlpipe_attr_multi_64",	KEY_LIST, NULL },
 	{ "xmlpipe_attr_string",	KEY_LIST, NULL },
@@ -1533,5 +1545,5 @@ void sphBacktrace ( EXCEPTION_POINTERS * pExc, const char * sFile )
 #endif // USE_WINDOWS
 
 //
-// $Id: sphinxutils.cpp 2891 2011-07-19 15:55:08Z klirichek $
+// $Id: sphinxutils.cpp 3109 2012-02-19 14:13:20Z shodan $
 //

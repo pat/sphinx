@@ -1,10 +1,10 @@
 //
-// $Id: sphinxsort.cpp 2975 2011-09-30 12:54:17Z tomat $
+// $Id: sphinxsort.cpp 3087 2012-01-30 23:07:35Z shodan $
 //
 
 //
-// Copyright (c) 2001-2011, Andrew Aksyonoff
-// Copyright (c) 2008-2011, Sphinx Technologies Inc
+// Copyright (c) 2001-2012, Andrew Aksyonoff
+// Copyright (c) 2008-2012, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -2246,32 +2246,6 @@ bool sphSortGetStringRemap ( const CSphSchema & tSorterSchema, const CSphSchema 
 	return ( dAttrs.GetLength()>0 );
 }
 
-
-void sphSortRemoveInternalAttrs ( CSphSchema & tSchema )
-{
-	int iAttrCount = tSchema.GetAttrsCount();
-	// internal attributes last
-	if ( !tSchema.GetAttrsCount() || !tSchema.GetAttr ( iAttrCount-1 ).m_sName.Begins( g_sIntAttrPrefix ) )
-		return;
-
-	// save needed attributes
-	CSphVector<CSphColumnInfo> dAttrs ( iAttrCount );
-	dAttrs.Resize ( 0 );
-	for ( int i=0; i<iAttrCount; i++ )
-	{
-		const CSphColumnInfo & tCol = tSchema.GetAttr(i);
-		if ( tCol.m_sName.Begins ( g_sIntAttrPrefix ) )
-			break;
-
-		dAttrs.Add ( tCol );
-	}
-
-	// fill up schema with needed only attributes
-	tSchema.ResetAttrs();
-	ARRAY_FOREACH ( i, dAttrs )
-		tSchema.AddAttr ( dAttrs[i], dAttrs[i].m_tLocator.m_bDynamic );
-}
-
 ////////////////////
 // BINARY COLLATION
 ////////////////////
@@ -3131,5 +3105,5 @@ bool sphHasExpressions ( const CSphQuery & tQuery, const CSphSchema & tSchema )
 
 
 //
-// $Id: sphinxsort.cpp 2975 2011-09-30 12:54:17Z tomat $
+// $Id: sphinxsort.cpp 3087 2012-01-30 23:07:35Z shodan $
 //

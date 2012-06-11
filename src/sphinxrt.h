@@ -1,10 +1,10 @@
 //
-// $Id: sphinxrt.h 2948 2011-09-11 23:24:14Z tomat $
+// $Id: sphinxrt.h 3125 2012-02-28 15:39:55Z shodan $
 //
 
 //
-// Copyright (c) 2001-2011, Andrew Aksyonoff
-// Copyright (c) 2008-2011, Sphinx Technologies Inc
+// Copyright (c) 2001-2012, Andrew Aksyonoff
+// Copyright (c) 2008-2012, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -46,14 +46,14 @@ public:
 	/// undo pending changes
 	virtual void RollBack () = 0;
 
-	/// dump index data to disk
-	virtual void DumpToDisk ( const char * sFilename ) = 0;
-
 	/// check and periodically flush RAM chunk to disk
 	virtual void CheckRamFlush () = 0;
 
 	/// forcibly flush RAM chunk to disk
 	virtual void ForceRamFlush ( bool bPeriodic=false ) = 0;
+
+	/// forcibly save RAM chunk as a new disk chunk
+	virtual void ForceDiskChunk () = 0;
 
 	/// attach a disk chunk to current index
 	virtual bool AttachDiskIndex ( CSphIndex * pIndex, CSphString & sError ) = 0;
@@ -89,5 +89,5 @@ void sphReplayBinlog ( const SmallStringHash_T<CSphIndex*> & hIndexes, DWORD uRe
 #endif // _sphinxrt_
 
 //
-// $Id: sphinxrt.h 2948 2011-09-11 23:24:14Z tomat $
+// $Id: sphinxrt.h 3125 2012-02-28 15:39:55Z shodan $
 //

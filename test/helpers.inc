@@ -1,7 +1,7 @@
 <?php
 
 //
-// $Id: helpers.inc 2980 2011-10-07 07:24:12Z tomat $
+// $Id: helpers.inc 3122 2012-02-28 08:57:13Z klirichek $
 //
 
 ini_set ( "display_errors", 1 );
@@ -226,11 +226,11 @@ function StartSearchd ( $config_file, $error_file, $pidfile, &$error, $use_watch
 
 		$cl = new SphinxClient ();
 		$cl->SetServer ( $addr, $port );	
-		$cl->SetConnectTimeout ( 1 );
+		$cl->SetConnectTimeout ( 10 );
 		
 		$ok = false;
 		$start = MyMicrotime();		
-		for ( $i=0; $i<3; $i++ )
+		for ( $i=0; $i<300; $i++ )
 		{
 			if ( $cl->Open() )
 			{
@@ -2374,5 +2374,5 @@ function RunTest ( $test_dir, $skipdemo, $usemarks )
 }
 
 //
-// $Id: helpers.inc 2980 2011-10-07 07:24:12Z tomat $
+// $Id: helpers.inc 3122 2012-02-28 08:57:13Z klirichek $
 //

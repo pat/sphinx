@@ -1,10 +1,10 @@
 //
-// $Id: sphinxint.h 2979 2011-10-07 06:31:20Z tomat $
+// $Id: sphinxint.h 3117 2012-02-22 20:30:36Z tomat $
 //
 
 //
-// Copyright (c) 2001-2011, Andrew Aksyonoff
-// Copyright (c) 2008-2011, Sphinx Technologies Inc
+// Copyright (c) 2001-2012, Andrew Aksyonoff
+// Copyright (c) 2008-2012, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -81,6 +81,7 @@ public:
 	bool			OpenFile ( const CSphString & sName, CSphString & sErrorBuffer );
 	void			SetFile ( int iFD, SphOffset_t * pSharedOffset );
 	void			CloseFile ( bool bTruncate = false );	///< note: calls Flush(), ie. IsError() might get true after this call
+	void			UnlinkFile (); /// some shit happened (outside) and the file is no more actual.
 
 	void			PutByte ( int uValue );
 	void			PutBytes ( const void * pData, int iSize );
@@ -131,6 +132,7 @@ protected:
 	int			m_iFD;			///< my file descriptior
 	CSphString	m_sFilename;	///< my file name
 	bool		m_bTemporary;	///< whether to unlink this file on Close()
+	bool		m_bWouldTemporary; ///< backup of the m_bTemporary
 
 	CSphIndex::ProgressCallback_t *		m_pProgress; ///< for displaying progress
 	CSphIndexProgress *					m_pStat;
@@ -142,6 +144,7 @@ public:
 
 	int				Open ( const CSphString & sName, int iMode, CSphString & sError, bool bTemp=false );
 	void			Close ();
+	void			SetTemporary(); ///< would be set if a shit happened and the file is not actual.
 
 public:
 	int				GetFD () const { return m_iFD; }
@@ -436,7 +439,7 @@ public:
 	void Prepare ( DWORD * pOutBuffer, DWORD * pOutMax );
 
 	void CollectWithoutMvas ( const DWORD * pCur, bool bUseMvas );
-	bool Collect ( const DWORD * pCur, const DWORD * pMvas, int64_t iMvasCount, CSphString & sError );
+	bool Collect ( const DWORD * pCur, const DWORD * pMvas, int64_t iMvasCount, CSphString & sError, bool bHasMvaID );
 	void Collect ( const DWORD * pCur, const struct CSphDocMVA & dMvas );
 	void CollectMVA ( DOCID uDocID, const CSphVector< CSphVector<DWORD> > & dCurInfo );
 
@@ -681,7 +684,7 @@ void AttrIndexBuilder_t<DOCID>::CollectRowMVA ( int iAttr, DWORD uCount, const D
 }
 
 template < typename DOCID >
-bool AttrIndexBuilder_t<DOCID>::Collect ( const DWORD * pCur, const DWORD * pMvas, int64_t iMvasCount, CSphString & sError )
+bool AttrIndexBuilder_t<DOCID>::Collect ( const DWORD * pCur, const DWORD * pMvas, int64_t iMvasCount, CSphString & sError, bool bHasMvaID )
 {
 	CollectWithoutMvas ( pCur, true );
 
@@ -704,13 +707,13 @@ bool AttrIndexBuilder_t<DOCID>::Collect ( const DWORD * pCur, const DWORD * pMva
 
 		const DWORD * pMva = pMvas + uOff; // don't care about updates at this point
 
-		if ( i==0 && DOCINFO2ID_T<DOCID> ( pMva-DWSIZEOF(DOCID) )!=uDocID )
+		if ( bHasMvaID && i==0 && DOCINFO2ID_T<DOCID> ( pMva-DWSIZEOF(DOCID) )!=uDocID )
 		{
 			sError.SetSprintf ( "broken index: mva docid verification failed, id=" DOCID_FMT, (SphDocID_t)uDocID );
 			return false;
 		}
 
-		DWORD uCount = *pMva;
+		DWORD uCount = *pMva++;
 		if ( ( uOff+uCount>=iMvasCount ) || ( i>=m_iMva64 && ( uCount%2 )!=0 ) )
 		{
 			sError.SetSprintf ( "broken index: mva list out of bounds, id=" DOCID_FMT, (SphDocID_t)uDocID );
@@ -954,6 +957,9 @@ inline int sphUTF8Encode ( BYTE * pBuf, int iCode )
 /// compute UTF-8 string length in codepoints
 inline int sphUTF8Len ( const char * pStr )
 {
+	if ( !pStr || *pStr=='\0' )
+		return 0;
+
 	BYTE * pBuf = (BYTE*) pStr;
 	int iRes = 0, iCode;
 
@@ -968,14 +974,17 @@ inline int sphUTF8Len ( const char * pStr )
 /// compute UTF-8 string length in codepoints
 inline int sphUTF8Len ( const char * pStr, int iMax )
 {
+	if ( !pStr || *pStr=='\0' )
+		return 0;
+
 	BYTE * pBuf = (BYTE*) pStr;
 	BYTE * pMax = pBuf + iMax;
-	int iRes = 0;
-	while ( pBuf<pMax )
-	{
-		sphUTF8Decode ( pBuf );
-		iRes++;
-	}
+	int iRes = 0, iCode;
+
+	while ( pBuf<pMax && iRes<iMax && ( iCode = sphUTF8Decode ( pBuf ) )!=0 )
+		if ( iCode>0 )
+			iRes++;
+
 	return iRes;
 }
 
@@ -1116,16 +1125,6 @@ struct LocatorPair_t
 	CSphAttrLocator m_tTo;		///< destination (dynamized) locator
 };
 
-/// internal disk index interface (that exposes some guts)
-struct ISphIndex_VLN : public CSphIndex
-{
-	explicit ISphIndex_VLN ( const char * sIndexName, const char * sFilename )
-		: CSphIndex ( sIndexName, sFilename )
-	{}
-
-	virtual void SetDynamize ( const CSphVector<LocatorPair_t> & dDynamize ) = 0;
-};
-
 //////////////////////////////////////////////////////////////////////////
 // DICTIONARY INTERNALS
 //////////////////////////////////////////////////////////////////////////
@@ -1189,6 +1188,15 @@ public:
 };
 
 //////////////////////////////////////////////////////////////////////////
+// USER VARIABLES
+//////////////////////////////////////////////////////////////////////////
+
+/// value container for the intset uservar type
+class UservarIntSet_c : public CSphVector<SphAttr_t>, public ISphRefcountedMT
+{
+};
+
+//////////////////////////////////////////////////////////////////////////
 // BINLOG INTERNALS
 //////////////////////////////////////////////////////////////////////////
 
@@ -1198,7 +1206,7 @@ class ISphBinlog : ISphNoncopyable
 public:
 	virtual				~ISphBinlog () {}
 
-	virtual void		BinlogUpdateAttributes ( const char * sIndexName, int64_t iTID, const CSphAttrUpdate & tUpd ) = 0;
+	virtual void		BinlogUpdateAttributes ( int64_t * pTID, const char * sIndexName, const CSphAttrUpdate & tUpd ) = 0;
 	virtual void		NotifyIndexFlush ( const char * sIndexName, int64_t iTID, bool bShutdown ) = 0;
 };
 
@@ -1217,7 +1225,6 @@ const BYTE *	SkipQuoted ( const BYTE * p );
 
 ISphExpr *		sphSortSetupExpr ( const CSphString & sName, const CSphSchema & tIndexSchema );
 bool			sphSortGetStringRemap ( const CSphSchema & tSorterSchema, const CSphSchema & tIndexSchema, CSphVector<SphStringSorterRemap_t> & dAttrs );
-void			sphSortRemoveInternalAttrs ( CSphSchema & tSchema );
 bool			sphIsSortStringInternal ( const char * sColumnName );
 
 bool			sphWriteThrottled ( int iFD, const void * pBuf, int64_t iCount, const char * sName, CSphString & sError );
@@ -1366,7 +1373,7 @@ public:
 		// how many bytes of a previous keyword can we reuse?
 		BYTE iMatch = 0;
 		int iMinLen = Min ( m_iLastLen, iLen );
-		assert ( iMinLen<sizeof(m_sLastKeyword) );
+		assert ( iMinLen<(int)sizeof(m_sLastKeyword) );
 		while ( iMatch<iMinLen && m_sLastKeyword[iMatch]==pWord[iMatch] )
 		{
 			iMatch++;
@@ -1405,5 +1412,5 @@ const char *		sphArenaInit ( int iMaxBytes );
 #endif // _sphinxint_
 
 //
-// $Id: sphinxint.h 2979 2011-10-07 06:31:20Z tomat $
+// $Id: sphinxint.h 3117 2012-02-22 20:30:36Z tomat $
 //

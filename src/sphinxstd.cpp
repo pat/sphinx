@@ -1,10 +1,10 @@
 //
-// $Id: sphinxstd.cpp 3000 2011-11-05 15:53:22Z shodan $
+// $Id: sphinxstd.cpp 3130 2012-03-01 07:43:56Z tomat $
 //
 
 //
-// Copyright (c) 2001-2011, Andrew Aksyonoff
-// Copyright (c) 2008-2011, Sphinx Technologies Inc
+// Copyright (c) 2001-2012, Andrew Aksyonoff
+// Copyright (c) 2008-2012, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -790,11 +790,13 @@ void CSphProcessSharedMutex::Unlock () const
 }
 
 
-bool CSphProcessSharedMutex::TimedLock ( int tmSpin ) const
-{
 #if USE_WINDOWS
+bool CSphProcessSharedMutex::TimedLock ( int ) const
+	{
 	return false;
 #else
+bool CSphProcessSharedMutex::TimedLock ( int tmSpin ) const
+{
 	if ( !m_pMutex )
 		return false;
 
@@ -1040,6 +1042,21 @@ void * sphMyStack ()
 {
 	return sphThreadGet ( g_tMyThreadStack );
 }
+
+
+int64_t sphGetStackUsed()
+{
+	BYTE cStack;
+	BYTE * pStackTop = (BYTE*)sphMyStack();
+	if ( !pStackTop )
+		return 0;
+	int64_t iHeight = pStackTop - &cStack;
+	if ( iHeight>=0 )
+		return iHeight;
+	else
+		return -iHeight;
+}
+
 
 int sphMyStackSize ()
 {
@@ -1302,5 +1319,5 @@ bool CSphRwlock::Unlock ()
 #endif
 
 //
-// $Id: sphinxstd.cpp 3000 2011-11-05 15:53:22Z shodan $
+// $Id: sphinxstd.cpp 3130 2012-03-01 07:43:56Z tomat $
 //

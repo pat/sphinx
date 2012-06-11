@@ -1,10 +1,10 @@
 //
-// $Id: sphinxexcerpt.cpp 2983 2011-10-18 16:04:35Z klirichek $
+// $Id: sphinxexcerpt.cpp 3087 2012-01-30 23:07:35Z shodan $
 //
 
 //
-// Copyright (c) 2001-2011, Andrew Aksyonoff
-// Copyright (c) 2008-2011, Sphinx Technologies Inc
+// Copyright (c) 2001-2012, Andrew Aksyonoff
+// Copyright (c) 2008-2012, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -313,7 +313,7 @@ struct SnippetsQword_Exact_c: public ISnippetsQword
 		while ( m_iToken < m_dTokens->GetLength() )
 		{
 			Token_t & tToken = (*m_dTokens)[m_iToken++];
-			if ( tToken.m_eType!=ExcerptGen_c::TOK_WORD )
+			if ( !( tToken.m_eType==ExcerptGen_c::TOK_WORD || tToken.m_eType==ExcerptGen_c::TOK_SPZ ) )
 				continue;
 
 			if ( tToken.m_iWordID==m_iWordID || tToken.m_iBlendID==m_iWordID )
@@ -403,7 +403,7 @@ struct SnippetsQword_ExactForm_c : public SnippetsQword_c<SnippetsQword_ExactFor
 		int iLen = m_sWord.Length()-1;
 		BYTE sTmp [ 3*SPH_MAX_WORD_LEN + 16 ];
 
-		assert ( iLen>0 && iLen<sizeof(sTmp) );
+		assert ( iLen>0 && iLen<(int)sizeof(sTmp) );
 		assert ( m_sWord.Begins ( "=" ) );
 		assert ( pDict && m_pTokenizer );
 
@@ -739,9 +739,17 @@ void ExcerptGen_c::TokenizeDocument ( char * pData, int iDataLen, CSphDict * pDi
 
 			if ( iSPZ && *sWord>=iSPZ && ( m_dTokens.GetLength()==0 || m_dTokens.Last().m_eType!=TOK_SPZ ) )
 			{
+				BYTE * sWordSPZ = sWord;
+				if ( (*sWord)==MAGIC_CODE_SENTENCE )
+					sWordSPZ = (BYTE *)MAGIC_WORD_SENTENCE;
+				else if ( (*sWord)==MAGIC_CODE_PARAGRAPH )
+					sWordSPZ = (BYTE *)MAGIC_WORD_PARAGRAPH;
+
 				Token_t & tLast = m_dTokens.Add();
 				tLast.Reset();
 				tLast.m_eType = TOK_SPZ;
+				tLast.m_iWordID = pDict->GetWordID ( sWordSPZ );
+				tLast.m_uPosition = uPosition;
 
 				if ( *sWord==MAGIC_CODE_SENTENCE )
 				{
@@ -822,8 +830,8 @@ void ExcerptGen_c::TokenizeDocument ( char * pData, int iDataLen, CSphDict * pDi
 		{
 			BYTE sBuf [ 3*SPH_MAX_WORD_LEN+4 ];
 			int iBytes = pLastTokenEnd - pTokenStart;
-			if ( iBytes+2>sizeof(sBuf) )
-				iBytes = sizeof(sBuf)-2;
+			if ( iBytes+2>(int)sizeof(sBuf) )
+				iBytes = (int)sizeof(sBuf)-2;
 			memcpy ( sBuf + 1, sWord, iBytes );
 			sBuf[0] = MAGIC_WORD_HEAD_NONSTEMMED;
 			sBuf[iBytes+1] = '\0';
@@ -1026,7 +1034,7 @@ char * ExcerptGen_c::BuildExcerpt ( const ExcerptQuery_t & tQuery )
 	{
 		if ( !( ExtractPassages ( tQuery ) && HighlightBestPassages ( tQuery ) ) )
 		{
-			if ( tQuery.m_bAllowEmpty )
+			if ( !tQuery.m_bAllowEmpty )
 				HighlightStart ( tQuery );
 		}
 	}
@@ -1894,6 +1902,7 @@ public:
 	int			FindWord ( SphWordID_t iWordID, const BYTE * sWord, int iWordLen ) const;
 	void		AddHits ( SphWordID_t iWordID, const BYTE * sWord, int iWordLen, DWORD uPosition );
 	bool		Parse ( const char * sQuery, ISphTokenizer * pTokenizer, CSphDict * pDict, const CSphSchema * pSchema, CSphString & sError, int iStopwordStep );
+	int			GetSPZ () const;
 
 protected:
 	bool		MatchStar ( const ExcerptGen_c::Keyword_t & tTok, const BYTE * sWord, int iWordLen ) const;
@@ -2039,6 +2048,24 @@ bool SnippetsDocIndex_c::Parse ( const char * sQuery, ISphTokenizer * pTokenizer
 }
 
 
+int SnippetsDocIndex_c::GetSPZ () const
+{
+	// with sentence in query we should consider SENTECE, PARAGRAPH, ZONE
+	// with paragraph in query we should consider PARAGRAPH, ZONE
+	// with zone in query we should consider ZONE
+	if ( m_bSentence )
+		return MAGIC_CODE_SENTENCE;
+
+	if ( m_bParagraph )
+		return MAGIC_CODE_PARAGRAPH;
+
+	if ( m_tQuery.m_dZones.GetLength() )
+		return MAGIC_CODE_ZONE;
+
+	return 0;
+}
+
+
 void SnippetsDocIndex_c::AddWord ( SphWordID_t iWordID )
 {
 	assert ( iWordID );
@@ -2104,6 +2131,7 @@ public:
 	int		m_iStopwordStep;
 	bool	m_bIndexExactWords;
 	int		m_iDocLen;
+	int		m_iMatchesCount;
 
 	explicit TokenFunctorTraits_c ( SnippetsDocIndex_c & tContainer, ISphTokenizer * pTokenizer, CSphDict * pDict, const ExcerptQuery_t & tQuery, const CSphIndexSettings & tSettingsIndex, const char * sDoc, int iDocLen )
 		: m_tContainer ( tContainer )
@@ -2114,12 +2142,15 @@ public:
 		, m_iStopwordStep ( tSettingsIndex.m_iStopwordStep )
 		, m_bIndexExactWords ( tSettingsIndex.m_bIndexExactWords )
 		, m_iDocLen ( iDocLen )
+		, m_iMatchesCount ( 0 )
 	{
 		assert ( m_pTokenizer && m_pDict );
 		ExcerptQuery_t::operator = ( tQuery );
 		m_pTokenizer->SetBuffer ( (BYTE*)sDoc, m_iDocLen );
 		m_pDoc = m_pTokenizer->GetBufferPtr();
 	}
+
+	~TokenFunctorTraits_c () {}
 
 	void ResultEmit ( const char * pSrc, int iLen, bool bHasPassageMacro=false, int iPassageId=0, const char * pPost=NULL, int iPostLen=0 )
 	{
@@ -2284,7 +2315,10 @@ public:
 				bMatch = true;
 
 		if ( bMatch )
+		{
 			ResultEmit ( m_sBeforeMatch.cstr(), m_iBeforeLen, m_bHasBeforePassageMacro, m_iPassageId, m_sBeforeMatchPassage.cstr(), m_iBeforePostLen );
+			m_iMatchesCount++;
+		}
 
 		ResultEmit ( m_pDoc+iStart, iLen );
 
@@ -2337,7 +2371,10 @@ public:
 
 		// marker folding, emit "before" marker at span start only
 		if ( m_pHit<m_pHitEnd && uPosition==m_pHit->m_uPosition )
+		{
 			ResultEmit ( m_sBeforeMatch.cstr(), m_iBeforeLen, m_bHasBeforePassageMacro, m_iPassageId, m_sBeforeMatchPassage.cstr(), m_iBeforePostLen );
+			m_iMatchesCount++;
+		}
 
 		// emit token itself
 		ResultEmit ( m_pDoc+iStart, iLen );
@@ -2471,8 +2508,8 @@ static void TokenizeDocument ( TokenFunctorTraits_c & tFunctor, const CSphHTMLSt
 				if ( tFunctor.m_bHighlightQuery && tFunctor.m_bIndexExactWords )
 				{
 					int iLen = strlen ( (const char *)sWord );
-					if ( iLen+2>sizeof(sExactBuf) )
-						iLen = sizeof(sExactBuf)-2;
+					if ( iLen+2>(int)sizeof(sExactBuf) )
+						iLen = (int)sizeof(sExactBuf)-2;
 					memcpy ( sExactBuf + 1, sWord, iLen );
 					sExactBuf[0] = MAGIC_WORD_HEAD_NONSTEMMED;
 					sExactBuf[iLen+1] = '\0';
@@ -2585,8 +2622,8 @@ static void TokenizeDocument ( TokenFunctorTraits_c & tFunctor, const CSphHTMLSt
 		if ( tFunctor.m_bHighlightQuery && tFunctor.m_bIndexExactWords )
 		{
 			int iBytes = iWordLen;
-			if ( iBytes+2>sizeof(sExactBuf) )
-				iBytes = sizeof(sExactBuf)-2;
+			if ( iBytes+2>(int)sizeof(sExactBuf) )
+				iBytes = (int)sizeof(sExactBuf)-2;
 			memcpy ( sExactBuf + 1, sWord, iBytes );
 			sExactBuf[0] = MAGIC_WORD_HEAD_NONSTEMMED;
 			sExactBuf[iBytes+1] = '\0';
@@ -2594,7 +2631,7 @@ static void TokenizeDocument ( TokenFunctorTraits_c & tFunctor, const CSphHTMLSt
 		}
 
 		int iNonStemmedLen = iWordLen;
-		if ( iNonStemmedLen+1>sizeof(sNonStemmed) )
+		if ( iNonStemmedLen+1>(int)sizeof(sNonStemmed) )
 			iNonStemmedLen = sizeof(sNonStemmed)-1;
 
 		memcpy ( sNonStemmed, sWord, iNonStemmedLen );
@@ -2766,6 +2803,10 @@ static char * HighlightAllFastpath ( const ExcerptQuery_t & tQuerySettings,
 	if ( !tContainer.Parse ( tFixedSettings.m_sWords.cstr(), pQueryTokenizer, pDict, pSchema, sError, tIndexSettings.m_iStopwordStep ) )
 		return NULL;
 
+	// fast-path collects no passages but that flag says what SPZ should we collect
+	if ( tFixedSettings.m_bHighlightQuery && !tFixedSettings.m_iPassageBoundary )
+		tFixedSettings.m_iPassageBoundary = tContainer.GetSPZ();
+
 	// do highlighting
 	if ( !tFixedSettings.m_bHighlightQuery )
 	{
@@ -2773,6 +2814,9 @@ static char * HighlightAllFastpath ( const ExcerptQuery_t & tQuerySettings,
 		// do just one tokenization pass over the document, matching and highlighting keywords
 		HighlightPlain_c tHighlighter ( tContainer, pTokenizer, pDict, tFixedSettings, tIndexSettings, sDoc, iDocLen );
 		TokenizeDocument ( tHighlighter, NULL );
+
+		if ( !tHighlighter.m_iMatchesCount && tFixedSettings.m_bAllowEmpty )
+			tHighlighter.m_dResult.Reset();
 
 		// add trailing zero, and return
 		tHighlighter.m_dResult.Add ( 0 );
@@ -2876,6 +2920,9 @@ static char * HighlightAllFastpath ( const ExcerptQuery_t & tQuerySettings,
 		// 2nd pass
 		HighlightQuery_c tHighlighter ( tContainer, pTokenizer, pDict, tFixedSettings, tIndexSettings, sDoc, iDocLen, dMarked );
 		TokenizeDocument ( tHighlighter, pStripper );
+
+		if ( !tHighlighter.m_iMatchesCount && tFixedSettings.m_bAllowEmpty )
+			tHighlighter.m_dResult.Reset();
 
 		// add trailing zero, and return
 		tHighlighter.m_dResult.Add ( 0 );
@@ -3025,5 +3072,5 @@ char * sphBuildExcerpt ( ExcerptQuery_t & tOptions, CSphDict * pDict, ISphTokeni
 }
 
 //
-// $Id: sphinxexcerpt.cpp 2983 2011-10-18 16:04:35Z klirichek $
+// $Id: sphinxexcerpt.cpp 3087 2012-01-30 23:07:35Z shodan $
 //

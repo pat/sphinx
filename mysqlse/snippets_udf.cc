@@ -1,10 +1,10 @@
 //
-// $Id: snippets_udf.cc 2918 2011-08-17 21:17:31Z tomat $
+// $Id: snippets_udf.cc 3087 2012-01-30 23:07:35Z shodan $
 //
 
 //
-// Copyright (c) 2001-2011, Andrew Aksyonoff
-// Copyright (c) 2008-2011, Sphinx Technologies Inc
+// Copyright (c) 2001-2012, Andrew Aksyonoff
+// Copyright (c) 2008-2012, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -787,5 +787,5 @@ void sphinx_snippets_deinit ( UDF_INIT * pUDF )
 }
 
 //
-// $Id: snippets_udf.cc 2918 2011-08-17 21:17:31Z tomat $
+// $Id: snippets_udf.cc 3087 2012-01-30 23:07:35Z shodan $
 //

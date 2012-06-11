@@ -1,10 +1,10 @@
 //
-// $Id: sphinxstd.h 2996 2011-11-02 11:30:13Z shodan $
+// $Id: sphinxstd.h 3129 2012-03-01 07:18:52Z tomat $
 //
 
 //
-// Copyright (c) 2001-2011, Andrew Aksyonoff
-// Copyright (c) 2008-2011, Sphinx Technologies Inc
+// Copyright (c) 2001-2012, Andrew Aksyonoff
+// Copyright (c) 2008-2012, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -794,7 +794,7 @@ public:
 	/// resize
 	void Resize ( int iNewLength )
 	{
-		if ( iNewLength>=m_iLength )
+		if ( (unsigned int)iNewLength>=(unsigned int)m_iLength )
 			Reserve ( iNewLength );
 		m_iLength = iNewLength;
 	}
@@ -1205,6 +1205,53 @@ public:
 
 		m_iLength++;
 		return true;
+	}
+
+	/// add new entry
+	/// returns the pointer to just inserted or previously cached (if dupe) value
+	T* AddUnique ( const T & tValue, const KEY & tKey )
+	{
+		unsigned int uHash = ( (unsigned int) HASHFUNC::Hash ( tKey ) ) % LENGTH;
+
+		// check if this key is already hashed
+		HashEntry_t * pEntry = m_dHash [ uHash ];
+		HashEntry_t ** ppEntry = &m_dHash [ uHash ];
+		while ( pEntry )
+		{
+			if ( pEntry->m_tKey==tKey )
+				return &pEntry->m_tValue;
+
+			ppEntry = &pEntry->m_pNextByHash;
+			pEntry = pEntry->m_pNextByHash;
+		}
+
+		// it's not; let's add the entry
+		assert ( !pEntry );
+		assert ( !*ppEntry );
+
+		pEntry = new HashEntry_t;
+		pEntry->m_tKey = tKey;
+		pEntry->m_tValue = tValue;
+		pEntry->m_pNextByHash = NULL;
+		pEntry->m_pPrevByOrder = NULL;
+		pEntry->m_pNextByOrder = NULL;
+
+		*ppEntry = pEntry;
+
+		if ( !m_pFirstByOrder )
+			m_pFirstByOrder = pEntry;
+
+		if ( m_pLastByOrder )
+		{
+			assert ( !m_pLastByOrder->m_pNextByOrder );
+			assert ( !pEntry->m_pNextByOrder );
+			m_pLastByOrder->m_pNextByOrder = pEntry;
+			pEntry->m_pPrevByOrder = m_pLastByOrder;
+		}
+		m_pLastByOrder = pEntry;
+
+		m_iLength++;
+		return &pEntry->m_tValue;
 	}
 
 	/// delete an entry
@@ -1649,8 +1696,8 @@ public:
 	/// ctor from C string
 	CSphVariant ( const char * sString ) // NOLINT desired implicit conversion
 		: CSphString ( sString )
-		, m_iValue ( atoi ( m_sValue ) )
-		, m_fValue ( (float)atof ( m_sValue ) )
+		, m_iValue ( m_sValue ? atoi ( m_sValue ) : 0 )
+		, m_fValue ( m_sValue ? (float)atof ( m_sValue ) : 0.0f )
 		, m_pNext ( NULL )
 	{
 	}
@@ -1733,6 +1780,7 @@ protected:
 //////////////////////////////////////////////////////////////////////////
 
 /// refcounted base
+/// WARNING, FOR SINGLE-THREADED USE ONLY
 struct ISphRefcounted : public ISphNoncopyable
 {
 protected:
@@ -1749,11 +1797,13 @@ protected:
 
 
 /// automatic pointer wrapper for refcounted objects
+/// construction from or assignment of a raw pointer takes over (!) the ownership
 template < typename T >
 class CSphRefcountedPtr
 {
 public:
-	explicit		CSphRefcountedPtr ( T * pPtr )	{ m_pPtr = pPtr; }
+	explicit		CSphRefcountedPtr ()			{ m_pPtr = NULL; }	///< default NULL wrapper construction (for vectors)
+	explicit		CSphRefcountedPtr ( T * pPtr )	{ m_pPtr = pPtr; }	///< construction from raw pointer, takes over ownership!
 					~CSphRefcountedPtr ()			{ if ( m_pPtr ) m_pPtr->Release(); }
 
 	T *				Ptr () const					{ return m_pPtr; }
@@ -1761,8 +1811,25 @@ public:
 	bool			operator ! () const				{ return m_pPtr==NULL; }
 
 public:
-	CSphRefcountedPtr<T> &	operator = ( T * pPtr )								{ if ( m_pPtr ) m_pPtr->Release(); m_pPtr = pPtr; return *this; }
-	CSphRefcountedPtr<T> &	operator = ( const CSphRefcountedPtr<T> & rhs )		{ if ( rhs.m_pPtr ) rhs.m_pPtr->AddRef(); if ( m_pPtr ) m_pPtr->Release(); m_pPtr = rhs.m_pPtr; return *this; }
+	/// assignment of a raw pointer, takes over ownership!
+	CSphRefcountedPtr<T> & operator = ( T * pPtr )
+	{
+		if ( m_pPtr && m_pPtr!=pPtr )
+			m_pPtr->Release();
+		m_pPtr = pPtr;
+		return *this;
+	}
+
+	/// wrapper assignment, does automated reference tracking
+	CSphRefcountedPtr<T> & operator = ( const CSphRefcountedPtr<T> & rhs )
+	{
+		if ( rhs.m_pPtr )
+			rhs.m_pPtr->AddRef();
+		if ( m_pPtr )
+			m_pPtr->Release();
+		m_pPtr = rhs.m_pPtr;
+		return *this;
+	}
 
 protected:
 	T *				m_pPtr;
@@ -2035,6 +2102,9 @@ void * sphThreadGet ( SphThreadKey_t tKey );
 /// get the pointer to my thread's stack
 void * sphMyStack ();
 
+/// get size of used stack
+int64_t sphGetStackUsed();
+
 /// get the size of my thread's stack
 int sphMyStackSize ();
 
@@ -2092,6 +2162,69 @@ public:
 };
 
 
+/// scoped mutex lock
+template < typename T >
+class CSphScopedLock : ISphNoncopyable
+{
+public:
+	/// lock on creation
+	explicit CSphScopedLock ( T & tMutex )
+		: m_tMutexRef ( tMutex )
+	{
+		m_tMutexRef.Lock();
+	}
+
+	/// unlock on going out of scope
+	~CSphScopedLock ()
+	{
+		m_tMutexRef.Unlock ();
+	}
+
+protected:
+	T &	m_tMutexRef;
+};
+
+
+/// MT-aware refcounted base
+/// mutex protected, might be slow
+struct ISphRefcountedMT : public ISphNoncopyable
+{
+protected:
+	ISphRefcountedMT ()
+		: m_iRefCount ( 1 )
+	{
+		m_tLock.Init();
+	}
+
+	virtual ~ISphRefcountedMT ()
+	{
+		m_tLock.Done();
+	}
+
+public:
+	void AddRef () const
+	{
+		m_tLock.Lock();
+		m_iRefCount++;
+		m_tLock.Unlock();
+	}
+
+	void Release () const
+	{
+		m_tLock.Lock();
+		int iRefs = --m_iRefCount;
+		assert ( iRefs>=0 );
+		m_tLock.Unlock();
+		if ( iRefs==0 )
+			delete this;
+	}
+
+protected:
+	mutable int			m_iRefCount;
+	mutable CSphMutex	m_tLock;
+};
+
+
 /// rwlock implementation
 class CSphRwlock
 {
@@ -2126,7 +2259,8 @@ private:
 	static const int iELEMBITS = sizeof(DWORD) * 8;
 	static const int iBYTESIZE = iTOTALBITS / 8;
 	static const int IELEMENTS = iTOTALBITS / iELEMBITS;
-	static const DWORD uALLBITS = ~(0UL);
+	static const DWORD uALLBITS = (DWORD)(~(0UL));
+
 	STATIC_ASSERT ( IELEMENTS>=1, 8_BITS_MINIMAL_SIZE_OF_VECTOR );
 
 public:
@@ -2331,5 +2465,5 @@ public:
 #endif // _sphinxstd_
 
 //
-// $Id: sphinxstd.h 2996 2011-11-02 11:30:13Z shodan $
+// $Id: sphinxstd.h 3129 2012-03-01 07:18:52Z tomat $
 //

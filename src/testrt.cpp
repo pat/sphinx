@@ -1,10 +1,10 @@
 //
-// $Id: testrt.cpp 2948 2011-09-11 23:24:14Z tomat $
+// $Id: testrt.cpp 3130 2012-03-01 07:43:56Z tomat $
 //
 
 //
-// Copyright (c) 2001-2011, Andrew Aksyonoff
-// Copyright (c) 2008-2011, Sphinx Technologies Inc
+// Copyright (c) 2001-2012, Andrew Aksyonoff
+// Copyright (c) 2008-2012, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -172,6 +172,11 @@ void IndexingThread ( void * pArg )
 
 int main ()
 {
+	// threads should be initialized before memory allocations
+	char cTopOfMainStack;
+	sphThreadInit();
+	MemorizeStack ( &cTopOfMainStack );
+
 	CSphString sError;
 	CSphDictSettings tDictSettings;
 
@@ -257,5 +262,5 @@ int main ()
 }
 
 //
-// $Id: testrt.cpp 2948 2011-09-11 23:24:14Z tomat $
+// $Id: testrt.cpp 3130 2012-03-01 07:43:56Z tomat $
 //
