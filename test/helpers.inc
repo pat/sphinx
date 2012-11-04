@@ -1,7 +1,7 @@
 <?php
 
 //
-// $Id: helpers.inc 3122 2012-02-28 08:57:13Z klirichek $
+// $Id: helpers.inc 3296 2012-07-17 12:54:10Z tomat $
 //
 
 ini_set ( "display_errors", 1 );
@@ -1774,6 +1774,9 @@ class SphinxConfig
 		}
 		else // for rt indexes we need to clean up all index files before the run.
 		{
+			// remove binlog files if any
+			$this->EraseIndexFiles ( 'data/binlog' );
+			
 			$pattern = "/.*?index\s+\S*?(\s*\:\s*\S*?)?\s*\{(.*?)\}.*?/s";
 			preg_match_all ( $pattern, $config, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE );
 			// parse indexes
@@ -2374,5 +2377,5 @@ function RunTest ( $test_dir, $skipdemo, $usemarks )
 }
 
 //
-// $Id: helpers.inc 3122 2012-02-28 08:57:13Z klirichek $
+// $Id: helpers.inc 3296 2012-07-17 12:54:10Z tomat $
 //

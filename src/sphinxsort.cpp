@@ -1,5 +1,5 @@
 //
-// $Id: sphinxsort.cpp 3087 2012-01-30 23:07:35Z shodan $
+// $Id: sphinxsort.cpp 3300 2012-07-24 13:24:12Z shodan $
 //
 
 //
@@ -42,7 +42,23 @@ public:
 	virtual void			GetLocator ( CSphAttrLocator & tOut ) const = 0;
 	virtual ESphAttr		GetResultType () const = 0;
 	virtual void			SetStringPool ( const BYTE * ) {}
+	virtual bool			CanMulti () const { return true; }
 };
+
+
+static bool HasString ( const CSphMatchComparatorState * pState )
+{
+	assert ( pState );
+
+	for ( int i=0; i<CSphMatchComparatorState::MAX_ATTRS; i++ )
+	{
+		if ( pState->m_eKeypart[i]==SPH_KEYPART_STRING )
+			return true;
+	}
+
+	return false;
+}
+
 
 
 /// match-sorting priority queue traits
@@ -81,6 +97,11 @@ public:
 	bool		UsesAttrs () const										{ return m_bUsesAttrs; }
 	virtual CSphMatch *	Finalize ()												{ return m_pData; }
 	virtual int			GetLength () const										{ return m_iUsed; }
+
+	virtual bool CanMulti () const
+	{
+		return !HasString ( &m_tState );
+	}
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -314,7 +335,8 @@ static bool IsGroupbyMagic ( const CSphString & s )
 #define GROUPER_BEGIN_SPLIT(_name) \
 	GROUPER_BEGIN(_name) \
 	time_t tStamp = (time_t)uValue; \
-	struct tm * pSplit = localtime ( &tStamp );
+	struct tm tSplit; \
+	localtime_r ( &tStamp, &tSplit );
 
 
 GROUPER_BEGIN ( CSphGrouperAttr )
@@ -323,13 +345,13 @@ GROUPER_END
 
 
 GROUPER_BEGIN_SPLIT ( CSphGrouperDay )
-	return (pSplit->tm_year+1900)*10000 + (1+pSplit->tm_mon)*100 + pSplit->tm_mday;
+	return (tSplit.tm_year+1900)*10000 + (1+tSplit.tm_mon)*100 + tSplit.tm_mday;
 GROUPER_END
 
 
 GROUPER_BEGIN_SPLIT ( CSphGrouperWeek )
-	int iPrevSunday = (1+pSplit->tm_yday) - pSplit->tm_wday; // prev Sunday day of year, base 1
-	int iYear = pSplit->tm_year+1900;
+	int iPrevSunday = (1+tSplit.tm_yday) - tSplit.tm_wday; // prev Sunday day of year, base 1
+	int iYear = tSplit.tm_year+1900;
 	if ( iPrevSunday<=0 ) // check if we crossed year boundary
 	{
 		// adjust day and year
@@ -345,12 +367,12 @@ GROUPER_END
 
 
 GROUPER_BEGIN_SPLIT ( CSphGrouperMonth )
-	return (pSplit->tm_year+1900)*100 + (1+pSplit->tm_mon);
+	return (tSplit.tm_year+1900)*100 + (1+tSplit.tm_mon);
 GROUPER_END
 
 
 GROUPER_BEGIN_SPLIT ( CSphGrouperYear )
-	return (pSplit->tm_year+1900);
+	return (tSplit.tm_year+1900);
 GROUPER_END
 
 template <class PRED>
@@ -390,6 +412,8 @@ public:
 	{
 		m_pStringBase = pStrings;
 	}
+
+	virtual bool CanMulti () const { return false; }
 };
 
 
@@ -1019,6 +1043,20 @@ public:
 		return true;
 	}
 
+	virtual bool CanMulti () const
+	{
+		if ( m_pGrouper && !m_pGrouper->CanMulti() )
+			return false;
+
+		if ( HasString ( &m_tState ) )
+			return false;
+
+		if ( HasString ( &m_tGroupSorter ) )
+			return false;
+
+		return true;
+	}
+
 	/// set string pool pointer (for string+groupby sorters)
 	void SetStringPool ( const BYTE * pStrings )
 	{
@@ -1329,8 +1367,8 @@ public:
 			assert ( ( iValues%2 )==0 );
 			for ( ;iValues>0; iValues-=2, pValues+=2 )
 			{
-				uint64_t uMva = MVA_UPSIZE ( pValues );
-				SphGroupKey_t uGroupkey = this->m_pGrouper->KeyFromValue ( uMva );
+				int64_t iMva = MVA_UPSIZE ( pValues );
+				SphGroupKey_t uGroupkey = this->m_pGrouper->KeyFromValue ( iMva );
 				bRes |= this->PushEx ( tEntry, uGroupkey, false );
 			}
 
@@ -1860,6 +1898,8 @@ static ESortClauseParseResult sphParseSortClause ( const CSphQuery * pQuery, con
 						continue;
 					if ( tItem.m_sExpr.Begins("@") )
 						iAttr = tSchema.GetAttrIndex ( tItem.m_sExpr.cstr() );
+					else if ( tItem.m_sExpr=="count(*)" )
+						iAttr = tSchema.GetAttrIndex ( "@count" );
 					break; // break in any case; because we did match the alias
 				}
 			}
@@ -2076,9 +2116,12 @@ static bool SetupGroupbySettings ( const CSphQuery * pQuery, const CSphSchema & 
 		case SPH_GROUPBY_ATTR:
 		{
 			if ( eType!=SPH_ATTR_STRING )
+			{
 				tSettings.m_pGrouper = new CSphGrouperAttr ( tLoc );
-			else
+			} else
+			{
 				tSettings.m_pGrouper = sphCreateGrouperString ( tLoc, pQuery->m_eCollation );
+			}
 		}
 		break;
 		default:
@@ -2086,8 +2129,8 @@ static bool SetupGroupbySettings ( const CSphQuery * pQuery, const CSphSchema & 
 			return false;
 	}
 
-	tSettings.m_bMVA = ( eType==SPH_ATTR_UINT32SET || eType==SPH_ATTR_UINT64SET );
-	tSettings.m_bMva64 = ( eType==SPH_ATTR_UINT64SET );
+	tSettings.m_bMVA = ( eType==SPH_ATTR_UINT32SET || eType==SPH_ATTR_INT64SET );
+	tSettings.m_bMva64 = ( eType==SPH_ATTR_INT64SET );
 
 	// setup distinct attr
 	if ( !pQuery->m_sGroupDistinct.IsEmpty() )
@@ -2712,16 +2755,10 @@ ISphMatchSorter * sphCreateQueue ( const CSphQuery * pQuery, const CSphSchema & 
 		bool bIsCount = IsCount(sExpr);
 		bHasCount |= bIsCount;
 
-		if ( bIsCount && sExpr.cstr()[0]!='@' )
-		{
-			CSphString & sExprW = const_cast < CSphString & > ( sExpr );
-			sExprW = "@count";
-		}
-
 		// for now, just always pass "plain" attrs from index to sorter; they will be filtered on searchd level
-		if ( sExpr=="*"
-			|| ( tSchema.GetAttrIndex ( sExpr.cstr() )>=0 && tItem.m_eAggrFunc==SPH_AGGR_NONE )
-			|| IsGroupby(sExpr) || bIsCount )
+		bool bPlainAttr = ( ( sExpr=="*" || ( tSchema.GetAttrIndex ( sExpr.cstr() )>=0 && tItem.m_eAggrFunc==SPH_AGGR_NONE ) ) &&
+			( tItem.m_sAlias.IsEmpty() || tItem.m_sAlias==tItem.m_sExpr ) );
+		if ( bPlainAttr || IsGroupby(sExpr) || bIsCount )
 		{
 			continue;
 		}
@@ -2766,9 +2803,8 @@ ISphMatchSorter * sphCreateQueue ( const CSphQuery * pQuery, const CSphSchema & 
 		}
 
 		// a new and shiny expression, lets parse
-		bool bUsesWeight;
 		CSphColumnInfo tExprCol ( tItem.m_sAlias.cstr(), SPH_ATTR_NONE );
-		tExprCol.m_pExpr = sphExprParse ( sExpr.cstr(), tSorterSchema, &tExprCol.m_eAttrType, &bUsesWeight, sError, pExtra );
+		tExprCol.m_pExpr = sphExprParse ( sExpr.cstr(), tSorterSchema, &tExprCol.m_eAttrType, &tExprCol.m_bWeight, sError, pExtra );
 		tExprCol.m_eAggrFunc = tItem.m_eAggrFunc;
 		if ( !tExprCol.m_pExpr )
 		{
@@ -2794,26 +2830,40 @@ ISphMatchSorter * sphCreateQueue ( const CSphQuery * pQuery, const CSphSchema & 
 			ARRAY_FOREACH ( i, pQuery->m_dFilters )
 				if ( pQuery->m_dFilters[i].m_sAttrName==tExprCol.m_sName )
 			{
-				if ( bUsesWeight )
+				if ( tExprCol.m_bWeight )
 				{
-					tExprCol.m_eStage = SPH_EVAL_PRESORT; // special, weight filter
+					tExprCol.m_eStage = SPH_EVAL_PRESORT; // special, weight filter ( short cut )
 					break;
 				}
 
-				// usual filter
-				tExprCol.m_eStage = SPH_EVAL_PREFILTER;
-
 				// so we are about to add a filter condition
 				// but it might depend on some preceding columns
-				// lets detect those and move them to prefilter phase too
+				// lets detect those and move them to prefilter \ presort phase too
 				CSphVector<int> dCur;
 				tExprCol.m_pExpr->GetDependencyColumns ( dCur );
+
+				// usual filter
+				tExprCol.m_eStage = SPH_EVAL_PREFILTER;
+				ARRAY_FOREACH ( i, dCur )
+				{
+					const CSphColumnInfo & tCol = tSorterSchema.GetAttr ( dCur[i] );
+					if ( tCol.m_bWeight )
+					{
+						tExprCol.m_eStage = SPH_EVAL_PRESORT;
+						tExprCol.m_bWeight = true;
+					}
+					if ( tCol.m_pExpr.Ptr() )
+					{
+						tCol.m_pExpr->GetDependencyColumns ( dCur );
+					}
+				}
+				dCur.Uniq();
 
 				ARRAY_FOREACH ( i, dCur )
 				{
 					CSphColumnInfo & tDep = const_cast < CSphColumnInfo & > ( tSorterSchema.GetAttr ( dCur[i] ) );
-					if ( tDep.m_eStage>SPH_EVAL_PREFILTER )
-						tDep.m_eStage = SPH_EVAL_PREFILTER;
+					if ( tDep.m_eStage>tExprCol.m_eStage )
+						tDep.m_eStage = tExprCol.m_eStage;
 				}
 				break;
 			}
@@ -2851,7 +2901,10 @@ ISphMatchSorter * sphCreateQueue ( const CSphQuery * pQuery, const CSphSchema & 
 	// now lets add @groupby etc if needed
 	if ( bGotGroupby && tSorterSchema.GetAttrIndex ( "@groupby" )<0 )
 	{
-		CSphColumnInfo tGroupby ( "@groupby", tSettings.m_pGrouper->GetResultType() );
+		ESphAttr eGroupByResult = tSettings.m_pGrouper->GetResultType();
+		if ( tSettings.m_bMva64 )
+			eGroupByResult = SPH_ATTR_BIGINT;
+		CSphColumnInfo tGroupby ( "@groupby", eGroupByResult );
 		CSphColumnInfo tCount ( "@count", SPH_ATTR_INTEGER );
 		CSphColumnInfo tDistinct ( "@distinct", SPH_ATTR_INTEGER );
 
@@ -3105,5 +3158,5 @@ bool sphHasExpressions ( const CSphQuery & tQuery, const CSphSchema & tSchema )
 
 
 //
-// $Id: sphinxsort.cpp 3087 2012-01-30 23:07:35Z shodan $
+// $Id: sphinxsort.cpp 3300 2012-07-24 13:24:12Z shodan $
 //

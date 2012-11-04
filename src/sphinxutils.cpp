@@ -1,5 +1,5 @@
 //
-// $Id: sphinxutils.cpp 3109 2012-02-19 14:13:20Z shodan $
+// $Id: sphinxutils.cpp 3256 2012-06-13 15:13:28Z tomat $
 //
 
 //
@@ -848,8 +848,7 @@ bool CSphConfigParser::Parse ( const char * sFileName, const char * pBuffer )
 
 bool sphConfTokenizer ( const CSphConfigSection & hIndex, CSphTokenizerSettings & tSettings, CSphString & sError )
 {
-	// charset_type
-	CSphScopedPtr<ISphTokenizer> pTokenizer ( NULL );
+	tSettings.m_iNgramLen = Max ( hIndex.GetInt ( "ngram_len" ), 0 );
 
 	if ( !hIndex("charset_type") || hIndex["charset_type"]=="sbcs" )
 	{
@@ -857,7 +856,14 @@ bool sphConfTokenizer ( const CSphConfigSection & hIndex, CSphTokenizerSettings 
 
 	} else if ( hIndex["charset_type"]=="utf-8" )
 	{
-		tSettings.m_iType = hIndex("ngram_chars") ? TOKENIZER_NGRAM : TOKENIZER_UTF8;
+		tSettings.m_iType = TOKENIZER_UTF8;
+		if ( hIndex ( "ngram_chars" ) )
+		{
+			if ( tSettings.m_iNgramLen )
+				tSettings.m_iType = TOKENIZER_NGRAM;
+			else
+				sphWarning ( "ngram_chars specified, but ngram_len=0; IGNORED" );
+		}
 
 	} else
 	{
@@ -868,7 +874,6 @@ bool sphConfTokenizer ( const CSphConfigSection & hIndex, CSphTokenizerSettings 
 	tSettings.m_sCaseFolding = hIndex.GetStr ( "charset_table" );
 	tSettings.m_iMinWordLen = Max ( hIndex.GetInt ( "min_word_len" ), 0 );
 	tSettings.m_sNgramChars = hIndex.GetStr ( "ngram_chars" );
-	tSettings.m_iNgramLen = Max ( hIndex.GetInt ( "ngram_len" ), 0 );
 	tSettings.m_sSynonymsFile = hIndex.GetStr ( "exceptions" ); // new option name
 	if ( tSettings.m_sSynonymsFile.IsEmpty() )
 		tSettings.m_sSynonymsFile = hIndex.GetStr ( "synonyms" ); // deprecated option name
@@ -1544,6 +1549,34 @@ void sphBacktrace ( EXCEPTION_POINTERS * pExc, const char * sFile )
 
 #endif // USE_WINDOWS
 
+
+static bool g_bUnlinkOld = true;
+void sphSetUnlinkOld ( bool bUnlink )
+{
+	g_bUnlinkOld = bUnlink;
+}
+
+
+void sphUnlinkIndex ( const char * sName, bool bForce )
+{
+	if ( !( g_bUnlinkOld || bForce ) )
+		return;
+
+	// FIXME! ext list must be in sync with sphinx.cpp, searchd.cpp
+	const int EXT_COUNT = 9;
+	const char * dCurExts[EXT_COUNT] = { ".sph", ".spa", ".spi", ".spd", ".spp", ".spm", ".spk", ".sps", ".mvp" };
+	char sFileName[SPH_MAX_FILENAME_LEN];
+
+	for ( int j=0; j<EXT_COUNT; j++ )
+	{
+		snprintf ( sFileName, sizeof(sFileName), "%s%s", sName, dCurExts[j] );
+		// 'mvp' is optional file
+		if ( ::unlink ( sFileName ) && errno!=ENOENT )
+			sphWarning ( "unlink failed (file '%s', error '%s'", sFileName, strerror(errno) );
+	}
+}
+
+
 //
-// $Id: sphinxutils.cpp 3109 2012-02-19 14:13:20Z shodan $
+// $Id: sphinxutils.cpp 3256 2012-06-13 15:13:28Z tomat $
 //

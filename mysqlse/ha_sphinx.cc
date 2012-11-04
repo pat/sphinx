@@ -1,5 +1,5 @@
 //
-// $Id: ha_sphinx.cc 3133 2012-03-01 13:47:52Z shodan $
+// $Id: ha_sphinx.cc 3307 2012-07-28 05:47:05Z deogar $
 //
 
 //
@@ -154,7 +154,7 @@ void sphUnalignedWrite ( void * pPtr, const T & tVal )
 #define SPHINXSE_MAX_ALLOC			(16*1024*1024)
 #define SPHINXSE_MAX_KEYWORDSTATS	4096
 
-#define SPHINXSE_VERSION			"2.0.4-release"
+#define SPHINXSE_VERSION			"2.0.5-release"
 
 // FIXME? the following is cut-n-paste from sphinx.h and searchd.cpp
 // cut-n-paste is somewhat simpler that adding dependencies however..
@@ -1553,8 +1553,8 @@ bool CSphSEQuery::ParseField ( char * sField )
 
 			if ( tFilter.m_eType==SPH_FILTER_RANGE )
 			{
-				tFilter.m_uMinValue = strtoll ( sValue, NULL, 0 );
-				tFilter.m_uMaxValue = strtoll ( p, NULL, 0 );
+				tFilter.m_uMinValue = strtoll ( sValue, NULL, 10 );
+				tFilter.m_uMaxValue = strtoll ( p, NULL, 10 );
 			} else
 			{
 				tFilter.m_fMinValue = (float)atof(sValue);
@@ -3604,5 +3604,5 @@ mysql_declare_plugin_end;
 #endif // >50100
 
 //
-// $Id: ha_sphinx.cc 3133 2012-03-01 13:47:52Z shodan $
+// $Id: ha_sphinx.cc 3307 2012-07-28 05:47:05Z deogar $
 //

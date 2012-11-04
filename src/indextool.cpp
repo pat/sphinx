@@ -1,5 +1,5 @@
 //
-// $Id: indextool.cpp 3087 2012-01-30 23:07:35Z shodan $
+// $Id: indextool.cpp 3224 2012-05-20 09:36:50Z shodan $
 //
 
 //
@@ -68,8 +68,8 @@ int main ( int argc, char ** argv )
 			"--htmlstrip <INDEXNAME>\t\tfilter stdin usng HTML stripper settings\n"
 			"\t\t\t\tfor a given index (taken from sphinx.conf)\n"
 			"--optimize-rt-klists <INDEXNAME>\n"
-			"\t\t\t\tperform kill list opimization in rt's disk chunks\n"
-			"\t\t\t\tfor a given index (taken from sphinx.conf) or --all\n"
+			"\t\t\t\toptimize kill list memory use in RT index disk\n"
+			"\t\t\t\tchunks; either for a given index or --all\n"
 			"\n"
 			"Options are:\n"
 			"-c, --config <file>\t\tuse given config file instead of defaults\n"
@@ -553,5 +553,5 @@ void DoOptimization ( const CSphString & sIndex, const CSphConfig & hConf )
 }
 
 //
-// $Id: indextool.cpp 3087 2012-01-30 23:07:35Z shodan $
+// $Id: indextool.cpp 3224 2012-05-20 09:36:50Z shodan $
 //

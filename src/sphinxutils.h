@@ -1,5 +1,5 @@
 //
-// $Id: sphinxutils.h 3087 2012-01-30 23:07:35Z shodan $
+// $Id: sphinxutils.h 3256 2012-06-13 15:13:28Z tomat $
 //
 
 //
@@ -38,6 +38,13 @@ inline bool sphIsSpace ( int iCode )
 }
 
 
+/// check for keyword modifiers
+inline bool sphIsModifier ( int iSymbol )
+{
+	return iSymbol=='^' || iSymbol=='$' || iSymbol=='=' || iSymbol=='*';
+}
+
+
 /// string splitter, extracts sequences of alphas (as in sphIsAlpha)
 inline void sphSplit ( CSphVector<CSphString> & dOut, const char * sIn )
 {
@@ -61,7 +68,6 @@ inline void sphSplit ( CSphVector<CSphString> & dOut, const char * sIn )
 		if ( sNext!=p )
 			dOut.Add().SetBinary ( sNext, p-sNext );
 	}
-
 }
 
 
@@ -219,5 +225,5 @@ void sphBacktrace ( EXCEPTION_POINTERS * pExc, const char * sFile );
 #endif // _sphinxutils_
 
 //
-// $Id: sphinxutils.h 3087 2012-01-30 23:07:35Z shodan $
+// $Id: sphinxutils.h 3256 2012-06-13 15:13:28Z tomat $
 //

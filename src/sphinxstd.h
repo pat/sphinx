@@ -1,5 +1,5 @@
 //
-// $Id: sphinxstd.h 3129 2012-03-01 07:18:52Z tomat $
+// $Id: sphinxstd.h 3264 2012-06-19 13:53:02Z klirichek $
 //
 
 //
@@ -206,13 +206,13 @@ void			sphMemStatMMapDel ( int64_t iSize );
 #undef new
 #define new		new(__FILE__,__LINE__)
 
-#endif // SPH_DEBUG_LEAKS || SPH_ALLOCS_PROFILER
-
 /// delete for my new
 void			operator delete ( void * pPtr );
 
 /// delete for my new
 void			operator delete [] ( void * pPtr );
+
+#endif // SPH_DEBUG_LEAKS || SPH_ALLOCS_PROFILER
 
 /////////////////////////////////////////////////////////////////////////////
 // HELPERS
@@ -1772,6 +1772,7 @@ public:
 	T *				Ptr () const				{ return m_pPtr; }
 	CSphScopedPtr &	operator = ( T * pPtr )		{ SafeDelete ( m_pPtr ); m_pPtr = pPtr; return *this; }
 	T *				LeakPtr ()					{ T * pPtr = m_pPtr; m_pPtr = NULL; return pPtr; }
+	void			Reset ()					{ SafeDelete ( m_pPtr ); }
 
 protected:
 	T *				m_pPtr;
@@ -2465,5 +2466,5 @@ public:
 #endif // _sphinxstd_
 
 //
-// $Id: sphinxstd.h 3129 2012-03-01 07:18:52Z tomat $
+// $Id: sphinxstd.h 3264 2012-06-19 13:53:02Z klirichek $
 //

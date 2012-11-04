@@ -1,5 +1,5 @@
 //
-// $Id: sphinxclient.c 3132 2012-03-01 11:38:42Z klirichek $
+// $Id: sphinxclient.c 3140 2012-03-05 08:47:20Z klirichek $
 //
 
 //
@@ -963,7 +963,7 @@ static int calc_req_len ( sphinx_client * client, const char * query, const char
 		+ safestrlen ( client->group_sort )
 		+ safestrlen ( client->group_distinct )
 		+ safestrlen ( comment )
-		+ safestrlen ( client->rankexpr );
+		+ ( ( client->ranker==SPH_RANK_EXPR ) ? ( 4 + safestrlen ( client->rankexpr ) ) : 0 );
 
 	filter_val_size = ( client->ver_search>=0x114 ) ? 8 : 4;
 	for ( i=0; i<client->num_filters; i++ )
@@ -2480,5 +2480,5 @@ void sphinx_status_destroy ( char ** status, int num_rows, int num_cols )
 }
 
 //
-// $Id: sphinxclient.c 3132 2012-03-01 11:38:42Z klirichek $
+// $Id: sphinxclient.c 3140 2012-03-05 08:47:20Z klirichek $
 //

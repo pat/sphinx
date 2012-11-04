@@ -1,5 +1,5 @@
 /*
- * $Id: SphinxClient.java 3132 2012-03-01 11:38:42Z klirichek $
+ * $Id: SphinxClient.java 3144 2012-03-12 08:58:04Z tomat $
  *
  * Java version of Sphinx searchd client (Java API)
  *
@@ -137,6 +137,7 @@ public class SphinxClient
 	private ArrayList	_reqs;
 	private Map			_indexWeights;
 	private int			_ranker;
+	private String		_rankexpr;
 	private int			_maxQueryTime;
 	private Map			_fieldWeights;
 	private Map			_overrideTypes;
@@ -1506,5 +1507,5 @@ public class SphinxClient
 }
 
 /*
- * $Id: SphinxClient.java 3132 2012-03-01 11:38:42Z klirichek $
+ * $Id: SphinxClient.java 3144 2012-03-12 08:58:04Z tomat $
  */

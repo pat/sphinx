@@ -303,6 +303,9 @@ INSERT INTO `test_table` VALUES
 <sphinxql>select * from u_float, u_bigint</sphinxql>
 <sphinxql>select * from u_uint, u_float</sphinxql>
 <sphinxql>select * from u_bigint, u_float</sphinxql>
+<!-- regression schema attributes with alias -->
+<sphinxql>select tag, idd1, idd1 * 2 as rr from dist2</sphinxql>
+<sphinxql>select tag, idd1 as r0, r0 * 2 as rr from dist2</sphinxql>
 </sphqueries>
 
 </test>

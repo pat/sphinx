@@ -1,5 +1,5 @@
 //
-// $Id: sphinxexpr.cpp 3129 2012-03-01 07:18:52Z tomat $
+// $Id: sphinxexpr.cpp 3297 2012-07-23 17:54:55Z kevg $
 //
 
 //
@@ -213,6 +213,8 @@ struct Expr_GetConst_c : public ISphExpr
 	float m_fValue;
 	explicit Expr_GetConst_c ( float fValue ) : m_fValue ( fValue ) {}
 	virtual float Eval ( const CSphMatch & ) const { return m_fValue; }
+	virtual int IntEval ( const CSphMatch & ) const { return (int)m_fValue; }
+	virtual int64_t Int64Eval ( const CSphMatch & ) const { return (int64_t)m_fValue; }
 };
 
 
@@ -537,13 +539,6 @@ DECLARE_TERNARY ( Expr_Madd_c,	FIRST*SECOND+THIRD,					INTFIRST*INTSECOND + INTT
 DECLARE_TERNARY ( Expr_Mul3_c,	FIRST*SECOND*THIRD,					INTFIRST*INTSECOND*INTTHIRD,		INT64FIRST*INT64SECOND*INT64THIRD )
 
 //////////////////////////////////////////////////////////////////////////
-
-#if USE_WINDOWS
-void localtime_r ( const time_t * clock, struct tm * res )
-{
-	*res = *localtime ( clock ); // FIXME?!
-}
-#endif
 
 #define DECLARE_TIMESTAMP(_classname,_expr) \
 	DECLARE_UNARY_TRAITS ( _classname, (float)IntEval(tMatch) ) \
@@ -884,7 +879,7 @@ int ExprParser_t::ParseAttr ( int iAttr, const char* sTok, YYSTYPE * lvalp )
 	{
 	case SPH_ATTR_FLOAT:		iRes = TOK_ATTR_FLOAT;	break;
 	case SPH_ATTR_UINT32SET:	iRes = TOK_ATTR_MVA32; break;
-	case SPH_ATTR_UINT64SET:	iRes = TOK_ATTR_MVA64; break;
+	case SPH_ATTR_INT64SET:		iRes = TOK_ATTR_MVA64; break;
 	case SPH_ATTR_STRING:		iRes = TOK_ATTR_STRING; break;
 	case SPH_ATTR_INTEGER:
 	case SPH_ATTR_TIMESTAMP:
@@ -1336,16 +1331,16 @@ void ExprParser_t::Optimize ( int iNode )
 		float fArg = pLeft->m_iToken==TOK_CONST_FLOAT ? pLeft->m_fConst : float(pLeft->m_iConst);
 		switch ( g_dFuncs[pRoot->m_iFunc].m_eFunc )
 		{
-			case FUNC_ABS:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_fConst = fabs(fArg); break;
-			case FUNC_CEIL:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_fConst = float(ceil(fArg)); break;
-			case FUNC_FLOOR:	pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_fConst = float(floor(fArg)); break;
-			case FUNC_SIN:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_fConst = float(sin(fArg)); break;
-			case FUNC_COS:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_fConst = float(cos(fArg)); break;
-			case FUNC_LN:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_fConst = float(log(fArg)); break;
-			case FUNC_LOG2:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_fConst = float(log(fArg)*M_LOG2E); break;
-			case FUNC_LOG10:	pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_fConst = float(log(fArg)*M_LOG10E); break;
-			case FUNC_EXP:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_fConst = float(exp(fArg)); break;
-			case FUNC_SQRT:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_fConst = float(sqrt(fArg)); break;
+			case FUNC_ABS:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = fabs(fArg); break;
+			case FUNC_CEIL:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(ceil(fArg)); break;
+			case FUNC_FLOOR:	pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(floor(fArg)); break;
+			case FUNC_SIN:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(sin(fArg)); break;
+			case FUNC_COS:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(cos(fArg)); break;
+			case FUNC_LN:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(log(fArg)); break;
+			case FUNC_LOG2:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(log(fArg)*M_LOG2E); break;
+			case FUNC_LOG10:	pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(log(fArg)*M_LOG10E); break;
+			case FUNC_EXP:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(exp(fArg)); break;
+			case FUNC_SQRT:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(sqrt(fArg)); break;
 			default:			break;
 		}
 		return;
@@ -1799,7 +1794,7 @@ public:
 	/// evaluate arg, return interval id
 	virtual int IntEval ( const CSphMatch & tMatch ) const
 	{
-		T val = ExprEval ( this->m_pArg, tMatch ); // 'this' fixes gcc braindamage
+		T val = this->ExprEval ( this->m_pArg, tMatch ); // 'this' fixes gcc braindamage
 		ARRAY_FOREACH ( i, this->m_dValues ) // FIXME! OPTIMIZE! perform binary search here
 			if ( val<this->m_dValues[i] )
 				return i;
@@ -1830,7 +1825,7 @@ public:
 	/// evaluate arg, return interval id
 	virtual int IntEval ( const CSphMatch & tMatch ) const
 	{
-		T val = ExprEval ( this->m_pArg, tMatch ); // 'this' fixes gcc braindamage
+		T val = this->ExprEval ( this->m_pArg, tMatch ); // 'this' fixes gcc braindamage
 		ARRAY_FOREACH ( i, m_dTurnPoints )
 			if ( val < Expr_ArgVsSet_c<T>::ExprEval ( m_dTurnPoints[i], tMatch ) )
 				return i;
@@ -1876,7 +1871,7 @@ public:
 	/// evaluate arg, check if the value is within set
 	virtual int IntEval ( const CSphMatch & tMatch ) const
 	{
-		T val = ExprEval ( this->m_pArg, tMatch ); // 'this' fixes gcc braindamage
+		T val = this->ExprEval ( this->m_pArg, tMatch ); // 'this' fixes gcc braindamage
 		return this->m_dValues.BinarySearch ( val )!=NULL;
 	}
 
@@ -1919,12 +1914,12 @@ public:
 
 /// IN() evaluator, MVA attribute vs. constant values
 template < bool MVA64 >
-class Expr_MVAIn_c : public Expr_ArgVsConstSet_c<uint64_t>
+class Expr_MVAIn_c : public Expr_ArgVsConstSet_c<int64_t>
 {
 public:
 	/// pre-sort values for binary search
 	Expr_MVAIn_c ( const CSphAttrLocator & tLoc, int iLocator, ConstList_c * pConsts, UservarIntSet_c * pUservar )
-		: Expr_ArgVsConstSet_c<uint64_t> ( NULL, pConsts )
+		: Expr_ArgVsConstSet_c<int64_t> ( NULL, pConsts )
 		, m_tLocator ( tLoc )
 		, m_iLocator ( iLocator )
 		, m_pMvaPool ( NULL )
@@ -1977,8 +1972,8 @@ int Expr_MVAIn_c<false>::MvaEval ( const DWORD * pMva ) const
 	DWORD uLen = *pMva++;
 	const DWORD * pMvaMax = pMva+uLen;
 
-	const uint64_t * pFilter = m_pUservar ? (uint64_t*)m_pUservar->Begin() : m_dValues.Begin();
-	const uint64_t * pFilterMax = pFilter + ( m_pUservar ? m_pUservar->GetLength() : m_dValues.GetLength() );
+	const int64_t * pFilter = m_pUservar ? m_pUservar->Begin() : m_dValues.Begin();
+	const int64_t * pFilterMax = pFilter + ( m_pUservar ? m_pUservar->GetLength() : m_dValues.GetLength() );
 
 	const DWORD * L = pMva;
 	const DWORD * R = pMvaMax - 1;
@@ -2009,26 +2004,26 @@ int Expr_MVAIn_c<true>::MvaEval ( const DWORD * pMva ) const
 	assert ( ( uLen%2 )==0 );
 	const DWORD * pMvaMax = pMva+uLen;
 
-	const uint64_t * pFilter = m_pUservar ? (uint64_t*)m_pUservar->Begin() : m_dValues.Begin();
-	const uint64_t * pFilterMax = pFilter + ( m_pUservar ? m_pUservar->GetLength() : m_dValues.GetLength() );
+	const int64_t * pFilter = m_pUservar ? m_pUservar->Begin() : m_dValues.Begin();
+	const int64_t * pFilterMax = pFilter + ( m_pUservar ? m_pUservar->GetLength() : m_dValues.GetLength() );
 
-	const uint64_t * L = (const uint64_t *)pMva;
-	const uint64_t * R = (const uint64_t *)( pMvaMax - 2 );
+	const int64_t * L = (const int64_t *)pMva;
+	const int64_t * R = (const int64_t *)( pMvaMax - 2 );
 	for ( ; pFilter < pFilterMax; pFilter++ )
 	{
 		while ( L<=R )
 		{
-			const uint64_t * pVal = L + (R - L) / 2;
-			uint64_t uMva = MVA_UPSIZE ( (const DWORD *)pVal );
+			const int64_t * pVal = L + (R - L) / 2;
+			int64_t iMva = MVA_UPSIZE ( (const DWORD *)pVal );
 
-			if ( *pFilter > uMva )
+			if ( *pFilter > iMva )
 				L = pVal + 1;
-			else if ( *pFilter < uMva )
+			else if ( *pFilter < iMva )
 				R = pVal - 1;
 			else
 				return 1;
 		}
-		R = (const uint64_t *) ( pMvaMax - 2 );
+		R = (const int64_t *) ( pMvaMax - 2 );
 	}
 	return 0;
 }
@@ -2551,7 +2546,7 @@ int ExprParser_t::AddNodeAttr ( int iTokenType, uint64_t uAttrLocator )
 
 	if ( iTokenType==TOK_ATTR_FLOAT )			tNode.m_eRetType = SPH_ATTR_FLOAT;
 	else if ( iTokenType==TOK_ATTR_MVA32 )		tNode.m_eRetType = SPH_ATTR_UINT32SET;
-	else if ( iTokenType==TOK_ATTR_MVA64 )		tNode.m_eRetType = SPH_ATTR_UINT64SET;
+	else if ( iTokenType==TOK_ATTR_MVA64 )		tNode.m_eRetType = SPH_ATTR_INT64SET;
 	else if ( iTokenType==TOK_ATTR_STRING )		tNode.m_eRetType = SPH_ATTR_STRING;
 	else if ( tNode.m_tLocator.m_iBitCount>32 )	tNode.m_eRetType = SPH_ATTR_BIGINT;
 	else										tNode.m_eRetType = SPH_ATTR_INTEGER;
@@ -2652,7 +2647,7 @@ int ExprParser_t::AddNodeFunc ( int iFunc, int iLeft, int iRight )
 	Func_e eFunc = g_dFuncs[iFunc].m_eFunc;
 
 	// check args count
-	if ( iRight<0 )
+	if ( iRight<0 || eFunc==FUNC_IN )
 	{
 		int iExpectedArgc = g_dFuncs[iFunc].m_iArgs;
 		int iArgc = 0;
@@ -2812,7 +2807,7 @@ int ExprParser_t::AddNodeUdf ( int iCall, int iArg )
 				case SPH_ATTR_UINT32SET:
 					eRes = SPH_UDF_TYPE_UINT32SET;
 					break;
-				case SPH_ATTR_UINT64SET:
+				case SPH_ATTR_INT64SET:
 					eRes = SPH_UDF_TYPE_UINT64SET;
 					break;
 				default:
@@ -3297,5 +3292,5 @@ ISphExpr * sphExprParse ( const char * sExpr, const CSphSchema & tSchema, ESphAt
 }
 
 //
-// $Id: sphinxexpr.cpp 3129 2012-03-01 07:18:52Z tomat $
+// $Id: sphinxexpr.cpp 3297 2012-07-23 17:54:55Z kevg $
 //

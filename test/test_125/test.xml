@@ -59,6 +59,9 @@ INSERT INTO test_table ( id, aa, title, mm ) VALUES
 <sphinxql>SELECT id, CRC32('test') FROM test WHERE id=10</sphinxql>
 <sphinxql>SELECT id, ABS(CRC32('test')) FROM test WHERE id=10</sphinxql>
 <sphinxql>SELECT id, IF(IN(mm,7),111,222) FROM test</sphinxql>
+<sphinxql>SELECT IN(aa-(aa-15), 15) FROM test WHERE id=10</sphinxql>
+
+<sphinxql>SELECT ABS(1), ABS(-1), ABS(1.1), ABS(-1.1) FROM test WHERE id=10</sphinxql>
 
 </sphqueries>
 

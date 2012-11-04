@@ -1,5 +1,5 @@
 //
-// $Id: tests.cpp 3130 2012-03-01 07:43:56Z tomat $
+// $Id: tests.cpp 3239 2012-06-01 12:31:28Z tomat $
 //
 
 //
@@ -1639,7 +1639,7 @@ public:
 	bool Connect ( CSphString & ) { return true; }
 	void Disconnect () {}
 	bool HasAttrsConfigured () { return true; }
-	bool IterateStart ( CSphString & ) { m_tDocInfo.Reset ( m_tSchema.GetRowSize() ); return true; }
+	bool IterateStart ( CSphString & ) { m_tDocInfo.Reset ( m_tSchema.GetRowSize() ); m_iPlainFieldsLength = m_tSchema.m_dFields.GetLength(); return true; }
 	bool IterateMultivaluedStart ( int, CSphString & ) { return false; }
 	bool IterateMultivaluedNext () { return false; }
 	bool IterateFieldMVAStart ( int, CSphString & ) { return false; }
@@ -1878,7 +1878,7 @@ public:
 	bool Connect ( CSphString & ) { return true; }
 	void Disconnect () {}
 	bool HasAttrsConfigured () { return true; }
-	bool IterateStart ( CSphString & ) { m_tDocInfo.Reset ( m_tSchema.GetRowSize() ); return true; }
+	bool IterateStart ( CSphString & ) { m_tDocInfo.Reset ( m_tSchema.GetRowSize() ); m_iPlainFieldsLength = m_tSchema.m_dFields.GetLength(); return true; }
 	bool IterateMultivaluedStart ( int, CSphString & ) { return false; }
 	bool IterateMultivaluedNext () { return false; }
 	bool IterateFieldMVAStart ( int, CSphString & ) { return false; }
@@ -2257,5 +2257,5 @@ int main ()
 }
 
 //
-// $Id: tests.cpp 3130 2012-03-01 07:43:56Z tomat $
+// $Id: tests.cpp 3239 2012-06-01 12:31:28Z tomat $
 //

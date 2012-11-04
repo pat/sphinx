@@ -220,6 +220,9 @@
 /* Define to the type of arg 5 for `select'. */
 #undef SELECT_TYPE_ARG5
 
+/* Disable overriding of c++ memory routines */
+#undef SPH_DONT_OVERRIDE_MEMROUTINES
+
 /* Define to 1 if you have the ANSI C header files. */
 #undef STDC_HEADERS
 

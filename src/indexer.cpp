@@ -1,5 +1,5 @@
 //
-// $Id: indexer.cpp 3087 2012-01-30 23:07:35Z shodan $
+// $Id: indexer.cpp 3299 2012-07-24 12:20:42Z glook $
 //
 
 //
@@ -336,7 +336,7 @@ bool ParseMultiAttr ( const char * sBuf, CSphColumnInfo & tAttr, const char * sS
 	LOC_SPACE0(); LOC_TOK();
 	if ( LOC_TOKEQ("uint") )				tAttr.m_eAttrType = SPH_ATTR_UINT32SET;
 	else if ( LOC_TOKEQ("timestamp") )		tAttr.m_eAttrType = SPH_ATTR_UINT32SET;
-	else if ( LOC_TOKEQ("bigint") )			tAttr.m_eAttrType = SPH_ATTR_UINT64SET;
+	else if ( LOC_TOKEQ("bigint") )			tAttr.m_eAttrType = SPH_ATTR_INT64SET;
 	else									LOC_ERR ( "attr type ('uint' or 'timestamp' or 'bigint')", sTok );
 
 	// handle ATTR-NAME
@@ -1005,7 +1005,6 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 	// parse all sources
 	CSphVector<CSphSource*> dSources;
 	bool bGotAttrs = false;
-	bool bGotJoinedFields = false;
 	bool bSpawnFailed = false;
 
 	for ( CSphVariant * pSourceName = hIndex("source"); pSourceName; pSourceName = pSourceName->m_pNext )
@@ -1026,9 +1025,6 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 
 		if ( pSource->HasAttrsConfigured() )
 			bGotAttrs = true;
-
-		if ( pSource->HasJoinedFields() )
-			bGotJoinedFields = true;
 
 		// strip_html, index_html_attrs
 		CSphString sError;
@@ -1152,12 +1148,6 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 		if ( bGotAttrs && tSettings.m_eDocinfo==SPH_DOCINFO_NONE )
 		{
 			fprintf ( stdout, "FATAL: index '%s': got attributes, but docinfo is 'none' (fix your config file).\n", sIndexName );
-			exit ( 1 );
-		}
-
-		if ( bGotJoinedFields && tSettings.m_eDocinfo==SPH_DOCINFO_INLINE )
-		{
-			fprintf ( stdout, "FATAL: index '%s': got joined fields, but docinfo is 'inline' (fix your config file).\n", sIndexName );
 			exit ( 1 );
 		}
 
@@ -1541,8 +1531,8 @@ int main ( int argc, char ** argv )
 			dMergeDstFilters.Add();
 			dMergeDstFilters.Last().m_eType = SPH_FILTER_RANGE;
 			dMergeDstFilters.Last().m_sAttrName = argv[i+1];
-			dMergeDstFilters.Last().m_uMinValue = (SphAttr_t) strtoull ( argv[i+2], NULL, 10 );
-			dMergeDstFilters.Last().m_uMaxValue = (SphAttr_t) strtoull ( argv[i+3], NULL, 10 );
+			dMergeDstFilters.Last().m_iMinValue = strtoll ( argv[i+2], NULL, 10 );
+			dMergeDstFilters.Last().m_iMaxValue = strtoll ( argv[i+3], NULL, 10 );
 			i += 3;
 
 		} else if ( strcasecmp ( argv[i], "--buildstops" )==0 && (i+2)<argc )
@@ -1645,8 +1635,8 @@ int main ( int argc, char ** argv )
 				"\t\t\tfilter 'dst-index' on merge, keep only those documents\n"
 				"\t\t\twhere 'attr' is between 'min' and 'max' (inclusive)\n"
 				"--merge-klists\n"
-				"--merge-killlists\tmerge src and dst kill-lists (default is to\n"
-				"\t\t\tapply src kill-list to dst index)\n"
+				"--merge-killlists\tmerge src and dst k-lists (default is to discard them\n"
+				"\t\t\tafter merge; note that src k-list applies anyway)\n"
 				"--dump-rows <FILE>\tdump indexed rows into FILE\n"
 				"--print-queries\t\tprint SQL queries (for debugging)\n"
 				"\n"
@@ -1822,5 +1812,5 @@ int main ( int argc, char ** argv )
 }
 
 //
-// $Id: indexer.cpp 3087 2012-01-30 23:07:35Z shodan $
+// $Id: indexer.cpp 3299 2012-07-24 12:20:42Z glook $
 //

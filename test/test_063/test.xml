@@ -17,6 +17,7 @@ indexer
 searchd
 {
 	<searchd_settings/>
+	workers = threads
 }
 
 source test
@@ -81,6 +82,37 @@ index star
 	charset_type = utf-8
 	min_infix_len = 1
 	enable_star = 1
+}
+
+source test3
+{
+	type			= mysql
+	<sql_settings/>
+	sql_query		= SELECT 1 as document_id, ' the"dog of my friend ' as text UNION SELECT 2 as document_id, ' dog"is my friend ' as text
+}
+
+index test3
+{
+	source	= test3
+	path	= <data_path/>/test3
+
+	blend_chars = -, @, "
+	<dynamic>
+		<variant>charset_type = utf-8</variant>
+		<variant>charset_type = sbcs</variant>
+	</dynamic>
+}
+
+index rt
+{
+	type	 = rt
+	path	= <data_path/>/rt
+
+	blend_chars = @
+	charset_type = utf-8
+
+	rt_field	 = text
+	rt_attr_uint	 = idd
 }
 
 
@@ -206,6 +238,14 @@ INSERT INTO test_table VALUES
 	<!-- here is going regression blend_char into a numeric-->
 	<sphinxql>select * from test2 where match ( 'a11-22' )</sphinxql>
 	<sphinxql>select * from test2 where match ( '11-22' )</sphinxql>
+	<sphinxql>select * from test3 where match ( ' "the dog " ' )</sphinxql>
+	<sphinxql>select * from test3 where match ( ' dog " is my " ' )</sphinxql>
+	<sphinxql>select * from test3 where match ( ' dog ' )</sphinxql>
+	<!-- here is going regression many same hits at RT index -->
+	<sphinxql>INSERT INTO rt VALUES ( 1, 'thatsgoingverylongwordthathasblendedpartattheand@blendedpart and word at the end', 11 )</sphinxql>
+	<sphinxql>CALL KEYWORDS ( 'thatsgoingverylongwordthathasblendedpartattheand', 'rt', 1 )</sphinxql>
+	<sphinxql>INSERT INTO rt VALUES ( 2, 'thatsgoingverylongwordthathasblendedpartattheand@blendedpart', 11 )</sphinxql>
+	<sphinxql>CALL KEYWORDS ( 'thatsgoingverylongwordthathasblendedpartattheand', 'rt', 1 )</sphinxql>
 </sphqueries>
 
 </test>

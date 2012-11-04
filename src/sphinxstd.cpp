@@ -1,5 +1,5 @@
 //
-// $Id: sphinxstd.cpp 3130 2012-03-01 07:43:56Z tomat $
+// $Id: sphinxstd.cpp 3264M 2012-07-31 15:16:04Z (local) $
 //
 
 //
@@ -586,6 +586,7 @@ void sphMemStatDump ( int iFD )
 //////////////////////////////////////////////////////////////////////////////
 
 #else
+#ifndef SPH_DONT_OVERRIDE_MEMROUTINES
 
 void * operator new ( size_t iSize )
 {
@@ -617,6 +618,7 @@ void operator delete [] ( void * pPtr )
 		::free ( pPtr );
 }
 
+#endif // SPH_DONT_OVERRIDE_MEMROUTINES
 #endif // SPH_ALLOCS_PROFILER
 #endif // SPH_DEBUG_LEAKS
 
@@ -826,7 +828,7 @@ bool CSphProcessSharedMutex::TimedLock ( int tmSpin ) const
 	if ( iRes==EBUSY )
 		iRes = pthread_mutex_trylock ( m_pMutex );
 
-	return iRes!=0;
+	return iRes==0;
 #endif // HAVE_PTHREAD_MUTEX_TIMEDLOCK && HAVE_CLOCK_GETTIME
 #endif // USE_WINDOWS
 }
@@ -1319,5 +1321,5 @@ bool CSphRwlock::Unlock ()
 #endif
 
 //
-// $Id: sphinxstd.cpp 3130 2012-03-01 07:43:56Z tomat $
+// $Id: sphinxstd.cpp 3264M 2012-07-31 15:16:04Z (local) $
 //

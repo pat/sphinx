@@ -1811,7 +1811,7 @@ yyreduce:
   case 56:
 
     {
-			if ( !pParser->AddUintRangeFilter ( yyvsp[-4].m_sValue, yyvsp[-2].m_iValue, yyvsp[0].m_iValue ) )
+			if ( !pParser->AddIntRangeFilter ( yyvsp[-4].m_sValue, yyvsp[-2].m_iValue, yyvsp[0].m_iValue ) )
 				YYERROR;
 		;}
     break;
@@ -1819,7 +1819,7 @@ yyreduce:
   case 57:
 
     {
-			if ( !pParser->AddUintRangeFilter ( yyvsp[-2].m_sValue, yyvsp[0].m_iValue+1, UINT_MAX ) )
+			if ( !pParser->AddIntRangeFilter ( yyvsp[-2].m_sValue, yyvsp[0].m_iValue+1, LLONG_MAX ) )
 				YYERROR;
 		;}
     break;
@@ -1827,7 +1827,7 @@ yyreduce:
   case 58:
 
     {
-			if ( !pParser->AddUintRangeFilter ( yyvsp[-2].m_sValue, 0, yyvsp[0].m_iValue-1 ) )
+			if ( !pParser->AddIntRangeFilter ( yyvsp[-2].m_sValue, LLONG_MIN, yyvsp[0].m_iValue-1 ) )
 				YYERROR;
 		;}
     break;
@@ -1835,7 +1835,7 @@ yyreduce:
   case 59:
 
     {
-			if ( !pParser->AddUintRangeFilter ( yyvsp[-2].m_sValue, yyvsp[0].m_iValue, UINT_MAX ) )
+			if ( !pParser->AddIntRangeFilter ( yyvsp[-2].m_sValue, yyvsp[0].m_iValue, LLONG_MAX ) )
 				YYERROR;
 		;}
     break;
@@ -1843,7 +1843,7 @@ yyreduce:
   case 60:
 
     {
-			if ( !pParser->AddUintRangeFilter ( yyvsp[-2].m_sValue, 0, yyvsp[0].m_iValue ) )
+			if ( !pParser->AddIntRangeFilter ( yyvsp[-2].m_sValue, LLONG_MIN, yyvsp[0].m_iValue ) )
 				YYERROR;
 		;}
     break;

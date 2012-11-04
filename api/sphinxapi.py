@@ -1,5 +1,5 @@
 #
-# $Id: sphinxapi.py 3087 2012-01-30 23:07:35Z shodan $
+# $Id: sphinxapi.py 3281 2012-07-08 20:45:52Z shodan $
 #
 # Python version of Sphinx searchd client (Python API)
 #
@@ -180,9 +180,10 @@ class SphinxClient:
 		elif host.startswith('unix://'):
 			self._path = host[7:]
 			return
-		assert(isinstance(port, int))
 		self._host = host
-		self._port = port
+		if isinstance(port, int):
+			assert(port>0 and port<65536)
+			self._port = port
 		self._path = None
 
 	def SetConnectTimeout ( self, timeout ):
@@ -291,6 +292,21 @@ class SphinxClient:
 
 		return response
 
+
+	def _Send ( self, sock, req ):
+		"""
+		INTERNAL METHOD, DO NOT CALL. send request to searchd server.
+		"""
+		total = 0
+		while True:
+			sent = sock.send ( req[total:] )
+			if sent<=0:
+				break
+				
+			total = total + sent
+		
+		return total
+		
 
 	def SetLimits (self, offset, limit, maxmatches=0, cutoff=0):
 		"""
@@ -634,7 +650,7 @@ class SphinxClient:
 		req = ''.join(self._reqs)
 		length = len(req)+8
 		req = pack('>HHLLL', SEARCHD_COMMAND_SEARCH, VER_COMMAND_SEARCH, length, 0, len(self._reqs))+req
-		sock.send(req)
+		self._Send ( sock, req )
 
 		response = self._GetResponse(sock, VER_COMMAND_SEARCH)
 		if not response:
@@ -866,7 +882,7 @@ class SphinxClient:
 
 		# add header
 		req = pack('>2HL', SEARCHD_COMMAND_EXCERPT, VER_COMMAND_EXCERPT, length)+req
-		wrote = sock.send(req)
+		self._Send ( sock, req )
 
 		response = self._GetResponse(sock, VER_COMMAND_EXCERPT )
 		if not response:
@@ -951,7 +967,7 @@ class SphinxClient:
 		req = ''.join(req)
 		length = len(req)
 		req = pack ( '>2HL', SEARCHD_COMMAND_UPDATE, VER_COMMAND_UPDATE, length ) + req
-		wrote = sock.send ( req )
+		self._Send ( sock, req )
 
 		response = self._GetResponse ( sock, VER_COMMAND_UPDATE )
 		if not response:
@@ -984,7 +1000,7 @@ class SphinxClient:
 		req = ''.join(req)
 		length = len(req)
 		req = pack ( '>2HL', SEARCHD_COMMAND_KEYWORDS, VER_COMMAND_KEYWORDS, length ) + req
-		wrote = sock.send ( req )
+		self._Send ( sock, req )
 
 		response = self._GetResponse ( sock, VER_COMMAND_KEYWORDS )
 		if not response:
@@ -1034,7 +1050,7 @@ class SphinxClient:
 			return None
 
 		req = pack ( '>2HLL', SEARCHD_COMMAND_STATUS, VER_COMMAND_STATUS, 4, 1 )
-		wrote = sock.send ( req )
+		self._Send ( sock, req )
 
 		response = self._GetResponse ( sock, VER_COMMAND_STATUS )
 		if not response:
@@ -1070,7 +1086,7 @@ class SphinxClient:
 
 		# command, command version = 0, body length = 4, body = 1
 		request = pack ( '>hhII', SEARCHD_COMMAND_PERSIST, 0, 4, 1 )
-		server.send ( request )
+		self._Send ( server, request )
 		
 		self._socket = server
 		return True
@@ -1092,7 +1108,7 @@ class SphinxClient:
 			return -1
 
 		request = pack ( '>hhI', SEARCHD_COMMAND_FLUSHATTRS, VER_COMMAND_FLUSHATTRS, 0 ) # cmd, ver, bodylen
-		sock.send ( request )
+		self._Send ( sock, request )
 
 		response = self._GetResponse ( sock, VER_COMMAND_FLUSHATTRS )
 		if not response or len(response)!=4:
@@ -1111,5 +1127,5 @@ def AssertUInt32 ( value ):
 	assert(value>=0 and value<=2**32-1)
 		
 #
-# $Id: sphinxapi.py 3087 2012-01-30 23:07:35Z shodan $
+# $Id: sphinxapi.py 3281 2012-07-08 20:45:52Z shodan $
 #

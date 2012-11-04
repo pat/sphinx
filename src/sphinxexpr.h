@@ -1,5 +1,5 @@
 //
-// $Id: sphinxexpr.h 3087 2012-01-30 23:07:35Z shodan $
+// $Id: sphinxexpr.h 3203 2012-04-27 19:02:20Z tomat $
 //
 
 //
@@ -36,7 +36,7 @@ enum ESphAttr
 	SPH_ATTR_STRING		= 7,			///< string (binary; in-memory)
 	SPH_ATTR_WORDCOUNT	= 8,			///< string word count (integer at search time,tokenized and counted at indexing time)
 	SPH_ATTR_UINT32SET	= 0x40000001UL,	///< MVA, set of unsigned 32-bit integers
-	SPH_ATTR_UINT64SET	= 0x40000002UL	///< MVA, set of unsigned 64-bit integers
+	SPH_ATTR_INT64SET	= 0x40000002UL	///< MVA, set of signed 64-bit integers
 };
 
 /// expression evaluator
@@ -124,5 +124,5 @@ bool sphUDFDrop ( const char * szFunc, CSphString & sError );
 #endif // _sphinxexpr_
 
 //
-// $Id: sphinxexpr.h 3087 2012-01-30 23:07:35Z shodan $
+// $Id: sphinxexpr.h 3203 2012-04-27 19:02:20Z tomat $
 //
