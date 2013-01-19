@@ -5856,7 +5856,6 @@ protected:
 	CSphVector<CSphNamedInt>	m_dNamedVec;
 };
 
-
 void SqlUnescape ( CSphString & sRes, const char * sEscaped, int iLen )
 {
 	assert ( iLen>=2 );
@@ -7033,7 +7032,7 @@ void HandleClientSphinx ( int iSock, const char * sClientIP, int iPipeFD )
 			g_iCrashLog_LastQuerySize = iLength;
 		}
 		
-		if ( !CheckClientKey ( tBuf ) )
+		if ( iCommand != SEARCHD_COMMAND_PERSIST && !CheckClientKey ( tBuf ) )
 			break;
 
 		// handle known commands
