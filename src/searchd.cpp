@@ -13302,8 +13302,8 @@ void HandleClientSphinx ( int iSock, const char * sClientIP, ThdDesc_t * pThd )
 		tCrashQuery.m_uCMD = (WORD)iCommand;
 		tCrashQuery.m_uVer = (WORD)iCommandVer;
 		SphCrashLogger_c::SetLastQuery ( tCrashQuery );
-
-		if ( !CheckClientKey ( tBuf ) )
+		
+		if (iCommand != SEARCHD_COMMAND_PERSIST && !CheckClientKey ( tBuf ) )
 			break;
 
 		// handle known commands
