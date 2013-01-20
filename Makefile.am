@@ -1,4 +1,4 @@
-if USE_LIBSTEMMER
+if USE_INTERNAL_LIBSTEMMER
 SUBDIRS = libstemmer_c src test doc
 else
 SUBDIRS = src test doc

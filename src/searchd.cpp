@@ -1,5 +1,5 @@
 //
-// $Id: searchd.cpp 3295 2012-07-17 11:32:37Z tomat $
+// $Id: searchd.cpp 3455 2012-10-16 16:28:39Z kevg $
 //
 
 //
@@ -91,7 +91,7 @@
 // MISC GLOBALS
 /////////////////////////////////////////////////////////////////////////////
 
-struct ServedIndex_t
+struct ServedDesc_t
 {
 	CSphIndex *			m_pIndex;
 	CSphString			m_sIndexPath;
@@ -105,14 +105,21 @@ struct ServedIndex_t
 	bool				m_bOnlyNew;
 	bool				m_bRT;
 
+						ServedDesc_t ();
+						~ServedDesc_t ();
+};
+
+struct ServedIndex_t : public ISphNoncopyable, public ServedDesc_t
+{
 public:
-						ServedIndex_t ();
+						ServedIndex_t () {}
 						~ServedIndex_t ();
-	void				Reset ();
 
 	void				ReadLock () const;
 	void				WriteLock () const;
 	void				Unlock () const;
+
+	bool				InitLock () const;
 
 private:
 	mutable CSphRwlock	m_tLock;
@@ -222,7 +229,6 @@ static bool				g_bPreopenIndexes	= true;
 static bool				g_bPreopenIndexes	= false;
 #endif
 static bool				g_bOnDiskDicts		= false;
-static bool				g_bUnlinkOld		= true;
 static bool				g_bWatchdog			= true;
 static int				g_iExpansionLimit	= 0;
 static bool				g_bCompatResults	= true;
@@ -319,7 +325,7 @@ static CSphString		g_sConfigFile;
 static DWORD			g_uCfgCRC32		= 0;
 static struct stat		g_tCfgStat;
 
-static CSphConfigParser * g_pCfg			= NULL;
+static CSphConfigParser g_pCfg;
 
 #if USE_WINDOWS
 static bool				g_bSeamlessRotate	= false;
@@ -369,7 +375,7 @@ public:
 	int						GetLength () const { return BASE::GetLength(); }
 	void					Reset () { BASE::Reset(); }
 
-	bool					Add ( const ServedIndex_t & tValue, const CSphString & tKey );
+	bool					Add ( const ServedDesc_t & tDesc, const CSphString & tKey );
 	bool					Delete ( const CSphString & tKey );
 
 	const ServedIndex_t *	GetRlockedEntry ( const CSphString & tKey ) const;
@@ -637,12 +643,7 @@ void ReleaseTTYFlag()
 #endif
 }
 
-ServedIndex_t::ServedIndex_t ()
-{
-	Reset ();
-}
-
-void ServedIndex_t::Reset ()
+ServedDesc_t::ServedDesc_t ()
 {
 	m_pIndex = NULL;
 	m_bEnabled = true;
@@ -654,15 +655,15 @@ void ServedIndex_t::Reset ()
 	m_bToDelete = false;
 	m_bOnlyNew = false;
 	m_bRT = false;
+}
 
-	m_tLock = CSphRwlock();
-	if ( g_eWorkers==MPM_THREADS )
-		m_tLock.Init();
+ServedDesc_t::~ServedDesc_t ()
+{
+	SafeDelete ( m_pIndex );
 }
 
 ServedIndex_t::~ServedIndex_t ()
 {
-	SafeDelete ( m_pIndex );
 	if ( g_eWorkers==MPM_THREADS )
 		Verify ( m_tLock.Done() );
 }
@@ -693,6 +694,11 @@ void ServedIndex_t::WriteLock () const
 			assert ( false );
 		}
 	}
+}
+
+bool ServedIndex_t::InitLock () const
+{
+	return ( g_eWorkers==MPM_THREADS ) ? m_tLock.Init () : true;
 }
 
 void ServedIndex_t::Unlock () const
@@ -782,12 +788,19 @@ void IndexHash_c::Unlock () const
 }
 
 
-bool IndexHash_c::Add ( const ServedIndex_t & tValue, const CSphString & tKey )
+bool IndexHash_c::Add ( const ServedDesc_t & tDesc, const CSphString & tKey )
 {
 	Wlock();
-	bool bRes = BASE::Add ( tValue, tKey );
+	int iPrevSize = GetLength ();
+	ServedIndex_t & tVal = BASE::AddUnique ( tKey );
+	bool bAdded = ( iPrevSize<GetLength() );
+	if ( bAdded )
+	{
+		*( (ServedDesc_t *)&tVal ) = tDesc;
+		Verify ( tVal.InitLock() );
+	}
 	Unlock();
-	return bRes;
+	return bAdded;
 }
 
 
@@ -982,6 +995,7 @@ void sphLog ( ESphLogLevel eLevel, const char * sFmt, va_list ap )
 	{
 		const int levels[] = { LOG_EMERG, LOG_WARNING, LOG_INFO, LOG_DEBUG, LOG_DEBUG, LOG_DEBUG };
 		vsyslog ( levels[eLevel], sFmt, ap );
+		return;
 	}
 #endif
 
@@ -1349,8 +1363,6 @@ void Shutdown ()
 			}
 		}
 #endif
-
-		SafeDelete ( g_pCfg );
 
 		// save attribute updates for all local indexes
 		for ( IndexHashIterator_c it ( g_pIndexes ); it.Next(); )
@@ -2967,7 +2979,7 @@ struct AgentConn_t : public AgentDesc_t
 	int				m_iSock;		///< socket number, -1 if not connected
 	AgentState_e	m_eState;		///< current state
 
-	bool			m_bSuccess;		///< whether last request was succesful (ie. there are available results)
+	bool			m_bSuccess;		///< whether last request was successful (ie. there are available results)
 	CSphString		m_sFailure;		///< failure message
 
 	int				m_iReplyStatus;	///< reply status code
@@ -4127,6 +4139,9 @@ void PrepareQueryEmulation ( CSphQuery * pQuery )
 	if ( pQuery->m_eMode==SPH_MATCH_BOOLEAN )
 		pQuery->m_eRanker = SPH_RANK_NONE;
 
+	if ( pQuery->m_eMode==SPH_MATCH_FULLSCAN )
+		pQuery->m_sQuery = "";
+
 	if ( pQuery->m_eMode!=SPH_MATCH_ALL && pQuery->m_eMode!=SPH_MATCH_ANY && pQuery->m_eMode!=SPH_MATCH_PHRASE )
 		return;
 
@@ -4890,8 +4905,7 @@ void LogQuerySphinxql ( const CSphQuery & q, const CSphQueryResult & tRes, const
 	if ( q.m_sGroupBy.IsEmpty() )
 	{
 		if ( !q.m_sSortBy.IsEmpty() ) // case API SPH_MATCH_EXTENDED2 - SPH_SORT_RELEVANCE
-			tBuf.Append ( " ORDER BY %s", q.m_sSortBy.cstr() );
-
+			FormatOrderBy ( &tBuf, " ORDER BY", q.m_eSort, q.m_sSortBy );
 	} else
 	{
 		tBuf.Append ( " GROUP BY %s", q.m_sGroupBy.cstr() );
@@ -5491,8 +5505,7 @@ void RemapResult ( CSphSchema * pTarget, AggrResult_t * pRes, bool bMultiSchema=
 		iCur = iLimit;
 	}
 
-	if ( bMultiSchema )
-		assert ( iCur==pRes->m_dMatches.GetLength() );
+	assert ( !bMultiSchema || iCur==pRes->m_dMatches.GetLength() );
 	if ( &pRes->m_tSchema!=pTarget )
 		AdoptSchema ( pRes, pTarget );
 }
@@ -5712,8 +5725,8 @@ bool MinimizeAggrResult ( AggrResult_t & tRes, const CSphQuery & tQuery, bool bH
 	// the final sorter needs the schema fields in specific order:
 
 	// shortcuts
-	CSphString sCount("@count");
-	CSphString sWeight("@weight");
+	const char * sCount = "@count";
+	const char * sWeight = "@weight";
 
 	// truly virtual schema which contains unique necessary fields.
 	CVirtualSchema tInternalSchema;
@@ -5762,10 +5775,14 @@ bool MinimizeAggrResult ( AggrResult_t & tRes, const CSphQuery & tQuery, bool bH
 				ARRAY_FOREACH ( j, (*pSelectItems) )
 				{
 					const CSphQueryItem & tQueryItem = (*pSelectItems)[j];
-					const CSphString & sExpr = ( tQueryItem.m_sExpr=="count(*)" ) ? sCount
-						: ( ( tQueryItem.m_sExpr=="weight()" ) ? sWeight : tQueryItem.m_sExpr );
+					const char * sExpr = tQueryItem.m_sExpr.cstr();
+					if ( tQueryItem.m_sExpr=="count(*)" )
+						sExpr = sCount;
+					else if ( tQueryItem.m_sExpr=="weight()" )
+						sExpr = sWeight;
+
 					if ( tFrontendSchema.GetAttr(j).m_iIndex<0
-						&& ( ( sExpr.cstr() && sExpr==tCol.m_sName && tQueryItem.m_eAggrFunc==SPH_AGGR_NONE )
+						&& ( ( sExpr && tCol.m_sName==sExpr && tQueryItem.m_eAggrFunc==SPH_AGGR_NONE )
 						|| ( tQueryItem.m_sAlias.cstr() && tQueryItem.m_sAlias==tCol.m_sName ) ) )
 					{
 						bAdd = true;
@@ -5787,12 +5804,16 @@ bool MinimizeAggrResult ( AggrResult_t & tRes, const CSphQuery & tQuery, bool bH
 					if ( pExtraSchema->GetAttrsCount() )
 					{
 						for ( int j=0; j<pExtraSchema->GetAttrsCount(); j++ )
+						{
 							if ( pExtraSchema->GetAttr(j).m_sName==tCol.m_sName )
 								bAdd = true;
+						}
 					// the extra schema is not null, but empty - and we have no local agents
 					// so, the schema of result is already aligned to the extra, just add it
 					} else if ( !bHadLocalIndexes )
+					{
 						bAdd = true;
+					}
 				}
 				if ( !bAdd && bUsualApi && *tCol.m_sName.cstr()=='@' )
 					bAdd = true;
@@ -7307,7 +7328,7 @@ void SearchHandler_c::RunSubset ( int iStart, int iEnd )
 		tRes.m_dTag2Pools[0].m_pMva = m_dMvaStorage.Begin();
 		tRes.m_dTag2Pools[0].m_pStrings = m_dStringsStorage.Begin();
 
-		// if there were no succesful searches at all, this is an error
+		// if there were no successful searches at all, this is an error
 		if ( !tRes.m_iSuccesses )
 		{
 			StrBuf_t sFailures;
@@ -7739,7 +7760,10 @@ public:
 	void			SetStatement ( const SqlNode_t& tName, SqlSet_e eSet );
 	bool			AddFloatRangeFilter ( const CSphString & sAttr, float fMin, float fMax );
 	bool			AddIntRangeFilter ( const CSphString & sAttr, int64_t iMin, int64_t iMax );
+	bool			AddIntFilterGTE ( const CSphString & sAttr, int64_t iVal );
+	bool			AddIntFilterLTE ( const CSphString & sAttr, int64_t iVal );
 	bool			AddUservarFilter ( const CSphString & sCol, const CSphString & sVar, bool bExclude );
+	void			SetGroupBy ( const CSphString & sGroupBy );
 	bool			AddDistinct ( SqlNode_t * pNewExpr, SqlNode_t * pStart, SqlNode_t * pEnd );
 	CSphFilterSettings * AddFilter ( const CSphString & sCol, ESphFilter eType );
 	inline CSphFilterSettings * AddValuesFilter ( const SqlNode_t& sCol )
@@ -8086,6 +8110,13 @@ bool SqlParser_c::AddItem ( const char * pToken, SqlNode_t * pStart, SqlNode_t *
 	return SetNewSyntax();
 }
 
+void SqlParser_c::SetGroupBy ( const CSphString & sGroupBy )
+{
+	m_pQuery->m_eGroupFunc = SPH_GROUPBY_ATTR;
+	m_pQuery->m_sGroupBy = sGroupBy;
+	m_pQuery->m_sGroupBy.ToLower();
+}
+
 bool SqlParser_c::AddDistinct ( SqlNode_t * pNewExpr, SqlNode_t * pStart, SqlNode_t * pEnd )
 {
 	if ( !m_pQuery->m_sGroupDistinct.IsEmpty() )
@@ -8239,6 +8270,28 @@ bool SqlParser_c::AddIntRangeFilter ( const CSphString & sAttr, int64_t iMin, in
 		return false;
 	pFilter->m_iMinValue = iMin;
 	pFilter->m_iMaxValue = iMax;
+	return true;
+}
+
+bool SqlParser_c::AddIntFilterGTE ( const CSphString & sAttr, int64_t iVal )
+{
+	CSphFilterSettings * pFilter = AddFilter ( sAttr, SPH_FILTER_RANGE );
+	if ( !pFilter )
+		return false;
+	bool bId = sAttr=="@id";
+	pFilter->m_iMinValue = iVal;
+	pFilter->m_iMaxValue = bId ? (SphAttr_t)ULLONG_MAX : LLONG_MAX;
+	return true;
+}
+
+bool SqlParser_c::AddIntFilterLTE ( const CSphString & sAttr, int64_t iVal )
+{
+	CSphFilterSettings * pFilter = AddFilter ( sAttr, SPH_FILTER_RANGE );
+	if ( !pFilter )
+		return false;
+	bool bId = sAttr=="@id";
+	pFilter->m_iMinValue = bId ? 0 : LLONG_MIN;
+	pFilter->m_iMaxValue = iVal;
 	return true;
 }
 
@@ -9260,7 +9313,7 @@ void HandleCommandExcerpt ( int iSock, int iVer, InputBuffer_c & tReq )
 	tOut.SendInt ( iRespLen );
 	ARRAY_FOREACH ( i, dQueries )
 	{
-		if ( dQueries[i].m_sRes )
+		if ( dQueries[i].m_sRes && strcmp ( dQueries[i].m_sRes, "" ) )
 		{
 			tOut.SendString ( dQueries[i].m_sRes );
 			SafeDeleteArray ( dQueries[i].m_sRes );
@@ -11800,6 +11853,11 @@ void HandleMysqlSet ( NetOutputBuffer_c & tOut, BYTE & uPacketID, SqlStmt_t & tS
 }
 
 
+// fwd
+void PreCreatePlainIndex ( ServedDesc_t & tServed, const char * sName );
+bool PrereadNewIndex ( ServedIndex_t & tIdx, const CSphConfigSection & hIndex, const char * szIndexName );
+
+
 void HandleMysqlAttach ( const SqlStmt_t & tStmt, NetOutputBuffer_c & tOut, BYTE uPacketID )
 {
 	const CSphString & sFrom = tStmt.m_sIndex;
@@ -11841,10 +11899,17 @@ void HandleMysqlAttach ( const SqlStmt_t & tStmt, NetOutputBuffer_c & tOut, BYTE
 		return;
 	}
 
-	pFrom->m_pIndex = NULL; // after a succesfull Attach() RT index owns it
-	pFrom->m_bEnabled = false; // so we need to disable the disk index until further notice
-	pFrom->Unlock();
 	pTo->Unlock();
+
+	// after a successfull Attach() RT index owns it
+	// so we need to create dummy disk index until further notice
+	pFrom->m_pIndex = NULL;
+	pFrom->m_bEnabled = false;
+	PreCreatePlainIndex ( *pFrom, sFrom.cstr() );
+	if ( pFrom->m_pIndex )
+		pFrom->m_bEnabled = PrereadNewIndex ( *pFrom, g_pCfg.m_tConf["index"][sFrom], sFrom.cstr() );
+	pFrom->Unlock();
+
 	SendMysqlOkPacket ( tOut, uPacketID );
 }
 
@@ -12322,7 +12387,7 @@ void HandleClient ( ProtocolType_e eProto, int iSock, const char * sClientIP, Th
 // INDEX ROTATION
 /////////////////////////////////////////////////////////////////////////////
 
-bool TryRename ( const char * sIndex, const char * sPrefix, const char * sFromPostfix, const char * sToPostfix, bool bFatal )
+bool TryRename ( const char * sIndex, const char * sPrefix, const char * sFromPostfix, const char * sToPostfix, bool bFatal, bool bCheckExist=true )
 {
 	char sFrom [ SPH_MAX_FILENAME_LEN ];
 	char sTo [ SPH_MAX_FILENAME_LEN ];
@@ -12333,6 +12398,10 @@ bool TryRename ( const char * sIndex, const char * sPrefix, const char * sFromPo
 #if USE_WINDOWS
 	::unlink ( sTo );
 #endif
+
+	// if there is no file we have nothing to do
+	if ( !bCheckExist && !sphIsReadable ( sFrom ) )
+		return true;
 
 	if ( rename ( sFrom, sTo ) )
 	{
@@ -12397,7 +12466,8 @@ bool RotateIndexGreedy ( ServedIndex_t & tIndex, const char * sIndex )
 		// rename current to old
 		for ( int i=0; i<EXT_COUNT; i++ )
 		{
-			if ( TryRename ( sIndex, sPath, g_dCurExts[i], g_dOldExts[i], false ) )
+			snprintf ( sFile, sizeof(sFile), "%s%s", sPath, g_dCurExts[i] );
+			if ( !sphIsReadable ( sFile ) || TryRename ( sIndex, sPath, g_dCurExts[i], g_dOldExts[i], false ) )
 				continue;
 
 			// rollback
@@ -12421,7 +12491,7 @@ bool RotateIndexGreedy ( ServedIndex_t & tIndex, const char * sIndex )
 			if ( bNoMVP )
 				break; ///< no file, nothing to hold
 
-			if ( TryRename ( sIndex, sPath, g_dCurExts[EXT_MVP], g_dOldExts[EXT_MVP], false ) )
+			if ( TryRename ( sIndex, sPath, g_dCurExts[EXT_MVP], g_dOldExts[EXT_MVP], false, false ) )
 				break;
 
 			// rollback
@@ -12476,7 +12546,7 @@ bool RotateIndexGreedy ( ServedIndex_t & tIndex, const char * sIndex )
 				TryRename ( sIndex, sPath, g_dCurExts[j], g_dNewExts[j], true );
 				TryRename ( sIndex, sPath, g_dOldExts[j], g_dCurExts[j], true );
 			}
-			TryRename ( sIndex, sPath, g_dOldExts[EXT_MVP], g_dCurExts[EXT_MVP], false );
+			TryRename ( sIndex, sPath, g_dOldExts[EXT_MVP], g_dCurExts[EXT_MVP], false, false );
 			sphLogDebug ( "RotateIndexGreedy: has recovered" );
 
 			if ( !tIndex.m_pIndex->Prealloc ( tIndex.m_bMlock, g_bStripPath, sWarning ) || !tIndex.m_pIndex->Preread() )
@@ -12770,7 +12840,7 @@ static void RotateIndexMT ( const CSphString & sIndex )
 
 	sphInfo ( "rotating index '%s': started", sIndex.cstr() );
 
-	ServedIndex_t tNewIndex;
+	ServedDesc_t tNewIndex;
 	tNewIndex.m_bOnlyNew = pRotating->m_bOnlyNew;
 
 	tNewIndex.m_pIndex = sphCreateIndexPhrase ( sIndex.cstr(), NULL );
@@ -12806,9 +12876,9 @@ static void RotateIndexMT ( const CSphString & sIndex )
 	// fixup settings if needed
 	sphLogDebug ( "fixup settings if needed" );
 	g_tRotateConfigMutex.Lock ();
-	if ( tNewIndex.m_bOnlyNew && g_pCfg && g_pCfg->m_tConf ( "index" ) && g_pCfg->m_tConf["index"]( sIndex.cstr() ) )
+	if ( tNewIndex.m_bOnlyNew && g_pCfg.m_tConf ( "index" ) && g_pCfg.m_tConf["index"]( sIndex.cstr() ) )
 	{
-		if ( !sphFixupIndexSettings ( tNewIndex.m_pIndex, g_pCfg->m_tConf["index"][sIndex.cstr()], sError ) )
+		if ( !sphFixupIndexSettings ( tNewIndex.m_pIndex, g_pCfg.m_tConf["index"][sIndex.cstr()], sError ) )
 		{
 			sphWarning ( "rotating index '%s': fixup: %s; using old index", sIndex.cstr(), sError.cstr() );
 			g_tRotateConfigMutex.Unlock ();
@@ -12850,8 +12920,10 @@ static void RotateIndexMT ( const CSphString & sIndex )
 	// FIXME! factor out a common function w/ non-threaded rotation code
 	char sOld [ SPH_MAX_FILENAME_LEN ];
 	snprintf ( sOld, sizeof(sOld), "%s.old", pServed->m_sIndexPath.cstr() );
+	char sCurTest [ SPH_MAX_FILENAME_LEN ];
+	snprintf ( sCurTest, sizeof(sCurTest), "%s.sph", pServed->m_sIndexPath.cstr() );
 
-	if ( !pServed->m_bOnlyNew && !pOld->Rename ( sOld ) )
+	if ( !pServed->m_bOnlyNew && sphIsReadable ( sCurTest ) && !pOld->Rename ( sOld ) )
 	{
 		// FIXME! rollback inside Rename() call potentially fail
 		sphWarning ( "rotating index '%s': cur to old rename failed: %s", sIndex.cstr(), pOld->GetLastError().cstr() );
@@ -12887,7 +12959,7 @@ static void RotateIndexMT ( const CSphString & sIndex )
 			pServed->m_bEnabled = true;
 
 			// rename current MVP to old one to unlink it
-			TryRename ( sIndex.cstr(), pServed->m_sIndexPath.cstr(), g_dCurExts[EXT_MVP], g_dOldExts[EXT_MVP], false );
+			TryRename ( sIndex.cstr(), pServed->m_sIndexPath.cstr(), g_dCurExts[EXT_MVP], g_dOldExts[EXT_MVP], false, false );
 			// unlink .old
 			sphLogDebug ( "unlink .old" );
 			if ( !pServed->m_bOnlyNew )
@@ -13011,8 +13083,8 @@ void SeamlessTryToForkPrereader ()
 		return;
 	}
 
-	if ( tServed.m_bOnlyNew && g_pCfg && g_pCfg->m_tConf.Exists ( "index" ) && g_pCfg->m_tConf["index"].Exists ( sPrereading ) )
-		if ( !sphFixupIndexSettings ( g_pPrereading, g_pCfg->m_tConf["index"][sPrereading], sError ) )
+	if ( tServed.m_bOnlyNew && g_pCfg.m_tConf.Exists ( "index" ) && g_pCfg.m_tConf["index"].Exists ( sPrereading ) )
+		if ( !sphFixupIndexSettings ( g_pPrereading, g_pCfg.m_tConf["index"][sPrereading], sError ) )
 		{
 			sphWarning ( "rotating index '%s': fixup: %s; using old index", sPrereading, sError.cstr() );
 			return;
@@ -13186,8 +13258,10 @@ void HandlePipePreread ( PipeReader_t & tPipe, bool bFailure )
 
 		char sOld [ SPH_MAX_FILENAME_LEN ];
 		snprintf ( sOld, sizeof(sOld), "%s.old", tServed.m_sIndexPath.cstr() );
+		char sCurTest [ SPH_MAX_FILENAME_LEN ];
+		snprintf ( sCurTest, sizeof(sCurTest), "%s.sph", tServed.m_sIndexPath.cstr() );
 
-		if ( !tServed.m_bOnlyNew && !pOld->Rename ( sOld ) )
+		if ( !tServed.m_bOnlyNew && sphIsReadable ( sCurTest ) && !pOld->Rename ( sOld ) )
 		{
 			// FIXME! rollback inside Rename() call potentially fail
 			sphWarning ( "rotating index '%s': cur to old rename failed: %s", sPrereading, pOld->GetLastError().cstr() );
@@ -13218,7 +13292,7 @@ void HandlePipePreread ( PipeReader_t & tPipe, bool bFailure )
 				tServed.m_bEnabled = true;
 
 				// rename current MVP to old one to unlink it
-				TryRename ( sPrereading, tServed.m_sIndexPath.cstr(), g_dCurExts[EXT_MVP], g_dOldExts[EXT_MVP], false );
+				TryRename ( sPrereading, tServed.m_sIndexPath.cstr(), g_dCurExts[EXT_MVP], g_dOldExts[EXT_MVP], false, false );
 				// unlink .old
 				if ( !tServed.m_bOnlyNew )
 				{
@@ -13299,7 +13373,7 @@ void CheckPipes ()
 }
 
 
-void ConfigureIndex ( ServedIndex_t & tIdx, const CSphConfigSection & hIndex )
+void ConfigureIndex ( ServedDesc_t & tIdx, const CSphConfigSection & hIndex )
 {
 	tIdx.m_bMlock = ( hIndex.GetInt ( "mlock", 0 )!=0 ) && !g_bOptNoLock;
 	tIdx.m_bStar = ( hIndex.GetInt ( "enable_star", 0 )!=0 );
@@ -13527,6 +13601,18 @@ void FreeAgentStats ( DistributedIndex_t & tIndex )
 }
 
 
+void PreCreatePlainIndex ( ServedDesc_t & tServed, const char * sName )
+{
+	tServed.m_pIndex = sphCreateIndexPhrase ( sName, tServed.m_sIndexPath.cstr() );
+	tServed.m_pIndex->SetEnableStar ( tServed.m_bStar );
+	tServed.m_pIndex->m_bExpandKeywords = tServed.m_bExpand;
+	tServed.m_pIndex->m_iExpansionLimit = g_iExpansionLimit;
+	tServed.m_pIndex->SetPreopen ( tServed.m_bPreopen || g_bPreopenIndexes );
+	tServed.m_pIndex->SetWordlistPreload ( !tServed.m_bOnDiskDict && !g_bOnDiskDicts );
+	tServed.m_bEnabled = false;
+}
+
+
 ESphAddIndex AddIndex ( const char * szIndexName, const CSphConfigSection & hIndex )
 {
 	if ( hIndex("type") && hIndex["type"]=="distributed" )
@@ -13596,7 +13682,7 @@ ESphAddIndex AddIndex ( const char * szIndexName, const CSphConfigSection & hInd
 			sphWarning ( "index '%s': rt_mem_limit very low (under 8 MB)", szIndexName );
 
 		// index
-		ServedIndex_t tIdx;
+		ServedDesc_t tIdx;
 		bool bWordDict = strcmp ( hIndex.GetStr ( "dict", "" ), "keywords" )==0;
 		tIdx.m_pIndex = sphCreateIndexRT ( tSchema, szIndexName, uRamSize, hIndex["path"].cstr(), bWordDict );
 		tIdx.m_bEnabled = false;
@@ -13627,7 +13713,9 @@ ESphAddIndex AddIndex ( const char * szIndexName, const CSphConfigSection & hInd
 			return ADD_ERROR;
 		}
 
-		tIdx.Reset (); // so that the dtor wouln't delete everything
+		// leak pointer, so it's destructor won't delete it
+		tIdx.m_pIndex = NULL;
+
 		return ADD_RT;
 
 	} else if ( !hIndex("type") || hIndex["type"]=="plain" )
@@ -13636,7 +13724,7 @@ ESphAddIndex AddIndex ( const char * szIndexName, const CSphConfigSection & hInd
 		// configure local index
 		/////////////////////////
 
-		ServedIndex_t tIdx;
+		ServedDesc_t tIdx;
 
 		// check path
 		if ( !hIndex.Exists ( "path" ) )
@@ -13656,24 +13744,19 @@ ESphAddIndex AddIndex ( const char * szIndexName, const CSphConfigSection & hInd
 		ConfigureIndex ( tIdx, hIndex );
 
 		// try to create index
-		CSphString sWarning;
-		tIdx.m_pIndex = sphCreateIndexPhrase ( szIndexName, hIndex["path"].cstr() );
-		tIdx.m_pIndex->SetEnableStar ( tIdx.m_bStar );
-		tIdx.m_pIndex->m_bExpandKeywords = tIdx.m_bExpand;
-		tIdx.m_pIndex->m_iExpansionLimit = g_iExpansionLimit;
-		tIdx.m_pIndex->SetPreopen ( tIdx.m_bPreopen || g_bPreopenIndexes );
-		tIdx.m_pIndex->SetWordlistPreload ( !tIdx.m_bOnDiskDict && !g_bOnDiskDicts );
-		tIdx.m_bEnabled = false;
+		tIdx.m_sIndexPath = hIndex["path"];
+		PreCreatePlainIndex ( tIdx, szIndexName );
 
 		// done
-		tIdx.m_sIndexPath = hIndex["path"];
 		if ( !g_pIndexes->Add ( tIdx, szIndexName ) )
 		{
 			sphWarning ( "INTERNAL ERROR: index '%s': hash add failed - NOT SERVING", szIndexName );
 			return ADD_ERROR;
 		}
 
-		tIdx.Reset (); // so that the dtor wouldn't delete everything
+		// leak pointer, so it's destructor won't delete it
+		tIdx.m_pIndex = NULL;
+
 		return ADD_LOCAL;
 
 	} else
@@ -13705,11 +13788,9 @@ bool CheckConfigChanges ()
 }
 
 
-void ReloadIndexSettings ( CSphConfigParser * pCP )
+void ReloadIndexSettings ( CSphConfigParser & tCP )
 {
-	assert ( pCP );
-
-	if ( !pCP->Parse ( g_sConfigFile.cstr () ) )
+	if ( !tCP.ReParse ( g_sConfigFile.cstr () ) )
 	{
 		sphWarning ( "failed to parse config file '%s'; using previous settings", g_sConfigFile.cstr () );
 		return;
@@ -13727,7 +13808,7 @@ void ReloadIndexSettings ( CSphConfigParser * pCP )
 	int nTotalIndexes = g_pIndexes->GetLength () + g_hDistIndexes.GetLength ();
 	int nChecked = 0;
 
-	const CSphConfig & hConf = pCP->m_tConf;
+	const CSphConfig & hConf = tCP.m_tConf;
 	hConf["index"].IterateStart ();
 	while ( hConf["index"].IterateNext() )
 	{
@@ -13842,12 +13923,9 @@ void CheckRotate ()
 		if ( g_dChildren.GetLength() && g_eWorkers!=MPM_PREFORK )
 			return;
 
-		CSphConfigParser * pCP = NULL;
-
 		if ( CheckConfigChanges () )
 		{
-			pCP = new CSphConfigParser;
-			ReloadIndexSettings ( pCP );
+			ReloadIndexSettings ( g_pCfg );
 		}
 
 		for ( IndexHashIterator_c it ( g_pIndexes ); it.Next(); )
@@ -13861,12 +13939,7 @@ void CheckRotate ()
 			RotateIndexGreedy ( tIndex, sIndex );
 			if ( bWasAdded && tIndex.m_bEnabled )
 			{
-				if ( !pCP )
-				{
-					pCP = new CSphConfigParser;
-					ReloadIndexSettings ( pCP );
-				}
-				const CSphConfigType & hConf = pCP->m_tConf ["index"];
+				const CSphConfigType & hConf = g_pCfg.m_tConf ["index"];
 				if ( hConf.Exists ( sIndex ) )
 				{
 					CSphString sError;
@@ -13886,7 +13959,6 @@ void CheckRotate ()
 			tIndex.Unlock();
 		}
 
-		SafeDelete ( pCP );
 		IndexRotationDone ();
 		return;
 	}
@@ -13899,10 +13971,8 @@ void CheckRotate ()
 		return; // rotate in progress already; will be handled in CheckPipes()
 
 	g_tRotateConfigMutex.Lock();
-	SafeDelete ( g_pCfg );
 	if ( CheckConfigChanges() )
 	{
-		g_pCfg = new CSphConfigParser;
 		ReloadIndexSettings ( g_pCfg );
 	}
 	g_tRotateConfigMutex.Unlock();
@@ -14272,7 +14342,7 @@ void ServiceInstall ( int argc, char ** argv )
 
 	} else
 	{
-		sphInfo ( "Service '%s' installed succesfully.", g_sServiceName );
+		sphInfo ( "Service '%s' installed successfully.", g_sServiceName );
 	}
 
 	CSphString sDesc;
@@ -14314,7 +14384,7 @@ void ServiceDelete ()
 	if ( !bRes )
 		sphFatal ( "DeleteService() failed: %s", WinErrorInfo() );
 	else
-		sphInfo ( "Service '%s' deleted succesfully.", g_sServiceName );
+		sphInfo ( "Service '%s' deleted successfully.", g_sServiceName );
 }
 #endif // USE_WINDOWS
 
@@ -15196,7 +15266,7 @@ void ConfigureSearchd ( const CSphConfig & hConf, bool bOptPIDFile )
 		"\x01\x02\x03\x04\x05\x06\x07\x08" // scramble buffer (for auth)
 		"\x00" // filler
 		"\x08\x82" // server capabilities; CLIENT_PROTOCOL_41 | CLIENT_CONNECT_WITH_DB | SECURE_CONNECTION
-		"\x00" // server language
+		"\x21" // server language; let it be ut8_general_ci to make different clients happy
 		"\x02\x00" // server status
 		"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00" // filler
 		"\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d"; // scramble buffer2 (for auth, 4.1+)
@@ -15289,7 +15359,7 @@ void ConfigureAndPreload ( const CSphConfig & hConf, const char * sOptIndex )
 		fprintf ( stdout, "precached %d indexes in %0.3f sec\n", iCounter-1, float(tmLoad)/1000000 );
 }
 
-void OpenDaemonLog ( const CSphConfigSection & hSearchd )
+void OpenDaemonLog ( const CSphConfigSection & hSearchd, bool bCloseIfOpened=false )
 {
 	// create log
 		const char * sLog = "searchd.log";
@@ -15314,6 +15384,11 @@ void OpenDaemonLog ( const CSphConfigSection & hSearchd )
 		}
 
 		umask ( 066 );
+		if ( bCloseIfOpened && g_iLogFile!=STDOUT_FILENO )
+		{
+			close ( g_iLogFile );
+			g_iLogFile = STDOUT_FILENO;
+		}
 		if ( !g_bLogSyslog )
 		{
 			g_iLogFile = open ( sLog, O_CREAT | O_RDWR | O_APPEND, S_IREAD | S_IWRITE );
@@ -15521,11 +15596,10 @@ int WINAPI ServiceMain ( int argc, char **argv )
 	CheckConfigChanges ();
 
 	// do parse
-	CSphConfigParser cp;
-	if ( !cp.Parse ( g_sConfigFile.cstr () ) )
+	if ( !g_pCfg.Parse ( g_sConfigFile.cstr () ) )
 		sphFatal ( "failed to parse config file '%s'", g_sConfigFile.cstr () );
 
-	const CSphConfig & hConf = cp.m_tConf;
+	const CSphConfig & hConf = g_pCfg.m_tConf;
 
 	if ( !hConf.Exists ( "searchd" ) || !hConf["searchd"].Exists ( "searchd" ) )
 		sphFatal ( "'searchd' config section not found in '%s'", g_sConfigFile.cstr () );
@@ -15598,7 +15672,7 @@ int WINAPI ServiceMain ( int argc, char **argv )
 
 		if ( bTerminatedOk )
 		{
-			sphInfo ( "stop: succesfully terminated pid %d", iPid );
+			sphInfo ( "stop: successfully terminated pid %d", iPid );
 			exit ( 0 );
 		} else
 			sphFatal ( "stop: error terminating pid %d", iPid );
@@ -15730,8 +15804,7 @@ int WINAPI ServiceMain ( int argc, char **argv )
 		if ( !g_bOptNoLock )
 			OpenDaemonLog ( hConf["searchd"]["searchd"] );
 		bVisualLoad = SetWatchDog ( iDevNull );
-		close ( g_iLogFile ); // just the 'IT Happens' magic - switch off, then on.
-		OpenDaemonLog ( hConf["searchd"]["searchd"] );
+		OpenDaemonLog ( hConf["searchd"]["searchd"], true ); // just the 'IT Happens' magic - switch off, then on.
 	}
 #endif
 
@@ -15751,7 +15824,7 @@ int WINAPI ServiceMain ( int argc, char **argv )
 	{
 		// reparse the config file
 		sphInfo ( "Reloading the config" );
-		if ( !cp.ReParse ( g_sConfigFile.cstr () ) )
+		if ( !g_pCfg.ReParse ( g_sConfigFile.cstr () ) )
 			sphFatal ( "failed to parse config file '%s'", g_sConfigFile.cstr () );
 
 		sphInfo ( "Reconfigure the daemon" );
@@ -15875,45 +15948,7 @@ int WINAPI ServiceMain ( int argc, char **argv )
 	if ( !g_bOptNoLock )
 	{
 		// create log
-		const char * sLog = "searchd.log";
-		if ( hSearchd.Exists ( "log" ) )
-		{
-			if ( hSearchd["log"]=="syslog" )
-			{
-#if !USE_SYSLOG
-				if ( g_iLogFile<0 )
-				{
-					g_iLogFile = STDOUT_FILENO;
-					sphWarning ( "failed to use syslog for logging. You have to reconfigure --with-syslog and rebuild the daemon!" );
-					sphInfo ( "will use default file 'searchd.log' for logging." );
-				}
-#else
-				g_bLogSyslog = true;
-#endif
-			} else
-			{
-				sLog = hSearchd["log"].cstr();
-			}
-		}
-
-		umask ( 066 );
-		if ( g_iLogFile!=STDOUT_FILENO )
-		{
-			close ( g_iLogFile );
-			g_iLogFile = STDOUT_FILENO;
-		}
-		if ( !g_bLogSyslog )
-		{
-			g_iLogFile = open ( sLog, O_CREAT | O_RDWR | O_APPEND, S_IREAD | S_IWRITE );
-			if ( g_iLogFile<0 )
-			{
-				g_iLogFile = STDOUT_FILENO;
-				sphFatal ( "failed to open log file '%s': %s", sLog, strerror(errno) );
-			}
-		}
-
-		g_sLogFile = sLog;
-		g_bLogTty = isatty ( g_iLogFile )!=0;
+		OpenDaemonLog ( hSearchd, true );
 
 		// create query log if required
 		if ( hSearchd.Exists ( "query_log" ) )
@@ -16226,5 +16261,5 @@ int main ( int argc, char **argv )
 }
 
 //
-// $Id: searchd.cpp 3295 2012-07-17 11:32:37Z tomat $
+// $Id: searchd.cpp 3455 2012-10-16 16:28:39Z kevg $
 //

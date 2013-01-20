@@ -12,6 +12,7 @@
 				<Option type="1" />
 				<Option compiler="gcc" />
 				<Option parameters="--nodetach -c /media/bigstore/work/sphinx/test/test_07/Conf/config_0.conf" />
+				<Option projectLinkerOptionsRelation="2" />
 				<Compiler>
 					<Add option="-Wall" />
 					<Add option="-g" />
@@ -26,6 +27,7 @@
 				<Option object_output="./junk/Release" />
 				<Option type="1" />
 				<Option compiler="gcc" />
+				<Option projectLinkerOptionsRelation="2" />
 				<Compiler>
 					<Add option="-O3" />
 					<Add option="-Wall" />

@@ -1,5 +1,5 @@
 //
-// $Id: sphinxstd.cpp 3264M 2012-07-31 15:16:04Z (local) $
+// $Id: sphinxstd.cpp 3445 2012-10-12 10:45:41Z kevg $
 //
 
 //
@@ -22,7 +22,7 @@
 #endif
 
 
-static int g_iThreadStackSize = 65536;
+int g_iThreadStackSize = 65536;
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -933,10 +933,10 @@ void * sphThreadInit ( bool )
 		bInit = true;
 	}
 #if !USE_WINDOWS
-	if ( pthread_attr_setstacksize ( &tJoinableAttr, sphMyStackSize() ) )
+	if ( pthread_attr_setstacksize ( &tJoinableAttr, g_iThreadStackSize + PTHREAD_STACK_MIN ) )
 		sphDie ( "FATAL: pthread_attr_setstacksize( joinable ) failed" );
 
-	if ( pthread_attr_setstacksize ( &tDetachedAttr, sphMyStackSize() ) )
+	if ( pthread_attr_setstacksize ( &tDetachedAttr, g_iThreadStackSize + PTHREAD_STACK_MIN ) )
 		sphDie ( "FATAL: pthread_attr_setstacksize( detached ) failed" );
 
 	return bDetached ? &tDetachedAttr : &tJoinableAttr;
@@ -971,7 +971,7 @@ bool sphThreadCreate ( SphThread_t * pThread, void (*fnThread)(void*), void * pA
 	// create thread
 #if USE_WINDOWS
 	sphThreadInit ( bDetached );
-	*pThread = CreateThread ( NULL, sphMyStackSize(), sphThreadProcWrapper, pCall, 0, NULL );
+	*pThread = CreateThread ( NULL, g_iThreadStackSize, sphThreadProcWrapper, pCall, 0, NULL );
 	if ( *pThread )
 		return true;
 #else
@@ -1057,16 +1057,6 @@ int64_t sphGetStackUsed()
 		return iHeight;
 	else
 		return -iHeight;
-}
-
-
-int sphMyStackSize ()
-{
-#if USE_WINDOWS
-	return g_iThreadStackSize;
-#else
-	return PTHREAD_STACK_MIN + g_iThreadStackSize;
-#endif
 }
 
 void sphSetMyStackSize ( int iStackSize )
@@ -1182,7 +1172,8 @@ bool CSphMutex::Unlock ()
 // Windows rwlock implementation
 
 CSphRwlock::CSphRwlock ()
-	: m_hWriteMutex ( NULL )
+	: m_bInitialized ( false )
+	, m_hWriteMutex ( NULL )
 	, m_hReadEvent ( NULL )
 	, m_iReaders ( 0 )
 {}
@@ -1190,6 +1181,7 @@ CSphRwlock::CSphRwlock ()
 
 bool CSphRwlock::Init ()
 {
+	assert ( !m_bInitialized );
 	assert ( !m_hWriteMutex && !m_hReadEvent && !m_iReaders );
 
 	m_hReadEvent = CreateEvent ( NULL, TRUE, FALSE, NULL );
@@ -1203,12 +1195,16 @@ bool CSphRwlock::Init ()
 		m_hReadEvent = NULL;
 		return false;
 	}
+	m_bInitialized = true;
 	return true;
 }
 
 
 bool CSphRwlock::Done ()
 {
+	if ( !m_bInitialized )
+		return true;
+
 	if ( !CloseHandle ( m_hReadEvent ) )
 		return false;
 	m_hReadEvent = NULL;
@@ -1218,12 +1214,15 @@ bool CSphRwlock::Done ()
 	m_hWriteMutex = NULL;
 
 	m_iReaders = 0;
+	m_bInitialized = false;
 	return true;
 }
 
 
 bool CSphRwlock::ReadLock ()
 {
+	assert ( m_bInitialized );
+
 	DWORD uWait = WaitForSingleObject ( m_hWriteMutex, INFINITE );
 	if ( uWait==WAIT_FAILED || uWait==WAIT_TIMEOUT )
 		return false;
@@ -1244,6 +1243,8 @@ bool CSphRwlock::ReadLock ()
 
 bool CSphRwlock::WriteLock ()
 {
+	assert ( m_bInitialized );
+
 	// try to acquire writer mutex
 	DWORD uWait = WaitForSingleObject ( m_hWriteMutex, INFINITE );
 	if ( uWait==WAIT_FAILED || uWait==WAIT_TIMEOUT )
@@ -1267,6 +1268,8 @@ bool CSphRwlock::WriteLock ()
 
 bool CSphRwlock::Unlock ()
 {
+	assert ( m_bInitialized );
+
 	// are we unlocking a writer?
 	if ( ReleaseMutex ( m_hWriteMutex ) )
 		return true; // yes we are
@@ -1291,35 +1294,49 @@ bool CSphRwlock::Unlock ()
 // UNIX rwlock implementation (pthreads wrapper)
 
 CSphRwlock::CSphRwlock ()
+	: m_bInitialized ( false )
 {}
 
 bool CSphRwlock::Init ()
 {
-	return pthread_rwlock_init ( &m_tLock, NULL )==0;
+	assert ( !m_bInitialized );
+
+	m_bInitialized = ( pthread_rwlock_init ( &m_tLock, NULL )==0 );
+	return m_bInitialized;
 }
 
 bool CSphRwlock::Done ()
 {
-	return pthread_rwlock_destroy ( &m_tLock )==0;
+	if ( !m_bInitialized )
+		return true;
+
+	m_bInitialized = !( pthread_rwlock_destroy ( &m_tLock )==0 );
+	return !m_bInitialized;
 }
 
 bool CSphRwlock::ReadLock ()
 {
+	assert ( m_bInitialized );
+
 	return pthread_rwlock_rdlock ( &m_tLock )==0;
 }
 
 bool CSphRwlock::WriteLock ()
 {
+	assert ( m_bInitialized );
+
 	return pthread_rwlock_wrlock ( &m_tLock )==0;
 }
 
 bool CSphRwlock::Unlock ()
 {
+	assert ( m_bInitialized );
+
 	return pthread_rwlock_unlock ( &m_tLock )==0;
 }
 
 #endif
 
 //
-// $Id: sphinxstd.cpp 3264M 2012-07-31 15:16:04Z (local) $
+// $Id: sphinxstd.cpp 3445 2012-10-12 10:45:41Z kevg $
 //

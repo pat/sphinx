@@ -1,5 +1,5 @@
 //
-// $Id: sphinxutils.cpp 3256 2012-06-13 15:13:28Z tomat $
+// $Id: sphinxutils.cpp 3445 2012-10-12 10:45:41Z kevg $
 //
 
 //
@@ -1430,7 +1430,7 @@ void sphBacktrace ( int iFD, bool bSafe )
 	if ( !bSafe )
 	{
 		pMyStack = sphMyStack();
-		iStackSize = sphMyStackSize();
+		iStackSize = g_iThreadStackSize;
 	}
 	sphSafeInfo ( iFD, "Stack bottom = 0x%p, thread stack size = 0x%x", pMyStack, iStackSize );
 
@@ -1578,5 +1578,5 @@ void sphUnlinkIndex ( const char * sName, bool bForce )
 
 
 //
-// $Id: sphinxutils.cpp 3256 2012-06-13 15:13:28Z tomat $
+// $Id: sphinxutils.cpp 3445 2012-10-12 10:45:41Z kevg $
 //

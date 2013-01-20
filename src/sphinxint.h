@@ -1,5 +1,5 @@
 //
-// $Id: sphinxint.h 3290 2012-07-12 21:12:52Z glook $
+// $Id: sphinxint.h 3351 2012-08-19 13:48:59Z klirichek $
 //
 
 //
@@ -466,6 +466,15 @@ typedef AttrIndexBuilder_t<> AttrIndexBuilder_c;
 #ifndef LLONG_MAX
 #define LLONG_MAX (((unsigned long long)(-1))>>1)
 #endif
+
+#ifndef LLONG_MIN
+#define LLONG_MIN (-LLONG_MAX-1)
+#endif
+
+#ifndef ULLONG_MAX
+#define ULLONG_MAX	(LLONG_MAX * 2ULL + 1)
+#endif
+
 
 template < typename DOCID >
 void AttrIndexBuilder_t<DOCID>::ResetLocal()
@@ -1419,5 +1428,5 @@ void localtime_r ( const time_t * clock, struct tm * res );
 #endif // _sphinxint_
 
 //
-// $Id: sphinxint.h 3290 2012-07-12 21:12:52Z glook $
+// $Id: sphinxint.h 3351 2012-08-19 13:48:59Z klirichek $
 //

@@ -1,5 +1,5 @@
 //
-// $Id: ha_sphinx.cc 3307 2012-07-28 05:47:05Z deogar $
+// $Id: ha_sphinx.cc 3471 2012-10-21 20:50:56Z deogar $
 //
 
 //
@@ -154,7 +154,7 @@ void sphUnalignedWrite ( void * pPtr, const T & tVal )
 #define SPHINXSE_MAX_ALLOC			(16*1024*1024)
 #define SPHINXSE_MAX_KEYWORDSTATS	4096
 
-#define SPHINXSE_VERSION			"2.0.5-release"
+#define SPHINXSE_VERSION			"2.0.6-release"
 
 // FIXME? the following is cut-n-paste from sphinx.h and searchd.cpp
 // cut-n-paste is somewhat simpler that adding dependencies however..
@@ -3604,5 +3604,5 @@ mysql_declare_plugin_end;
 #endif // >50100
 
 //
-// $Id: ha_sphinx.cc 3307 2012-07-28 05:47:05Z deogar $
+// $Id: ha_sphinx.cc 3471 2012-10-21 20:50:56Z deogar $
 //

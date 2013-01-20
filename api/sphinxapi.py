@@ -1,5 +1,5 @@
 #
-# $Id: sphinxapi.py 3281 2012-07-08 20:45:52Z shodan $
+# $Id: sphinxapi.py 3436 2012-10-08 09:17:18Z kevg $
 #
 # Python version of Sphinx searchd client (Python API)
 #
@@ -551,6 +551,7 @@ class SphinxClient:
 		req.append(pack('>L', len(self._weights)))
 		for w in self._weights:
 			req.append(pack('>L', w))
+		assert(isinstance(index,str))
 		req.append(pack('>L', len(index)))
 		req.append(index)
 		req.append(pack('>L',1)) # id64 range marker
@@ -607,6 +608,7 @@ class SphinxClient:
 			req.append ( pack ('>L',len(field)) + field + pack ('>L',weight) )
 
 		# comment
+		comment = str(comment)
 		req.append ( pack('>L',len(comment)) + comment )
 
 		# attribute overrides
@@ -1127,5 +1129,5 @@ def AssertUInt32 ( value ):
 	assert(value>=0 and value<=2**32-1)
 		
 #
-# $Id: sphinxapi.py 3281 2012-07-08 20:45:52Z shodan $
+# $Id: sphinxapi.py 3436 2012-10-08 09:17:18Z kevg $
 #

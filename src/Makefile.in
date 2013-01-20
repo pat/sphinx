@@ -67,32 +67,30 @@ PROGRAMS = $(bin_PROGRAMS) $(noinst_PROGRAMS)
 am_indexer_OBJECTS = indexer.$(OBJEXT)
 indexer_OBJECTS = $(am_indexer_OBJECTS)
 indexer_LDADD = $(LDADD)
-@USE_LIBSTEMMER_TRUE@am__DEPENDENCIES_1 =  \
-@USE_LIBSTEMMER_TRUE@	$(top_srcdir)/libstemmer_c/libstemmer.a
-am__DEPENDENCIES_2 =
-am__DEPENDENCIES_3 = libsphinx.a $(am__DEPENDENCIES_1) \
-	$(am__DEPENDENCIES_2) $(am__DEPENDENCIES_2)
-indexer_DEPENDENCIES = $(am__DEPENDENCIES_3)
+am__DEPENDENCIES_1 =
+am__DEPENDENCIES_2 = libsphinx.a $(am__DEPENDENCIES_1) \
+	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1)
+indexer_DEPENDENCIES = $(am__DEPENDENCIES_2)
 am_indextool_OBJECTS = indextool.$(OBJEXT)
 indextool_OBJECTS = $(am_indextool_OBJECTS)
 indextool_LDADD = $(LDADD)
-indextool_DEPENDENCIES = $(am__DEPENDENCIES_3)
+indextool_DEPENDENCIES = $(am__DEPENDENCIES_2)
 am_search_OBJECTS = search.$(OBJEXT)
 search_OBJECTS = $(am_search_OBJECTS)
 search_LDADD = $(LDADD)
-search_DEPENDENCIES = $(am__DEPENDENCIES_3)
+search_DEPENDENCIES = $(am__DEPENDENCIES_2)
 am_searchd_OBJECTS = searchd.$(OBJEXT)
 searchd_OBJECTS = $(am_searchd_OBJECTS)
 searchd_LDADD = $(LDADD)
-searchd_DEPENDENCIES = $(am__DEPENDENCIES_3)
+searchd_DEPENDENCIES = $(am__DEPENDENCIES_2)
 am_spelldump_OBJECTS = spelldump.$(OBJEXT)
 spelldump_OBJECTS = $(am_spelldump_OBJECTS)
 spelldump_LDADD = $(LDADD)
-spelldump_DEPENDENCIES = $(am__DEPENDENCIES_3)
+spelldump_DEPENDENCIES = $(am__DEPENDENCIES_2)
 am_tests_OBJECTS = tests.$(OBJEXT)
 tests_OBJECTS = $(am_tests_OBJECTS)
 tests_LDADD = $(LDADD)
-tests_DEPENDENCIES = $(am__DEPENDENCIES_3)
+tests_DEPENDENCIES = $(am__DEPENDENCIES_2)
 DEFAULT_INCLUDES = -I.@am__isrc@ -I$(top_builddir)/config
 depcomp = $(SHELL) $(top_srcdir)/config/depcomp
 am__depfiles_maybe = depfiles
@@ -144,6 +142,8 @@ LDFLAGS = @LDFLAGS@
 LIBOBJS = @LIBOBJS@
 LIBRT = @LIBRT@
 LIBS = @LIBS@
+LIBSTEMMER_CFLAGS = @LIBSTEMMER_CFLAGS@
+LIBSTEMMER_LIBS = @LIBSTEMMER_LIBS@
 LTLIBOBJS = @LTLIBOBJS@
 MAINT = @MAINT@
 MAKEINFO = @MAKEINFO@
@@ -224,10 +224,7 @@ spelldump_SOURCES = spelldump.cpp
 indextool_SOURCES = indextool.cpp
 tests_SOURCES = tests.cpp
 BUILT_SOURCES = extract-version
-@USE_LIBSTEMMER_FALSE@LIBSTEMMER_LIBS = 
-@USE_LIBSTEMMER_TRUE@LIBSTEMMER_LIBS = $(top_srcdir)/libstemmer_c/libstemmer.a
-@USE_LIBSTEMMER_FALSE@AM_CPPFLAGS = -DSYSCONFDIR="\"$(sysconfdir)\"" -DDATADIR="\"$(localstatedir)/data\""
-@USE_LIBSTEMMER_TRUE@AM_CPPFLAGS = -I$(top_srcdir)/libstemmer_c/include -DSYSCONFDIR="\"$(sysconfdir)\"" -DDATADIR="\"$(localstatedir)/data\""
+AM_CPPFLAGS = -DSYSCONFDIR="\"$(sysconfdir)\"" -DDATADIR="\"$(localstatedir)/data\""
 COMMON_LIBS = libsphinx.a $(LIBSTEMMER_LIBS) $(MYSQL_LIBS) $(PGSQL_LIBS)
 LDADD = $(COMMON_LIBS)
 all: $(BUILT_SOURCES)

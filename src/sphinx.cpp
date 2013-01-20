@@ -1,5 +1,5 @@
 //
-// $Id: sphinx.cpp 3299 2012-07-24 12:20:42Z glook $
+// $Id: sphinx.cpp 3461 2012-10-19 09:48:07Z kevg $
 //
 
 //
@@ -39,7 +39,7 @@
 #define SPH_READ_NOPROGRESS_CHUNK (32768*1024)
 
 #if USE_LIBSTEMMER
-#include "libstemmer.h"
+#include <libstemmer.h>
 #endif
 
 #if USE_LIBEXPAT
@@ -841,7 +841,7 @@ struct CSphAggregateHit
 
 	int GetAggrCount () const
 	{
-		assert ( !m_dFieldMask.TestAll() );
+		assert ( !m_dFieldMask.TestAll ( false ) );
 		return m_iWordPos;
 	}
 
@@ -1435,7 +1435,7 @@ private:
 	CSphSharedBuffer<SphAttr_t>	m_pKillList;			///< killlist
 	DWORD						m_iKillListSize;		///< killlist size (in elements)
 
-	DWORD						m_uMinMaxIndex;			///< stored min/max cache offset (counted in DWORDs)
+	int64_t						m_uMinMaxIndex;			///< stored min/max cache offset (counted in DWORDs)
 
 	CSphAutofile				m_tDoclistFile;			///< doclist file
 	CSphAutofile				m_tHitlistFile;			///< hitlist file
@@ -8432,7 +8432,7 @@ bool CSphIndex_VLN::WriteHeader ( CSphWriter & fdInfo, SphOffset_t iCheckpointsP
 	SaveDictionarySettings ( fdInfo, m_pDict, false );
 
 	fdInfo.PutDword ( m_iKillListSize );
-	fdInfo.PutDword ( m_uMinMaxIndex );
+	fdInfo.PutDword ( (DWORD)m_uMinMaxIndex );
 
 	return true;
 }
@@ -13485,16 +13485,30 @@ bool CSphIndex_VLN::Prealloc ( bool bMlock, bool bStripPath, CSphString & sWarni
 		if ( tDocinfo.GetFD()<0 )
 			return false;
 
-		DWORD iDocinfoSize = DWORD ( tDocinfo.GetSize ( iEntrySize, true, m_sLastError )
-			/ sizeof(DWORD) );
+		int64_t iDocinfoSize = tDocinfo.GetSize ( iEntrySize, true, m_sLastError ) / sizeof(DWORD);
 		if ( iDocinfoSize<0 )
 			return false;
 
-		DWORD iRealDocinfoSize = m_uMinMaxIndex ? m_uMinMaxIndex : iDocinfoSize;
+		// min-max index 32 bit overflow fix-up
+		if ( m_uMinMaxIndex && iDocinfoSize/sizeof(DWORD)>UINT_MAX )
+		{
+			int64_t uFixedMinMax = m_uMinMaxIndex + ( U64C(1)<<32 );
+			if ( uFixedMinMax<iDocinfoSize )
+			{
+				sphWarning ( "clamped min-max offset fixed (offset="INT64_FMT", fixed="UINT64_FMT")", m_uMinMaxIndex, uFixedMinMax );
+				m_uMinMaxIndex = uFixedMinMax;
+			} else
+			{
+				m_sLastError.SetSprintf ( "can't fix clamped min-max offset (offset="INT64_FMT", file size="UINT64_FMT")", m_uMinMaxIndex, iDocinfoSize );
+				return false;
+			}
+		}
+
+		int64_t iRealDocinfoSize = m_uMinMaxIndex ? m_uMinMaxIndex : iDocinfoSize;
 
 		// intentionally losing data; we don't support more than 4B documents per instance yet
 		m_uDocinfo = (DWORD)( iRealDocinfoSize / iStride );
-		if ( iRealDocinfoSize!=m_uDocinfo*iStride && !m_bId32to64 )
+		if ( iRealDocinfoSize!=(int64_t)m_uDocinfo*iStride && !m_bId32to64 )
 		{
 			m_sLastError.SetSprintf ( "docinfo size check mismatch (4B document limit hit?)" );
 			return false;
@@ -13517,7 +13531,7 @@ bool CSphIndex_VLN::Prealloc ( bool bMlock, bool bStripPath, CSphString & sWarni
 		{
 			if ( m_bId32to64 )
 				iDocinfoSize = iDocinfoSize / iStride2 * iStride;
-			m_uDocinfoIndex = ( m_uDocinfo+DOCINFO_INDEX_FREQ-1 ) / DOCINFO_INDEX_FREQ;
+			m_uDocinfoIndex = (DWORD)( ( m_uDocinfo+DOCINFO_INDEX_FREQ-1 ) / DOCINFO_INDEX_FREQ );
 
 			// prealloc docinfo
 			if ( !m_pDocinfo.Alloc ( iDocinfoSize + 2*(1+m_uDocinfoIndex)*iStride + ( m_bId32to64 ? m_uDocinfo : 0 ), m_sLastError, sWarning ) )
@@ -13532,7 +13546,7 @@ bool CSphIndex_VLN::Prealloc ( bool bMlock, bool bStripPath, CSphString & sWarni
 				return false;
 			}
 
-			m_uDocinfoIndex = ( ( iDocinfoSize - iRealDocinfoSize ) / (m_bId32to64?iStride2:iStride) / 2 ) - 1;
+			m_uDocinfoIndex = (DWORD)( ( ( iDocinfoSize - iRealDocinfoSize ) / (m_bId32to64?iStride2:iStride) / 2 ) - 1 );
 
 			// prealloc docinfo
 			if ( !m_pDocinfo.Alloc ( iDocinfoSize + ( m_bId32to64 ? ( 2 + m_uDocinfo + 2*m_uDocinfoIndex ) : 0 ), m_sLastError, sWarning ) )
@@ -14333,7 +14347,7 @@ static int sphQueryHeightCalc ( const XQNode_t * pNode )
 	return iMaxChild+iHeight;
 }
 
-#define SPH_EXTNODE_STACK_SIZE 120
+#define SPH_EXTNODE_STACK_SIZE 160
 
 bool sphCheckQueryHeight ( const XQNode_t * pRoot, CSphString & sError )
 {
@@ -14342,7 +14356,7 @@ bool sphCheckQueryHeight ( const XQNode_t * pRoot, CSphString & sError )
 		iHeight = sphQueryHeightCalc ( pRoot );
 
 	int64_t iQueryStack = sphGetStackUsed() + iHeight*SPH_EXTNODE_STACK_SIZE;
-	bool bValid = ( sphMyStackSize()>=iQueryStack );
+	bool bValid = ( g_iThreadStackSize>=iQueryStack );
 	if ( !bValid )
 		sError.SetSprintf ( "query too complex, not enough stack (thread_stack_size=%dK or higher required)",
 			(int)( ( iQueryStack + 1024 - ( iQueryStack%1024 ) ) / 1024 ) );
@@ -20560,7 +20574,7 @@ bool CSphSource_SQL::RunQueryStep ( const char * sQuery, CSphString & sError )
 	assert ( sQuery );
 
 	char sValues [ MACRO_COUNT ] [ iBufSize ];
-	SphDocID_t uNextID = Min ( m_uCurrentID + m_tParams.m_iRangeStep - 1, m_uMaxID );
+	SphDocID_t uNextID = Min ( m_uCurrentID + (SphDocID_t)m_tParams.m_iRangeStep - 1, m_uMaxID );
 	snprintf ( sValues[0], iBufSize, DOCID_FMT, m_uCurrentID );
 	snprintf ( sValues[1], iBufSize, DOCID_FMT, uNextID );
 	g_iIndexerCurrentRangeMin = m_uCurrentID;
@@ -20659,10 +20673,10 @@ bool CSphSource_SQL::SetupRanges ( const char * sRangeQuery, const char * sQuery
 {
 	// check step
 	if ( m_tParams.m_iRangeStep<=0 )
-		LOC_ERROR ( "sql_range_step=%d: must be positive", m_tParams.m_iRangeStep );
+		LOC_ERROR ( "sql_range_step="INT64_FMT": must be non-zero positive", m_tParams.m_iRangeStep );
 
 	if ( m_tParams.m_iRangeStep<128 )
-		sphWarn ( "sql_range_step=%d: too small; might hurt indexing performance!", m_tParams.m_iRangeStep );
+		sphWarn ( "sql_range_step="INT64_FMT": too small; might hurt indexing performance!", m_tParams.m_iRangeStep );
 
 	// check query for macros
 	for ( int i=0; i<MACRO_COUNT; i++ )
@@ -23879,7 +23893,7 @@ bool CSphSource_ODBC::SqlFetchRow ()
 		return false;
 
 	SQLRETURN iRet = SQLFetch ( m_hStmt );
-	if ( iRet==SQL_ERROR || iRet==SQL_INVALID_HANDLE )
+	if ( iRet==SQL_ERROR || iRet==SQL_INVALID_HANDLE || iRet==SQL_NO_DATA )
 	{
 		GetSqlError ( SQL_HANDLE_STMT, m_hStmt );
 		return false;
@@ -23890,7 +23904,6 @@ bool CSphSource_ODBC::SqlFetchRow ()
 		QueryColumn_t & tCol = m_dColumns[i];
 		switch ( tCol.m_iInd )
 		{
-			case SQL_NO_DATA:
 			case SQL_NULL_DATA:
 				tCol.m_dContents[0] = '\0';
 				tCol.m_dContents[0] = '\0';
@@ -24623,5 +24636,5 @@ CSphQueryResultMeta & CSphQueryResultMeta::operator= ( const CSphQueryResultMeta
 }
 
 //
-// $Id: sphinx.cpp 3299 2012-07-24 12:20:42Z glook $
+// $Id: sphinx.cpp 3461 2012-10-19 09:48:07Z kevg $
 //

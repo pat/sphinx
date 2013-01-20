@@ -1,5 +1,5 @@
 //
-// $Id: indexer.cpp 3299 2012-07-24 12:20:42Z glook $
+// $Id: indexer.cpp 3461 2012-10-19 09:48:07Z kevg $
 //
 
 //
@@ -43,7 +43,7 @@ bool			g_bRotate		= false;
 bool			g_bRotateEach	= false;
 bool			g_bBuildFreqs	= false;
 
-int				g_iMemLimit				= 0;
+int				g_iMemLimit				= 32*1024*1024;
 int				g_iMaxXmlpipe2Field		= 0;
 int				g_iWriteBuffer			= 0;
 int				g_iMaxFileFieldBuffer	= 1024*1024;
@@ -397,6 +397,11 @@ bool ParseMultiAttr ( const char * sBuf, CSphColumnInfo & tAttr, const char * sS
 	if ( hSource.Exists(_key) && hSource[_key].intval() ) \
 		_arg = hSource[_key].intval();
 
+// get int64_t
+#define LOC_GETL(_arg,_key) \
+	if ( hSource.Exists(_key) ) \
+		_arg = hSource[_key].int64val();
+
 // get bool
 #define LOC_GETB(_arg,_key) \
 	if ( hSource.Exists(_key) ) \
@@ -586,7 +591,7 @@ bool SqlParamsConfigure ( CSphSourceParams_SQL & tParams, const CSphConfigSectio
 	LOC_GETA ( tParams.m_dQueryPost,		"sql_query_post" );
 	LOC_GETS ( tParams.m_sQueryRange,		"sql_query_range" );
 	LOC_GETA ( tParams.m_dQueryPostIndex,	"sql_query_post_index" );
-	LOC_GETI ( tParams.m_iRangeStep,		"sql_range_step" );
+	LOC_GETL ( tParams.m_iRangeStep,		"sql_range_step" );
 	LOC_GETS ( tParams.m_sQueryKilllist,	"sql_query_killlist" );
 
 	LOC_GETI ( tParams.m_iRangedThrottle,	"sql_ranged_throttle" );
@@ -837,6 +842,7 @@ CSphSource * SpawnSource ( const CSphConfigSection & hSource, const char * sSour
 #undef LOC_CHECK
 #undef LOC_GETS
 #undef LOC_GETI
+#undef LOC_GETL
 #undef LOC_GETA
 
 //////////////////////////////////////////////////////////////////////////
@@ -1426,13 +1432,39 @@ void SetSignalHandlers ()
 
 #endif // USE_WINDOWS
 
-bool SendRotate ( int iPID, bool bForce )
+bool SendRotate ( const CSphConfig & hConf, bool bForce )
 {
-	if ( iPID<0 )
-		return false;
-
 	if ( !( g_bRotate && ( g_bRotateEach || bForce ) ) )
 		return false;
+
+	int iPID = -1;
+	// load config
+	if ( !hConf.Exists ( "searchd" ) )
+	{
+		fprintf ( stdout, "WARNING: 'searchd' section not found in config file.\n" );
+		return false;
+	}
+
+	const CSphConfigSection & hSearchd = hConf["searchd"]["searchd"];
+	if ( !hSearchd.Exists ( "pid_file" ) )
+	{
+		fprintf ( stdout, "WARNING: 'pid_file' parameter not found in 'searchd' config section.\n" );
+		return false;
+	}
+
+	// read in PID
+	FILE * fp = fopen ( hSearchd["pid_file"].cstr(), "r" );
+	if ( !fp )
+	{
+		fprintf ( stdout, "WARNING: failed to open pid_file '%s'.\n", hSearchd["pid_file"].cstr() );
+		return false;
+	}
+	if ( fscanf ( fp, "%d", &iPID )!=1 || iPID<=0 )
+	{
+		fprintf ( stdout, "WARNING: failed to scanf pid from pid_file '%s'.\n", hSearchd["pid_file"].cstr() );
+		return false;
+	}
+	fclose ( fp );
 
 #if USE_WINDOWS
 	char szPipeName[64];
@@ -1466,7 +1498,7 @@ bool SendRotate ( int iPID, bool bForce )
 		BYTE uWrite = 0;
 		BOOL bResult = WriteFile ( hPipe, &uWrite, 1, &uWritten, NULL );
 		if ( bResult )
-			fprintf ( stdout, "rotating indices: succesfully sent SIGHUP to searchd (pid=%d).\n", iPID );
+			fprintf ( stdout, "rotating indices: successfully sent SIGHUP to searchd (pid=%d).\n", iPID );
 		else
 			fprintf ( stdout, "WARNING: failed to send SIGHUP to searchd (pid=%d, GetLastError()=%d)\n", iPID, GetLastError () );
 
@@ -1478,7 +1510,7 @@ bool SendRotate ( int iPID, bool bForce )
 	if ( iErr==0 )
 	{
 		if ( !g_bQuiet )
-			fprintf ( stdout, "rotating indices: succesfully sent SIGHUP to searchd (pid=%d).\n", iPID );
+			fprintf ( stdout, "rotating indices: successfully sent SIGHUP to searchd (pid=%d).\n", iPID );
 	} else
 	{
 		switch ( errno )
@@ -1576,7 +1608,7 @@ int main ( int argc, char ** argv )
 		{
 			bVerbose = true;
 
-		} else if ( ( argv[i][0]>='a' && argv[i][0]<='z' ) || ( argv[i][0]>='A' && argv[i][0]<='Z' ) )
+		} else if ( isalnum ( argv[i][0] ) || argv[i][0]=='_' )
 		{
 			dIndexes.Add ( argv[i] );
 
@@ -1667,12 +1699,11 @@ int main ( int argc, char ** argv )
 	if ( !hConf ( "source" ) )
 		sphDie ( "no indexes found in config file '%s'", sOptConfig );
 
-	g_iMemLimit = 0;
 	if ( hConf("indexer") && hConf["indexer"]("indexer") )
 	{
 		CSphConfigSection & hIndexer = hConf["indexer"]["indexer"];
 
-		g_iMemLimit = hIndexer.GetSize ( "mem_limit", 0 );
+		g_iMemLimit = hIndexer.GetSize ( "mem_limit", g_iMemLimit );
 		g_iMaxXmlpipe2Field = hIndexer.GetSize ( "max_xmlpipe2_field", 2*1024*1024 );
 		g_iWriteBuffer = hIndexer.GetSize ( "write_buffer", 1024*1024 );
 		g_iMaxFileFieldBuffer = Max ( 1024*1024, hIndexer.GetSize ( "max_file_field_buffer", 8*1024*1024 ) );
@@ -1691,40 +1722,6 @@ int main ( int argc, char ** argv )
 		}
 
 		sphSetThrottling ( hIndexer.GetInt ( "max_iops", 0 ), hIndexer.GetSize ( "max_iosize", 0 ) );
-	}
-
-	int iPID = -1;
-	while ( g_bRotate )
-	{
-		// load config
-		if ( !hConf.Exists ( "searchd" ) )
-		{
-			fprintf ( stdout, "WARNING: 'searchd' section not found in config file.\n" );
-			break;
-		}
-
-		const CSphConfigSection & hSearchd = hConf["searchd"]["searchd"];
-		if ( !hSearchd.Exists ( "pid_file" ) )
-		{
-			fprintf ( stdout, "WARNING: 'pid_file' parameter not found in 'searchd' config section.\n" );
-			break;
-		}
-
-		// read in PID
-		FILE * fp = fopen ( hSearchd["pid_file"].cstr(), "r" );
-		if ( !fp )
-		{
-			fprintf ( stdout, "WARNING: failed to open pid_file '%s'.\n", hSearchd["pid_file"].cstr() );
-			break;
-		}
-		if ( fscanf ( fp, "%d", &iPID )!=1 || iPID<=0 )
-		{
-			fprintf ( stdout, "WARNING: failed to scanf pid from pid_file '%s'.\n", hSearchd["pid_file"].cstr() );
-			break;
-		}
-		fclose ( fp );
-
-		break;
 	}
 
 	/////////////////////
@@ -1764,7 +1761,7 @@ int main ( int argc, char ** argv )
 		{
 			bool bLastOk = DoIndex ( hConf["index"].IterateGet (), hConf["index"].IterateGetKey().cstr(), hConf["source"], bVerbose, fpDumpRows );
 			bIndexedOk |= bLastOk;
-			if ( bLastOk && ( sphMicroTimer() - tmRotated > ROTATE_MIN_INTERVAL ) && SendRotate ( iPID, false ) )
+			if ( bLastOk && ( sphMicroTimer() - tmRotated > ROTATE_MIN_INTERVAL ) && SendRotate ( hConf, false ) )
 				tmRotated = sphMicroTimer();
 		}
 	} else
@@ -1778,7 +1775,7 @@ int main ( int argc, char ** argv )
 			{
 				bool bLastOk = DoIndex ( hConf["index"][dIndexes[i]], dIndexes[i], hConf["source"], bVerbose, fpDumpRows );
 				bIndexedOk |= bLastOk;
-				if ( bLastOk && ( sphMicroTimer() - tmRotated > ROTATE_MIN_INTERVAL ) && SendRotate ( iPID, false ) )
+				if ( bLastOk && ( sphMicroTimer() - tmRotated > ROTATE_MIN_INTERVAL ) && SendRotate ( hConf, false ) )
 					tmRotated = sphMicroTimer();
 			}
 		}
@@ -1800,7 +1797,7 @@ int main ( int argc, char ** argv )
 
 	if ( bIndexedOk && g_bRotate )
 	{
-		if ( !SendRotate ( iPID, true ) )
+		if ( !SendRotate ( hConf, true ) )
 			fprintf ( stdout, "WARNING: indices NOT rotated.\n" );
 	}
 
@@ -1812,5 +1809,5 @@ int main ( int argc, char ** argv )
 }
 
 //
-// $Id: indexer.cpp 3299 2012-07-24 12:20:42Z glook $
+// $Id: indexer.cpp 3461 2012-10-19 09:48:07Z kevg $
 //

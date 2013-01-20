@@ -1492,7 +1492,7 @@ YY_RULE_SETUP
 case 86:
 YY_RULE_SETUP
 #line 120 "sphinxql.l"
-{ YYSTOREBOUNDS; lvalp->m_sValue = yytext; lvalp->m_iValue = strtoll ( yytext, NULL, 10 ); return TOK_CONST_INT; }
+{ YYSTOREBOUNDS; lvalp->m_sValue = yytext; lvalp->m_iValue = (int64_t)strtoull ( yytext, NULL, 10 ); return TOK_CONST_INT; }
 	YY_BREAK
 case 87:
 YY_RULE_SETUP

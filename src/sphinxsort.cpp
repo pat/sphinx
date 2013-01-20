@@ -1,5 +1,5 @@
 //
-// $Id: sphinxsort.cpp 3300 2012-07-24 13:24:12Z shodan $
+// $Id: sphinxsort.cpp 3412 2012-09-24 10:54:01Z tomat $
 //
 
 //
@@ -560,21 +560,23 @@ struct SphGroupedValue_t
 public:
 	SphGroupKey_t	m_uGroup;
 	SphAttr_t		m_uValue;
+	int				m_iCount;
 
 public:
 	SphGroupedValue_t ()
 	{}
 
-	SphGroupedValue_t ( SphGroupKey_t uGroup, SphAttr_t uValue )
+	SphGroupedValue_t ( SphGroupKey_t uGroup, SphAttr_t uValue, int iCount )
 		: m_uGroup ( uGroup )
 		, m_uValue ( uValue )
+		, m_iCount ( iCount )
 	{}
 
 	inline bool operator < ( const SphGroupedValue_t & rhs ) const
 	{
-		if ( m_uGroup<rhs.m_uGroup ) return true;
-		if ( m_uGroup>rhs.m_uGroup ) return false;
-		return m_uValue<rhs.m_uValue;
+		if ( m_uGroup!=rhs.m_uGroup ) return m_uGroup<rhs.m_uGroup;
+		if ( m_uValue!=rhs.m_uValue ) return m_uValue<rhs.m_uValue;
+		return m_iCount>rhs.m_iCount;
 	}
 
 	inline bool operator == ( const SphGroupedValue_t & rhs ) const
@@ -627,13 +629,13 @@ int CSphUniqounter::CountNext ( SphGroupKey_t * pOutGroup )
 
 	SphGroupKey_t uGroup = m_pData[m_iCountPos].m_uGroup;
 	SphAttr_t uValue = m_pData[m_iCountPos].m_uValue;
+	int iCount = m_pData[m_iCountPos].m_iCount;
 	*pOutGroup = uGroup;
 
-	int iCount = 1;
 	while ( m_iCountPos<m_iLength && m_pData[m_iCountPos].m_uGroup==uGroup )
 	{
 		if ( m_pData[m_iCountPos].m_uValue!=uValue )
-			iCount++;
+			iCount += m_pData[m_iCountPos].m_iCount;
 		uValue = m_pData[m_iCountPos].m_uValue;
 		m_iCountPos++;
 	}
@@ -1093,8 +1095,6 @@ public:
 				// it's already grouped match
 				// sum grouped matches count
 				pMatch->SetAttr ( m_tSettings.m_tLocCount, pMatch->GetAttr ( m_tSettings.m_tLocCount ) + tEntry.GetAttr ( m_tSettings.m_tLocCount ) ); // OPTIMIZE! AddAttr()?
-				if ( DISTINCT )
-					pMatch->SetAttr ( m_tSettings.m_tLocDistinct, pMatch->GetAttr ( m_tSettings.m_tLocDistinct ) + tEntry.GetAttr ( m_tSettings.m_tLocDistinct ) );
 			} else
 			{
 				// it's a simple match
@@ -1128,8 +1128,13 @@ public:
 		}
 
 		// submit actual distinct value in all cases
-		if ( DISTINCT && !bGrouped )
-			m_tUniq.Add ( SphGroupedValue_t ( uGroupKey, tEntry.GetAttr ( m_tSettings.m_tDistinctLoc ) ) ); // OPTIMIZE! use simpler locator here?
+		if ( DISTINCT )
+		{
+			int iCount = 1;
+			if ( bGrouped )
+				iCount = (int)tEntry.GetAttr ( m_tSettings.m_tLocDistinct );
+			m_tUniq.Add ( SphGroupedValue_t ( uGroupKey, tEntry.GetAttr ( m_tSettings.m_tDistinctLoc ), iCount ) ); // OPTIMIZE! use simpler locator here?
+		}
 
 		// it's a dupe anyway, so we shouldn't update total matches count
 		if ( ppMatch )
@@ -2756,8 +2761,26 @@ ISphMatchSorter * sphCreateQueue ( const CSphQuery * pQuery, const CSphSchema & 
 		bHasCount |= bIsCount;
 
 		// for now, just always pass "plain" attrs from index to sorter; they will be filtered on searchd level
-		bool bPlainAttr = ( ( sExpr=="*" || ( tSchema.GetAttrIndex ( sExpr.cstr() )>=0 && tItem.m_eAggrFunc==SPH_AGGR_NONE ) ) &&
-			( tItem.m_sAlias.IsEmpty() || tItem.m_sAlias==tItem.m_sExpr ) );
+		int iAttrIdx = tSchema.GetAttrIndex ( sExpr.cstr() );
+		bool bPlainAttr = ( ( sExpr=="*" || ( iAttrIdx>=0 && tItem.m_eAggrFunc==SPH_AGGR_NONE ) ) &&
+							( tItem.m_sAlias.IsEmpty() || tItem.m_sAlias==tItem.m_sExpr ) );
+		// handling cases like SELECT 1+2 AS strattr, strattr FROM idx;
+		// we should see 3 in second column, not an attribute value
+		if ( !bPlainAttr && iAttrIdx>=0 &&
+			( tSchema.GetAttr ( iAttrIdx ).m_eAttrType==SPH_ATTR_STRING
+			|| tSchema.GetAttr ( iAttrIdx ).m_eAttrType==SPH_ATTR_UINT32SET
+			|| tSchema.GetAttr ( iAttrIdx ).m_eAttrType==SPH_ATTR_INT64SET ) )
+		{
+			bPlainAttr = true;
+			for ( int i=0; i<iItem; i++ )
+			{
+				if ( sExpr==pQuery->m_dItems[i].m_sAlias )
+				{
+					bPlainAttr = false;
+					break;
+				}
+			}
+		}
 		if ( bPlainAttr || IsGroupby(sExpr) || bIsCount )
 		{
 			continue;
@@ -3050,11 +3073,22 @@ ISphMatchSorter * sphCreateQueue ( const CSphQuery * pQuery, const CSphSchema & 
 				sError.SetSprintf ( "groups can not be sorted by @random" );
 			return NULL;
 		}
-		int idx = tSorterSchema.GetAttrIndex ( pQuery->m_sGroupBy.cstr() );
-		if ( pExtra )
-			pExtra->AddAttr ( tSorterSchema.GetAttr ( idx ), true );
 
-		FixupDependency ( tSorterSchema, &idx, 1 );
+		enum { E_CREATE_GROUP_BY = 0, E_CREATE_DISTINCT = 1, E_CREATE_COUNT = 2 };
+		int dGroupAttrs[E_CREATE_COUNT];
+		dGroupAttrs[E_CREATE_GROUP_BY] = tSorterSchema.GetAttrIndex ( pQuery->m_sGroupBy.cstr() );
+		if ( pExtra )
+			pExtra->AddAttr ( tSorterSchema.GetAttr ( dGroupAttrs[E_CREATE_GROUP_BY] ), true );
+
+		if ( bGotDistinct )
+		{
+			dGroupAttrs[E_CREATE_DISTINCT] = tSorterSchema.GetAttrIndex ( pQuery->m_sGroupDistinct.cstr() );
+			if ( pExtra )
+				pExtra->AddAttr ( tSorterSchema.GetAttr ( dGroupAttrs[E_CREATE_DISTINCT] ), true );
+		}
+
+		int iGropAttrsCount = ( bGotDistinct ? 2 : 1 );
+		FixupDependency ( tSorterSchema, dGroupAttrs, iGropAttrsCount );
 		FixupDependency ( tSorterSchema, dAttrs, CSphMatchComparatorState::MAX_ATTRS );
 
 		// GroupSortBy str attributes setup
@@ -3158,5 +3192,5 @@ bool sphHasExpressions ( const CSphQuery & tQuery, const CSphSchema & tSchema )
 
 
 //
-// $Id: sphinxsort.cpp 3300 2012-07-24 13:24:12Z shodan $
+// $Id: sphinxsort.cpp 3412 2012-09-24 10:54:01Z tomat $
 //

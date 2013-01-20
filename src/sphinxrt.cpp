@@ -1,5 +1,5 @@
 //
-// $Id: sphinxrt.cpp 3293 2012-07-16 09:39:17Z tomat $
+// $Id: sphinxrt.cpp 3427 2012-10-03 09:16:30Z kevg $
 //
 
 //
@@ -1142,9 +1142,13 @@ RtIndex_t::RtIndex_t ( const CSphSchema & tSchema, const char * sIndexName, int6
 RtIndex_t::~RtIndex_t ()
 {
 	int64_t tmSave = sphMicroTimer();
+	bool bValid = m_pTokenizer && m_pDict;
 
-	SaveRamChunk ();
-	SaveMeta ( m_pDiskChunks.GetLength() );
+	if ( bValid )
+	{
+		SaveRamChunk ();
+		SaveMeta ( m_pDiskChunks.GetLength() );
+	}
 
 	Verify ( m_tWriterMutex.Done() );
 	Verify ( m_tRwlock.Done() );
@@ -1161,7 +1165,7 @@ RtIndex_t::~RtIndex_t ()
 	g_pBinlog->NotifyIndexFlush ( m_sIndexName.cstr(), m_iTID, true );
 
 	tmSave = sphMicroTimer() - tmSave;
-	if ( tmSave>=1000 )
+	if ( tmSave>=1000 && bValid )
 	{
 		sphInfo ( "rt: index %s: ramchunk saved in %d.%03d sec",
 			m_sIndexName.cstr(), (int)(tmSave/1000000), (int)((tmSave/1000)%1000) );
@@ -1323,8 +1327,12 @@ bool RtIndex_t::AddDocument ( int iFields, const char ** ppFields, const CSphMat
 		return false;
 
 	CSphScopedPtr<ISphTokenizer> pTokenizer ( m_pTokenizer->Clone ( false ) ); // avoid race
-
 	CSphSource_StringVector tSrc ( iFields, ppFields, m_tSchema );
+
+	if ( m_tSettings.m_bHtmlStrip && !tSrc.SetStripHTML ( m_tSettings.m_sHtmlIndexAttrs.cstr(), m_tSettings.m_sHtmlRemoveElements.cstr(),
+		false, NULL, sError ) )
+		return false;
+
 	tSrc.Setup ( m_tSettings );
 	tSrc.SetTokenizer ( pTokenizer.Ptr() );
 	tSrc.SetDict ( pAcc->m_pDict );
@@ -4742,13 +4750,14 @@ bool RtIndex_t::MultiQuery ( const CSphQuery * pQuery, CSphQueryResult * pResult
 				ARRAY_FOREACH ( i, dMvaGetLoc )
 				{
 					DWORD uAttr = 0;
-					const SphAttr_t uOff = tMatch.GetAttr ( dMvaGetLoc[i] );
-					if ( uOff>0 ) // have to fix up only existed attribute
+					const DWORD * pMva = tMatch.GetAttrMVA ( dMvaGetLoc[i], pBaseMva );
+					// have to fix up only existed attribute
+					if ( pMva )
 					{
-						assert ( uOff<( I64C(1)<<32 ) ); // should be 32 bit offset
-						assert ( !bSegmentMatch || (int)uOff<m_pSegments[iStorageSrc]->m_dMvas.GetLength() );
+						assert ( ( tMatch.GetAttr ( dMvaGetLoc[i] ) & MVA_ARENA_FLAG )<( I64C(1)<<32 ) ); // should be 32 bit offset
+						assert ( !bSegmentMatch || (int)tMatch.GetAttr ( dMvaGetLoc[i] )<m_pSegments[iStorageSrc]->m_dMvas.GetLength() );
 
-						uAttr = CopyMva ( pBaseMva + uOff, dStorageMva );
+						uAttr = CopyMva ( pMva, dStorageMva );
 					}
 
 					const CSphAttrLocator & tSet = dMvaSetLoc[i];
@@ -5153,6 +5162,8 @@ bool RtIndex_t::AttachDiskIndex ( CSphIndex * pIndex, CSphString & sError )
 		LOC_ERROR ( "ATTACH currently requires boundary_step=0 in disk index (RT-side support not implemented yet)" );
 	if ( tSettings.m_iStopwordStep!=1 )
 		LOC_ERROR ( "ATTACH currently requires stopword_step=1 in disk index (RT-side support not implemented yet)" );
+	if ( tSettings.m_eDocinfo!=SPH_DOCINFO_EXTERN )
+		LOC_ERROR ( "ATTACH currently requires docinfo=extern in disk index (RT-side support not implemented yet)" );
 #undef LOC_ERROR
 
 	// ATTACH needs an exclusive global lock on both indexes
@@ -5194,8 +5205,13 @@ bool RtIndex_t::AttachDiskIndex ( CSphIndex * pIndex, CSphString & sError )
 	// copy tokenizer, dict etc settings from chunk0
 	SafeDelete ( m_pTokenizer );
 	SafeDelete ( m_pDict );
+
+	m_tSettings = pIndex->GetSettings();
+	m_tSettings.m_eDocinfo = SPH_DOCINFO_EXTERN;
+
 	m_pTokenizer = pIndex->GetTokenizer()->Clone ( false );
 	m_pDict = pIndex->GetDictionary()->Clone ();
+	PostSetup();
 
 	// FIXME? what about copying m_TID etc?
 
@@ -6477,5 +6493,5 @@ bool sphRTSchemaConfigure ( const CSphConfigSection & hIndex, CSphSchema * pSche
 }
 
 //
-// $Id: sphinxrt.cpp 3293 2012-07-16 09:39:17Z tomat $
+// $Id: sphinxrt.cpp 3427 2012-10-03 09:16:30Z kevg $
 //

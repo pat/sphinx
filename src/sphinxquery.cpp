@@ -1,5 +1,5 @@
 //
-// $Id: sphinxquery.cpp 3302 2012-07-25 12:21:45Z tomat $
+// $Id: sphinxquery.cpp 3429 2012-10-04 09:20:27Z kevg $
 //
 
 //
@@ -39,7 +39,7 @@ public:
 	void			Warning ( const char * sTemplate, ... ) __attribute__ ( ( format ( printf, 2, 3 ) ) );
 
 	bool			AddField ( CSphSmallBitvec & dFields, const char * szField, int iLen );
-	bool			ParseFields ( CSphSmallBitvec & uFields, int & iMaxFieldPos );
+	bool			ParseFields ( CSphSmallBitvec & uFields, int & iMaxFieldPos, bool & bIgnore );
 	int				ParseZone ( const char * pZone );
 
 	bool			IsSpecial ( char c );
@@ -374,10 +374,11 @@ bool XQParser_t::AddField ( CSphSmallBitvec & dFields, const char * szField, int
 
 
 /// parse fields block
-bool XQParser_t::ParseFields ( CSphSmallBitvec & dFields, int & iMaxFieldPos )
+bool XQParser_t::ParseFields ( CSphSmallBitvec & dFields, int & iMaxFieldPos, bool & bIgnore )
 {
 	dFields.Unset();
 	iMaxFieldPos = 0;
+	bIgnore = false;
 
 	const char * pPtr = m_pTokenizer->GetBufferPtr ();
 	const char * pLastPtr = m_pTokenizer->GetBufferEnd ();
@@ -411,6 +412,7 @@ bool XQParser_t::ParseFields ( CSphSmallBitvec & dFields, int & iMaxFieldPos )
 	// handle invalid chars
 	if ( !sphIsAlpha(*pPtr) )
 	{
+		bIgnore = true;
 		m_pTokenizer->SetBufferPtr ( pPtr ); // ignore and re-parse (FIXME! maybe warn?)
 		return true;
 	}
@@ -429,7 +431,7 @@ bool XQParser_t::ParseFields ( CSphSmallBitvec & dFields, int & iMaxFieldPos )
 			return false;
 
 		m_pTokenizer->SetBufferPtr ( pPtr );
-		if ( bNegate && ( !dFields.TestAll() ) )
+		if ( bNegate )
 			dFields.Negate();
 
 	} else
@@ -471,7 +473,7 @@ bool XQParser_t::ParseFields ( CSphSmallBitvec & dFields, int & iMaxFieldPos )
 					return false;
 
 				m_pTokenizer->SetBufferPtr ( ++pPtr );
-				if ( bNegate && ( !dFields.TestAll() ) )
+				if ( bNegate )
 					dFields.Negate();
 
 				bOK = true;
@@ -742,9 +744,14 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 			// some specials are especially special
 			if ( sToken[0]=='@' )
 			{
+				bool bIgnore;
+
 				// parse fields operator
-				if ( !ParseFields ( m_tPendingToken.tFieldLimit.dMask, m_tPendingToken.tFieldLimit.iMaxPos ) )
+				if ( !ParseFields ( m_tPendingToken.tFieldLimit.dMask, m_tPendingToken.tFieldLimit.iMaxPos, bIgnore ) )
 					return -1;
+
+				if ( bIgnore )
+					continue;
 
 				if ( m_pSchema->m_dFields.GetLength()!=SPH_MAX_FIELDS )
 					m_tPendingToken.tFieldLimit.dMask.LimitBits ( m_pSchema->m_dFields.GetLength() );
@@ -774,12 +781,13 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 
 				if ( sToken[0]=='(' )
 				{
-					m_dStateSpec.Add ( m_dStateSpec.Last() );
-				} else if ( sToken[0]==')' )
+					// safe way of performing m_dStateSpec.Add ( m_dStateSpec.Last() )
+					m_dStateSpec.Add ();
+					m_dStateSpec[m_dStateSpec.GetLength()-1] = m_dStateSpec[m_dStateSpec.GetLength()-2];
+				} else if ( sToken[0]==')' && m_dStateSpec.GetLength()>1 )
 				{
 					m_dStateSpec.Pop();
 				}
-				assert ( m_dStateSpec.GetLength()>=1 );
 
 				break;
 			}
@@ -804,7 +812,7 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 		// information about stars is lost after this point, so was have to save it now
 		DWORD uStarPosition = STAR_NONE;
 		uStarPosition |= *m_pTokenizer->GetTokenEnd()=='*' ? STAR_BACK : 0;
-		uStarPosition |= ( m_pTokenizer->GetTokenStart()!=m_pTokenizer->GetBufferPtr() ) &&
+		uStarPosition |= ( m_pTokenizer->GetTokenStart()>(const char *)m_sQuery ) &&
 			m_pTokenizer->GetTokenStart()[-1]=='*' ? STAR_FRONT : 0;
 
 		m_tPendingToken.pNode = AddKeyword ( sToken, uStarPosition );
@@ -1048,7 +1056,7 @@ void XQParser_t::DeleteNodesWOFields ( XQNode_t * pNode )
 
 	for ( int i = 0; i < pNode->m_dChildren.GetLength (); )
 	{
-		if ( pNode->m_dChildren[i]->m_dSpec.m_dFieldMask.TestAll() )
+		if ( pNode->m_dChildren[i]->m_dSpec.m_dFieldMask.TestAll ( false ) )
 		{
 			XQNode_t * pChild = pNode->m_dChildren[i];
 			assert ( pChild->m_dChildren.GetLength()==0 );
@@ -1795,5 +1803,5 @@ int sphMarkCommonSubtrees ( int iXQ, const XQQuery_t * pXQ )
 }
 
 //
-// $Id: sphinxquery.cpp 3302 2012-07-25 12:21:45Z tomat $
+// $Id: sphinxquery.cpp 3429 2012-10-04 09:20:27Z kevg $
 //

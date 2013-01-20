@@ -22,6 +22,7 @@
 				<Option type="1" />
 				<Option compiler="gcc" />
 				<Option parameters="-c test_200/Conf/config_0.conf --nodetach" />
+				<Option projectLinkerOptionsRelation="2" />
 				<Compiler>
 					<Add option="-Wall" />
 					<Add option="-g" />
@@ -44,6 +45,7 @@
 				<Option object_output="./junk/Release" />
 				<Option type="1" />
 				<Option compiler="gcc" />
+				<Option projectLinkerOptionsRelation="2" />
 				<Compiler>
 					<Add option="-O3" />
 					<Add option="-Wall" />

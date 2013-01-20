@@ -1,5 +1,5 @@
 //
-// $Id: sphinxstd.h 3264 2012-06-19 13:53:02Z klirichek $
+// $Id: sphinxstd.h 3461 2012-10-19 09:48:07Z kevg $
 //
 
 //
@@ -690,6 +690,7 @@ public:
 	/// add entry
 	void Add ( const T & tValue )
 	{
+		assert ( (&tValue<m_pData || &tValue>=(m_pData+m_iLength)) && "inserting own value (like last()) by ref!" );
 		if ( m_iLength>=m_iLimit )
 			Reserve ( 1+m_iLength );
 		m_pData [ m_iLength++ ] = tValue;
@@ -698,6 +699,7 @@ public:
 	/// add unique entry (ie. do not add if equal to last one)
 	void AddUnique ( const T & tValue )
 	{
+		assert ( (&tValue<m_pData || &tValue>=(m_pData+m_iLength)) && "inserting own value (like last()) by ref!" );
 		if ( m_iLength>=m_iLimit )
 			Reserve ( 1+m_iLength );
 
@@ -1209,7 +1211,7 @@ public:
 
 	/// add new entry
 	/// returns the pointer to just inserted or previously cached (if dupe) value
-	T* AddUnique ( const T & tValue, const KEY & tKey )
+	T & AddUnique ( const KEY & tKey )
 	{
 		unsigned int uHash = ( (unsigned int) HASHFUNC::Hash ( tKey ) ) % LENGTH;
 
@@ -1219,7 +1221,7 @@ public:
 		while ( pEntry )
 		{
 			if ( pEntry->m_tKey==tKey )
-				return &pEntry->m_tValue;
+				return pEntry->m_tValue;
 
 			ppEntry = &pEntry->m_pNextByHash;
 			pEntry = pEntry->m_pNextByHash;
@@ -1231,7 +1233,6 @@ public:
 
 		pEntry = new HashEntry_t;
 		pEntry->m_tKey = tKey;
-		pEntry->m_tValue = tValue;
 		pEntry->m_pNextByHash = NULL;
 		pEntry->m_pPrevByOrder = NULL;
 		pEntry->m_pNextByOrder = NULL;
@@ -1251,7 +1252,7 @@ public:
 		m_pLastByOrder = pEntry;
 
 		m_iLength++;
-		return &pEntry->m_tValue;
+		return pEntry->m_tValue;
 	}
 
 	/// delete an entry
@@ -1676,6 +1677,7 @@ struct CSphVariant : public CSphString
 {
 protected:
 	int				m_iValue;
+	int64_t			m_i64Value;
 	float			m_fValue;
 
 public:
@@ -1687,6 +1689,7 @@ public:
 	CSphVariant ()
 		: CSphString ()
 		, m_iValue ( 0 )
+		, m_i64Value ( 0 )
 		, m_fValue ( 0.0f )
 		, m_pNext ( NULL )
 		, m_bTag ( false )
@@ -1697,6 +1700,7 @@ public:
 	CSphVariant ( const char * sString ) // NOLINT desired implicit conversion
 		: CSphString ( sString )
 		, m_iValue ( m_sValue ? atoi ( m_sValue ) : 0 )
+		, m_i64Value ( m_sValue ? (int64_t)strtoull ( m_sValue, NULL, 10 ) : 0 )
 		, m_fValue ( m_sValue ? (float)atof ( m_sValue ) : 0.0f )
 		, m_pNext ( NULL )
 	{
@@ -1706,6 +1710,7 @@ public:
 	CSphVariant ( const CSphVariant & rhs )
 		: CSphString ()
 		, m_iValue ( 0 )
+		, m_i64Value ( 0 )
 		, m_fValue ( 0.0f )
 		, m_pNext ( NULL )
 	{
@@ -1725,6 +1730,12 @@ public:
 		return m_iValue;
 	}
 
+	/// int64_t value getter
+	int64_t int64val () const
+	{
+		return m_i64Value;
+	}
+
 	/// float value getter
 	float floatval () const
 	{
@@ -1740,6 +1751,7 @@ public:
 
 		CSphString::operator = ( rhs );
 		m_iValue = rhs.m_iValue;
+		m_i64Value = rhs.m_i64Value;
 		m_fValue = rhs.m_fValue;
 
 		return *this;
@@ -2067,6 +2079,8 @@ protected:
 
 //////////////////////////////////////////////////////////////////////////
 
+extern int g_iThreadStackSize;
+
 /// my thread handle and thread func magic
 #if USE_WINDOWS
 typedef HANDLE SphThread_t;
@@ -2105,9 +2119,6 @@ void * sphMyStack ();
 
 /// get size of used stack
 int64_t sphGetStackUsed();
-
-/// get the size of my thread's stack
-int sphMyStackSize ();
 
 /// set the size of my thread's stack
 void sphSetMyStackSize ( int iStackSize );
@@ -2227,7 +2238,7 @@ protected:
 
 
 /// rwlock implementation
-class CSphRwlock
+class CSphRwlock : public ISphNoncopyable
 {
 public:
 	CSphRwlock ();
@@ -2240,8 +2251,9 @@ public:
 	bool WriteLock ();
 	bool Unlock ();
 
-#if USE_WINDOWS
 private:
+	bool				m_bInitialized;
+#if USE_WINDOWS
 	HANDLE				m_hWriteMutex;
 	HANDLE				m_hReadEvent;
 	LONG				m_iReaders;
@@ -2323,7 +2335,7 @@ public:
 	}
 
 	// test if all bits are set or unset
-	bool TestAll ( bool bSet=false ) const
+	bool TestAll ( bool bSet ) const
 	{
 		DWORD uTest = bSet?uALLBITS:0;
 		for ( int i=0; i<IELEMENTS; i++ )
@@ -2466,5 +2478,5 @@ public:
 #endif // _sphinxstd_
 
 //
-// $Id: sphinxstd.h 3264 2012-06-19 13:53:02Z klirichek $
+// $Id: sphinxstd.h 3461 2012-10-19 09:48:07Z kevg $
 //

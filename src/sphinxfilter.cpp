@@ -1,5 +1,5 @@
 //
-// $Id: sphinxfilter.cpp 3257 2012-06-14 07:02:32Z tomat $
+// $Id: sphinxfilter.cpp 3435 2012-10-08 08:49:47Z kevg $
 //
 
 //
@@ -254,7 +254,7 @@ struct Filter_IdRange: public IFilter_Range
 {
 	virtual void SetRange ( SphAttr_t tMin, SphAttr_t tMax )
 	{
-		m_iMinValue = Max ( 0, tMin );
+		m_iMinValue = (SphDocID_t)Max ( 0, (SphDocID_t)tMin );
 		m_iMaxValue = tMax;
 	}
 
@@ -637,7 +637,15 @@ ISphFilter * sphCreateFilter ( const CSphFilterSettings & tSettings, const CSphS
 	// try to create filter on special attribute
 	const CSphString & sAttrName = tSettings.m_sAttrName;
 	if ( sAttrName.Begins("@") )
+	{
+		// HAVING is not implemented yet
+		if ( sAttrName=="@groupby" || sAttrName=="@count" || sAttrName=="@distinct" )
+		{
+			sError.SetSprintf ( "unsupported filter column '%s'", sAttrName.cstr() );
+			return NULL;
+		}
 		pFilter = CreateSpecialFilter ( sAttrName, tSettings.m_eType );
+	}
 
 	// fetch column info
 	const CSphColumnInfo * pAttr = NULL;
@@ -654,6 +662,12 @@ ISphFilter * sphCreateFilter ( const CSphFilterSettings & tSettings, const CSphS
 		assert ( !pFilter );
 
 		pAttr = &tSchema.GetAttr(iAttr);
+		// HAVING is not implemented yet
+		if ( pAttr->m_eAggrFunc!=SPH_AGGR_NONE )
+		{
+			sError.SetSprintf ( "unsupported filter '%s' on aggregate column", sAttrName.cstr() );
+			return NULL;
+		}
 		pFilter = CreateFilter ( pAttr->m_eAttrType, tSettings.m_eType, sError );
 	}
 
@@ -697,5 +711,5 @@ ISphFilter * sphJoinFilters ( ISphFilter * pA, ISphFilter * pB )
 }
 
 //
-// $Id: sphinxfilter.cpp 3257 2012-06-14 07:02:32Z tomat $
+// $Id: sphinxfilter.cpp 3435 2012-10-08 08:49:47Z kevg $
 //

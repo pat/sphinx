@@ -1,5 +1,5 @@
 //
-// $Id: sphinx.h 3308 2012-07-28 13:02:22Z deogar $
+// $Id: sphinx.h 3461 2012-10-19 09:48:07Z kevg $
 //
 
 //
@@ -196,7 +196,7 @@ inline const	DWORD *	STATIC2DOCINFO ( const DWORD * pAttrs )	{ return STATIC2DOC
 #define SPHINX_TAG "-dev"
 #endif
 
-#define SPHINX_VERSION			"2.0.5" SPHINX_BITS_TAG SPHINX_TAG " (" SPH_SVN_TAGREV ")"
+#define SPHINX_VERSION			"2.0.6" SPHINX_BITS_TAG SPHINX_TAG " (" SPH_SVN_TAGREV ")"
 #define SPHINX_BANNER			"Sphinx " SPHINX_VERSION "\nCopyright (c) 2001-2012, Andrew Aksyonoff\nCopyright (c) 2008-2012, Sphinx Technologies Inc (http://sphinxsearch.com)\n\n"
 #define SPHINX_SEARCHD_PROTO	1
 
@@ -1640,8 +1640,8 @@ struct CSphSourceParams_SQL
 	CSphString						m_sQuery;
 	CSphString						m_sQueryRange;
 	CSphString						m_sQueryKilllist;
-	int								m_iRangeStep;
-	int								m_iRefRangeStep;
+	int64_t							m_iRangeStep;
+	int64_t							m_iRefRangeStep;
 	bool							m_bPrintQueries;
 
 	CSphVector<CSphString>			m_dQueryPre;
@@ -2803,5 +2803,5 @@ void				sphCollationInit ();
 #endif // _sphinx_
 
 //
-// $Id: sphinx.h 3308 2012-07-28 13:02:22Z deogar $
+// $Id: sphinx.h 3461 2012-10-19 09:48:07Z kevg $
 //

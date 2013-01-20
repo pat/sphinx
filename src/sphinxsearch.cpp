@@ -1,5 +1,5 @@
 //
-// $Id: sphinxsearch.cpp 3302 2012-07-25 12:21:45Z tomat $
+// $Id: sphinxsearch.cpp 3437 2012-10-09 10:00:45Z kevg $
 //
 
 //
@@ -2046,12 +2046,18 @@ const ExtHit_t * ExtAnd_c::GetHitsChunk ( const ExtDoc_t * pDocs, SphDocID_t uMa
 		// one of the hitlists is over
 		if ( !pCur0 || !pCur1 )
 		{
-			if ( !pCur0 && !pCur1 ) break; // both are over, we're done
+			// if one is over, we might still need to copy the other one. otherwise, skip it
+			if ( ( pCur0 && pCur0->m_uDocid==m_uMatchedDocid ) || ( pCur1 && pCur1->m_uDocid==m_uMatchedDocid ) )
+			{
+				continue;
+			}
+			else
+			{
+				if ( pCur0 ) while ( ( pCur0 = m_pChildren[0]->GetHitsChunk ( pDocs, uMaxID ) ) );
+				if ( pCur1 ) while ( ( pCur1 = m_pChildren[1]->GetHitsChunk ( pDocs, uMaxID ) ) );
+			}
 
-			// one is over, but we still need to copy the other one
-			m_uMatchedDocid = pCur0 ? pCur0->m_uDocid : pCur1->m_uDocid;
-			assert ( m_uMatchedDocid!=DOCID_MAX );
-			continue;
+			if ( !pCur0 && !pCur1 ) break; // both are over, we're done
 		}
 
 		// find matching doc
@@ -3651,6 +3657,7 @@ ExtUnit_c::~ExtUnit_c ()
 {
 	SafeDelete ( m_pArg1 );
 	SafeDelete ( m_pArg2 );
+	SafeDelete ( m_pDot );
 }
 
 
@@ -4329,7 +4336,7 @@ SphZoneHit_e ExtRanker_c::IsInZone ( int iZone, const ExtHit_t * pHit )
 			SphDocID_t uCur = pStartHits->m_uDocid;
 
 			tKey.m_uDocid = uCur;
-			pZone = m_hZoneInfo.AddUnique ( ZoneInfo_t(), tKey );
+			pZone = &m_hZoneInfo.AddUnique ( tKey );
 
 			// load all the start hits for it
 			while ( pStartHits )
@@ -6096,5 +6103,5 @@ ExtNode_i * CSphQueryNodeCache::CreateProxy ( ExtNode_i * pChild, const XQNode_t
 }
 
 //
-// $Id: sphinxsearch.cpp 3302 2012-07-25 12:21:45Z tomat $
+// $Id: sphinxsearch.cpp 3437 2012-10-09 10:00:45Z kevg $
 //

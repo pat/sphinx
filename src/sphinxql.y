@@ -214,6 +214,13 @@ where_expr:
 	| where_expr TOK_AND where_item 
 	;
 
+expr_float_unhandled:	
+	| expr_ident '=' const_float
+	| expr_ident TOK_NE const_float
+	| expr_ident '>' const_float
+	| expr_ident '<' const_float
+	;
+	
 where_item:
 	TOK_MATCH '(' TOK_QUOTED_STRING ')'
 		{
@@ -269,28 +276,25 @@ where_item:
 		}
 	| expr_ident '>' const_int
 		{
-			if ( !pParser->AddIntRangeFilter ( $1.m_sValue, $3.m_iValue+1, LLONG_MAX ) )
+			if ( !pParser->AddIntFilterGTE ( $1.m_sValue, $3.m_iValue+1 ) )
 				YYERROR;
 		}
 	| expr_ident '<' const_int
 		{
-			if ( !pParser->AddIntRangeFilter ( $1.m_sValue, LLONG_MIN, $3.m_iValue-1 ) )
+			if ( !pParser->AddIntFilterLTE ( $1.m_sValue, $3.m_iValue-1 ) )
 				YYERROR;
 		}
 	| expr_ident TOK_GTE const_int
 		{
-			if ( !pParser->AddIntRangeFilter ( $1.m_sValue, $3.m_iValue, LLONG_MAX ) )
+			if ( !pParser->AddIntFilterGTE ( $1.m_sValue, $3.m_iValue ) )
 				YYERROR;
 		}
 	| expr_ident TOK_LTE const_int
 		{
-			if ( !pParser->AddIntRangeFilter ( $1.m_sValue, LLONG_MIN, $3.m_iValue ) )
+			if ( !pParser->AddIntFilterLTE ( $1.m_sValue, $3.m_iValue ) )
 				YYERROR;
 		}
-	| expr_ident '=' const_float
-	| expr_ident TOK_NE const_float
-	| expr_ident '>' const_float
-	| expr_ident '<' const_float
+	| expr_float_unhandled
 		{
 			yyerror ( pParser, "only >=, <=, and BETWEEN floating-point filter types are supported in this version" );
 			YYERROR;
@@ -341,7 +345,14 @@ expr_ident:
 
 const_int:
 	TOK_CONST_INT			{ $$.m_iInstype = TOK_CONST_INT; $$.m_iValue = $1.m_iValue; }
-	| '-' TOK_CONST_INT		{ $$.m_iInstype = TOK_CONST_INT; $$.m_iValue = -$2.m_iValue; }
+	| '-' TOK_CONST_INT
+		{
+			$$.m_iInstype = TOK_CONST_INT;
+			if ( (uint64_t)$2.m_iValue > (uint64_t)LLONG_MAX )
+				$$.m_iValue = LLONG_MIN;
+			else
+				$$.m_iValue = -$2.m_iValue;
+		}
 	;
 
 const_float:
@@ -370,8 +381,7 @@ opt_group_clause:
 group_clause:
 	TOK_GROUP TOK_BY expr_ident
 		{
-			pParser->m_pQuery->m_eGroupFunc = SPH_GROUPBY_ATTR;
-			pParser->m_pQuery->m_sGroupBy = $3.m_sValue;
+			pParser->SetGroupBy ( $3.m_sValue );
 		}
 	;
 
@@ -548,10 +558,10 @@ arg:
 //////////////////////////////////////////////////////////////////////////
 
 show_stmt:
-	TOK_SHOW show_variable
+	TOK_SHOW show_what
 	;
 
-show_variable:
+show_what:
 	TOK_WARNINGS		{ pParser->m_pStmt->m_eStmt = STMT_SHOW_WARNINGS; }
 	| TOK_STATUS		{ pParser->m_pStmt->m_eStmt = STMT_SHOW_STATUS; }
 	| TOK_META			{ pParser->m_pStmt->m_eStmt = STMT_SHOW_META; }
@@ -559,12 +569,17 @@ show_variable:
 
 //////////////////////////////////////////////////////////////////////////
 
-set_value:
+simple_set_value:
 	TOK_IDENT
 	| TOK_NULL
 	| TOK_QUOTED_STRING
 	| TOK_CONST_INT
 	| TOK_CONST_FLOAT
+	;
+
+set_value:
+	simple_set_value
+	| set_value '-' simple_set_value
 	;
 
 set_stmt:
@@ -834,10 +849,27 @@ update_item:
 //////////////////////////////////////////////////////////////////////////
 
 show_variables:
-	TOK_SHOW opt_scope TOK_VARIABLES
+	TOK_SHOW opt_scope TOK_VARIABLES opt_show_variables_where
 		{
 			pParser->m_pStmt->m_eStmt = STMT_SHOW_VARIABLES;
 		}
+	;
+
+opt_show_variables_where:
+	| show_variables_where
+	;
+
+show_variables_where:
+	TOK_WHERE show_variables_where_list
+	;
+
+show_variables_where_list:
+	show_variables_where_entry
+	| show_variables_where_list TOK_OR show_variables_where_entry
+	;
+
+show_variables_where_entry:
+	TOK_IDENT '=' TOK_QUOTED_STRING // for example, Variable_name = 'character_set'
 	;
 
 show_collation:
