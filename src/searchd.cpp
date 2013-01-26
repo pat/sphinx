@@ -5827,6 +5827,7 @@ struct SqlStmt_t
 };
 
 
+<<<<<<< HEAD
 struct SqlParser_c
 {
 public:
@@ -5837,6 +5838,19 @@ public:
 	CSphQuery *		m_pQuery;
 	bool			m_bGotQuery;
 	SqlStmt_t *		m_pStmt;
+=======
+		// set on query guard
+		CrashQuery_t tCrashQuery;
+		tCrashQuery.m_pQuery = tBuf.GetBufferPtr();
+		tCrashQuery.m_iSize = iLength;
+		tCrashQuery.m_bMySQL = false;
+		tCrashQuery.m_uCMD = (WORD)iCommand;
+		tCrashQuery.m_uVer = (WORD)iCommandVer;
+		SphCrashLogger_c::SetLastQuery ( tCrashQuery );
+
+		if (!CheckClientKey ( tBuf ) )
+			break;
+>>>>>>> 04be53b... Expect the client key when opening persistent connections.
 
 public:
 					SqlParser_c () : m_bNamedVecBusy ( false ) {}
@@ -7032,7 +7046,7 @@ void HandleClientSphinx ( int iSock, const char * sClientIP, int iPipeFD )
 			g_iCrashLog_LastQuerySize = iLength;
 		}
 		
-		if ( iCommand != SEARCHD_COMMAND_PERSIST && !CheckClientKey ( tBuf ) )
+		if ( !CheckClientKey ( tBuf ) )
 			break;
 
 		// handle known commands
