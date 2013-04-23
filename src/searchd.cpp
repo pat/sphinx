@@ -10415,6 +10415,7 @@ bool CheckClientKey ( InputBuffer_c & tReq )
 	if ( strcasecmp( g_sClientKey, sClientKey.cstr() ) != 0 )
 	{
 		tReq.SendErrorReply ( "invalid client key '%s'", sClientKey.cstr() );
+		sphInfo ( "Invalid client key. Expected '%s', received '%s'", g_sClientKey, sClientKey.cstr() );
 		return false;
 	} else {
 		return true;
