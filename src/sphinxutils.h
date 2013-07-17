@@ -1,5 +1,5 @@
 //
-// $Id: sphinxutils.h 3256 2012-06-13 15:13:28Z tomat $
+// $Id: sphinxutils.h 3788 2013-04-08 08:57:12Z kevg $
 //
 
 //
@@ -142,6 +142,10 @@ protected:
 	char *			GetBufferString ( char * szDest, int iMax, const char * & szSource );
 };
 
+#if !USE_WINDOWS
+bool TryToExec ( char * pBuffer, char * pEnd, const char * szFilename, CSphVector<char> & dResult, char * sError, int iErrorLen );
+#endif
+
 /////////////////////////////////////////////////////////////////////////////
 
 enum
@@ -225,5 +229,5 @@ void sphBacktrace ( EXCEPTION_POINTERS * pExc, const char * sFile );
 #endif // _sphinxutils_
 
 //
-// $Id: sphinxutils.h 3256 2012-06-13 15:13:28Z tomat $
+// $Id: sphinxutils.h 3788 2013-04-08 08:57:12Z kevg $
 //

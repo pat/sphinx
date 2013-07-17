@@ -1,5 +1,5 @@
 //
-// $Id: sphinxint.h 3351 2012-08-19 13:48:59Z klirichek $
+// $Id: sphinxint.h 3824 2013-04-19 19:59:23Z tomat $
 //
 
 //
@@ -129,7 +129,7 @@ protected:
 class CSphAutofile : ISphNoncopyable
 {
 protected:
-	int			m_iFD;			///< my file descriptior
+	int			m_iFD;			///< my file descriptor
 	CSphString	m_sFilename;	///< my file name
 	bool		m_bTemporary;	///< whether to unlink this file on Close()
 	bool		m_bWouldTemporary; ///< backup of the m_bTemporary
@@ -889,6 +889,8 @@ inline int FindBit ( DWORD uValue )
 // INLINES, UTF-8 TOOLS
 //////////////////////////////////////////////////////////////////////////
 
+#define SPH_MAX_UTF8_BYTES 4
+
 /// decode UTF-8 codepoint
 /// advances buffer ptr in all cases but end of buffer
 ///
@@ -915,7 +917,7 @@ inline int sphUTF8Decode ( BYTE * & pBuf )
 	}
 
 	// check for valid number of bytes
-	if ( iBytes<2 || iBytes>4 )
+	if ( iBytes<2 || iBytes>SPH_MAX_UTF8_BYTES )
 		return -1;
 
 	int iCode = ( v >> iBytes );
@@ -953,12 +955,19 @@ inline int sphUTF8Encode ( BYTE * pBuf, int iCode )
 		pBuf[1] = (BYTE)( ( iCode & 0x3F ) | 0x80 );
 		return 2;
 
-	} else
+	} else if ( iCode<0x10000 )
 	{
 		pBuf[0] = (BYTE)( ( (iCode>>12) & 0x0F ) | 0xE0 );
 		pBuf[1] = (BYTE)( ( (iCode>>6) & 0x3F ) | 0x80 );
 		pBuf[2] = (BYTE)( ( iCode & 0x3F ) | 0x80 );
 		return 3;
+	} else
+	{
+		pBuf[0] = (BYTE)( ( (iCode>>18) & 0x0F ) | 0xF0 );
+		pBuf[1] = (BYTE)( ( (iCode>>12) & 0x3F ) | 0x80 );
+		pBuf[2] = (BYTE)( ( (iCode>>6) & 0x3F ) | 0x80 );
+		pBuf[3] = (BYTE)( ( iCode & 0x3F ) | 0x80 );
+		return 4;
 	}
 }
 
@@ -1236,13 +1245,13 @@ ISphExpr *		sphSortSetupExpr ( const CSphString & sName, const CSphSchema & tInd
 bool			sphSortGetStringRemap ( const CSphSchema & tSorterSchema, const CSphSchema & tIndexSchema, CSphVector<SphStringSorterRemap_t> & dAttrs );
 bool			sphIsSortStringInternal ( const char * sColumnName );
 
-bool			sphWriteThrottled ( int iFD, const void * pBuf, int64_t iCount, const char * sName, CSphString & sError );
-void			sphMergeStats ( CSphQueryResultMeta & tDstResult, const SmallStringHash_T<CSphQueryResultMeta::WordStat_t> & hSrc );
+void			sphCheckWordStats ( const SmallStringHash_T<CSphQueryResultMeta::WordStat_t> & hDst, const SmallStringHash_T<CSphQueryResultMeta::WordStat_t> & hSrc, const char * sIndex, CSphString & sWarning );
 bool			sphCheckQueryHeight ( const struct XQNode_t * pRoot, CSphString & sError );
 void			sphTransformExtendedQuery ( XQNode_t ** ppNode );
 
 void			sphSetUnlinkOld ( bool bUnlink );
 void			sphUnlinkIndex ( const char * sName, bool bForce );
+void			sphSetDebugCheck ();
 
 void			WriteSchema ( CSphWriter & fdInfo, const CSphSchema & tSchema );
 void			ReadSchema ( CSphReader & rdInfo, CSphSchema & m_tSchema, DWORD uVersion, bool bDynamic );
@@ -1428,5 +1437,5 @@ void localtime_r ( const time_t * clock, struct tm * res );
 #endif // _sphinxint_
 
 //
-// $Id: sphinxint.h 3351 2012-08-19 13:48:59Z klirichek $
+// $Id: sphinxint.h 3824 2013-04-19 19:59:23Z tomat $
 //

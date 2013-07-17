@@ -1,5 +1,5 @@
 //
-// $Id: indexer.cpp 3461 2012-10-19 09:48:07Z kevg $
+// $Id: indexer.cpp 3795 2013-04-09 04:23:34Z kevg $
 //
 
 //
@@ -609,7 +609,7 @@ bool SqlParamsConfigure ( CSphSourceParams_SQL & tParams, const CSphConfigSectio
 	SqlAttrsConfigure ( tParams,	hSource("sql_attr_string"),			SPH_ATTR_STRING,	sSourceName );
 	SqlAttrsConfigure ( tParams,	hSource("sql_attr_str2wordcount"),	SPH_ATTR_WORDCOUNT,	sSourceName );
 	SqlAttrsConfigure ( tParams,	hSource("sql_field_string"),		SPH_ATTR_STRING,	sSourceName, true );
-	SqlAttrsConfigure ( tParams,	hSource("sql_field_str2wordcount"),	SPH_ATTR_STRING,	sSourceName, true );
+	SqlAttrsConfigure ( tParams,	hSource("sql_field_str2wordcount"),	SPH_ATTR_WORDCOUNT,	sSourceName, true );
 
 	LOC_GETA ( tParams.m_dFileFields,			"sql_file_field" );
 
@@ -1198,7 +1198,7 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 			iTotalBytes += tSource.m_iTotalBytes;
 		}
 
-		fprintf ( stdout, "total %d docs, "INT64_FMT" bytes\n", (int)iTotalDocs, iTotalBytes );
+		fprintf ( stdout, "total "INT64_FMT" docs, "INT64_FMT" bytes\n", iTotalDocs, iTotalBytes );
 
 		fprintf ( stdout, "total %d.%03d sec, %d bytes/sec, %d.%02d docs/sec\n",
 			(int)(tmTime/1000000), (int)(tmTime%1000000)/1000, // sec
@@ -1736,7 +1736,9 @@ int main ( int argc, char ** argv )
 			sphDie ( "failed to open %s: %s", sDumpRows.cstr(), strerror(errno) );
 	}
 
-	sphStartIOStats ();
+	sphInitIOStats ();
+	CSphIOStats tIO;
+	tIO.Start();
 
 	bool bIndexedOk = false; // if any of the indexes are ok
 	if ( bMerge )
@@ -1783,13 +1785,14 @@ int main ( int argc, char ** argv )
 
 	sphShutdownWordforms ();
 
-	const CSphIOStats & tStats = sphStopIOStats ();
-
 	if ( !g_bQuiet )
 	{
-		ReportIOStats ( "reads", tStats.m_iReadOps, tStats.m_iReadTime, tStats.m_iReadBytes );
-		ReportIOStats ( "writes", tStats.m_iWriteOps, tStats.m_iWriteTime, tStats.m_iWriteBytes );
+		ReportIOStats ( "reads", tIO.m_iReadOps, tIO.m_iReadTime, tIO.m_iReadBytes );
+		ReportIOStats ( "writes", tIO.m_iWriteOps, tIO.m_iWriteTime, tIO.m_iWriteBytes );
 	}
+
+	tIO.Stop();
+	sphDoneIOStats();
 
 	////////////////////////////
 	// rotating searchd indices
@@ -1809,5 +1812,5 @@ int main ( int argc, char ** argv )
 }
 
 //
-// $Id: indexer.cpp 3461 2012-10-19 09:48:07Z kevg $
+// $Id: indexer.cpp 3795 2013-04-09 04:23:34Z kevg $
 //

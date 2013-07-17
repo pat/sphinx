@@ -5,16 +5,16 @@
 ]>
 <book lang="en">
 
-<title>Sphinx 2.0.6 reference manual</title>
+<title>Sphinx 2.0.8-release reference manual</title>
 <subtitle>Free open-source SQL full-text search engine</subtitle>
 
 <bookinfo>
 <copyright>
-<year>2001-2012</year>
+<year>2001-2013</year>
 <holder>Andrew Aksyonoff</holder>
 </copyright>
 <copyright>
-<year>2008-2012</year>
+<year>2008-2013</year>
 <holder>Sphinx Technologies Inc, <ulink 
 url="http://sphinxsearch.com">http://sphinxsearch.com</ulink></holder>
 </copyright>
@@ -822,7 +822,7 @@ be run three times:
 <orderedlist>
 <listitem><para>with <option>$start</option> replaced with 1 and <option>$end</option> replaced with 1000;</para></listitem>
 <listitem><para>with <option>$start</option> replaced with 1001 and <option>$end</option> replaced with 2000;</para></listitem>
-<listitem><para>with <option>$start</option> replaced with 2000 and <option>$end</option> replaced with 2345.</para></listitem>
+<listitem><para>with <option>$start</option> replaced with 2001 and <option>$end</option> replaced with 2345.</para></listitem>
 </orderedlist>
 Obviously, that's not much of a difference for 2000-row table,
 but when it comes to indexing 10-million-row MyISAM table,
@@ -1989,13 +1989,13 @@ Currently implemented field-level factors are:
 <itemizedlist>
 <listitem><para>
 <code>lcs</code> (integer), the length of a maximum verbatim match between
-the document and the query, coutned in words. LCS stands for Longest Common
+the document and the query, counted in words. LCS stands for Longest Common
 Subsequence (or Subset). Takes a minimum value of 1 when only stray keywords
 were matched in a field, and a maximum value of query keywords count
 when the entire query was matched in a field verbatim (in the exact
 query keywords order). For example, if the query is 'hello world'
 and the field contains these two words quoted from the query (that is,
-adjacent to each other, and exaclty in the query order), <code>lcs</code>
+adjacent to each other, and exactly in the query order), <code>lcs</code>
 will be 2. For example, if the query is 'hello world program' and
 the field contains 'hello world', <code>lcs</code> will be 2.
 Note that any subset of the query keyword works, not just a subset
@@ -2004,7 +2004,7 @@ and the field contains 'hello (test program)', <code>lcs</code> will be 2
 just as well, because both 'hello' and 'program' matched in the same
 respective positions as they were in the query. Finally, if the query
 is 'hello world program' and the field contains 'hello world program',
-<code>lcs</code> will be 3. (Hopefully that is unsurpising at this point.)
+<code>lcs</code> will be 3. (Hopefully that is unsurprising at this point.)
 </para></listitem>
 <listitem><para>
 <code>user_weight</code> (integer), the user specified per-field weight
@@ -4024,8 +4024,8 @@ SELECT
     FROM index [, index2 ...]
     [WHERE where_condition]
     [GROUP BY {col_name | expr_alias}]
-    [ORDER BY {col_name | expr_alias} {ASC | DESC} [, ...]]
     [WITHIN GROUP ORDER BY {col_name | expr_alias} {ASC | DESC}]
+    [ORDER BY {col_name | expr_alias} {ASC | DESC} [, ...]]
     [LIMIT offset, row_count]
     [OPTION opt_name = opt_value [, ...]]
 </programlisting>
@@ -4047,7 +4047,8 @@ the future.
 <listitem><para>FROM clause. FROM clause should contain the list of indexes
 to search through. Unlike in regular SQL, comma means enumeration of
 full-text indexes as in <link linkend="api-func-query">Query()</link>
-API call rather than JOIN.
+API call rather than JOIN. Index name should be according to the rules of
+a C identifier.
 </para></listitem>
 <listitem><para>WHERE clause. This clause will map both to fulltext query
 and filters. Comparison operators (=, !=, &lt;, &gt;, &lt;=, &gt;=), IN,
@@ -6528,7 +6529,7 @@ attribute name (or sorting clause for "extended") is also required after a colon
 ... WHERE query='test;cutoff=10000;';
 </programlisting>
 </para></listitem>
-<listitem><para>maxquerytme - maximum allowed query time (in milliseconds), as in
+<listitem><para>maxquerytime - maximum allowed query time (in milliseconds), as in
 <link linkend="api-func-setmaxquerytime">SetMaxQueryTime()</link> API call:
 <programlisting>
 ... WHERE query='test;maxquerytime=1000;';
@@ -11264,6 +11265,87 @@ prefork_rotation_throttle = 50 # throttle children restarts by 50 msec each
 -->
 
 <appendix id="changelog"><title>Sphinx revision history</title>
+
+<sect1 id="rel208"><title>Version 2.0.8-release, 26 apr 2013</title>
+<bridgehead>Bug fixes</bridgehead>
+<itemizedlist>
+<listitem><para>fixed #1515, log strings over 2KB were clipped when <link linkend="conf-query-log-format">query_log_format=plain</link></para></listitem>
+<listitem><para>fixed #1514, RT index disk chunk lose attribute update on daemon restart</para></listitem>
+<listitem><para>fixed #1512, crash while formatting log messages</para></listitem>
+<listitem><para>fixed #1511, crash on indexing PostgreSQL data source with <link linkend="mva">MVA</link> attributes</para></listitem>
+<listitem><para>fixed #1509, <link linkend="conf-blend-chars">blend_chars</link> vs incomplete multi-form and overshort</para></listitem>
+<listitem><para>fixed #1504, RT binlog replay vs descending tid on update</para></listitem>
+<listitem><para>fixed #1499, <link linkend="conf-sql-field-str2wordcount">sql_field_str2wordcount</link> actually is int, not string</para></listitem>
+<listitem><para>fixed #1498, now working with exceptions starting with number too</para></listitem>
+<listitem><para>fixed #1496, multiple destination keywords in wordform</para></listitem>
+<listitem><para>fixed #1494, lost 'mod', '%' operations in select list. Also corrected few typers in the doc.</para></listitem>
+<listitem><para>fixed #1490, <link linkend="conf-expand-keywords">expand_keywords</link> vs prefix</para></listitem>
+<listitem><para>fixed #1487, `id` in expression fixed</para></listitem>
+<listitem><para>fixed #1483, snippets limits fix</para></listitem>
+<listitem><para>fixed #1481, shebang config changes check on rotation</para></listitem>
+<listitem><para>fixed #1479, port handling in <link linkend="api-reference">PHP Sphinx API</link></para></listitem>
+<listitem><para>fixed #1474, daemon crash at SphinxQL packet overflows <link linkend="conf-max-packet-size">max_packet_size</link></para></listitem>
+<listitem><para>fixed #1472, crash on loading index to <filename>indextool</filename> for check</para></listitem>
+<listitem><para>fixed #1465, <link linkend="conf-expansion-limit">expansion_limit</link> got lost in index rotation</para></listitem>
+<listitem><para>fixed #1427, #1506, utf8 3 and 4-bytes codepoints</para></listitem>
+<listitem><para>fixed #1405, between with mixed int float values</para></listitem>
+</itemizedlist>
+</sect1>
+
+<sect1 id="rel207"><title>Version 2.0.7-release, 26 mar 2013</title>
+<bridgehead>Bug fixes</bridgehead>
+<itemizedlist>
+<listitem><para>fixed #1475, memory leak in the expression parser</para></listitem>
+<listitem><para>fixed #1457, error messages over 2KB were clipped</para></listitem>
+<listitem><para>fixed #1454, searchd did not display an error message when the binlog path did not exist</para></listitem>
+<listitem><para>fixed #1441, SHOW META in a query batch was returning the last non-batch error</para></listitem>
+<listitem><para>fixed #1435, typo in the documentation</para></listitem>
+<listitem><para>fixed #1430, rt_flush_period now works even with a disabled binlog</para></listitem>
+<listitem><para>fixed #1427, overlong 4-byte UTF-8 codes in source text could cause indexer crashes or index corruption</para></listitem>
+<listitem><para>fixed #1418, warnings from local index searches were lost with dist_threads&gt;0</para></listitem>
+<listitem><para>fixed #1417, crash handler now works on searchd startup stage, too (eg. to report index load time crashes)</para></listitem>
+<listitem><para>fixed #1410, bad numerics like '123abc' now result in a proper SphinxQL error message</para></listitem>
+<listitem><para>fixed #1404, a tiny memory leak in shared mutex</para></listitem>
+<listitem><para>fixed #1394, race in --iostats caused incorrect I/O statistics in threaded modes</para></listitem>
+<listitem><para>fixed #1391, QUORUM operator vs docinfo=inline returned wrong attribute values</para></listitem>
+<listitem><para>fixed #1389, edge case in the ORDER operator caused occasionaly searchd crashes</para></listitem>
+<listitem><para>fixed #1382, query parts with field limits but without real keywords (like '@name {') are now simply ignored and no longer cause a query syntax error</para></listitem>
+<listitem><para>fixed #1370, Windows indexer builds failed to fetch rows from MSSQL 2012</para></listitem>
+<listitem><para>fixed #1368, ORDER BY RAND() did not work in RT indexes</para></listitem>
+<listitem><para>fixed #1364, queries with hitless words could occasionally crash searchd</para></listitem>
+<listitem><para>fixed #1363, '*' in charset_table was causing query syntax errors with enable_star=1</para></listitem>
+<listitem><para>fixed #1353, added filtering by 'id' syntax (in addition to '@id') to SphinxSE</para></listitem>
+<listitem><para>fixed #1346, fixed NEAR operator behavior vs duplicated keywords</para></listitem>
+<listitem><para>fixed #1345, invalid PROXIMITY operator threshold now causes a query syntax error rather than unexpected search behavior</para></listitem>
+<listitem><para>fixed #1343, misconfigured indexes with 0 full text fields are now explicitly forbidden</para></listitem>
+<listitem><para>fixed #1342, specific error messages (from the preload stage) went missing when failing to load the indexes</para></listitem>
+<listitem><para>fixed #1339, no warning on inconsistent word statistics</para></listitem>
+<listitem><para>fixed #1335, typo in searchd help screen</para></listitem>
+<listitem><para>fixed #1334, typo in SELECT documentation</para></listitem>
+<listitem><para>fixed #1316, PHRASE operator did not match in a rare self-repeating document/query case</para></listitem>
+<listitem><para>fixed #1297, letting queries complete gracefully instead of killing them off in seamless_rotate=1, workers=prefork case</para></listitem>
+<listitem><para>fixed #1295, mentioned index naming requirements (proper identifier) in the FROM clause docs</para></listitem>
+<listitem><para>fixed #1221, incorrect results when using @groupby in select list via SphinxAPI with compat_sphinxql_magics=0</para></listitem>
+<listitem><para>fixed #1180, special SPZ chars occasionally leaking into snippets</para></listitem>
+<listitem><para>fixed #1171, preforked children did not reload logs on SIGUSR1</para></listitem>
+<listitem><para>fixed #1150, added support for `id` syntax in DELETE and parents in WHERE</para></listitem>
+<listitem><para>fixed #1135, crashes when using MVA/strings attributes in expression ranker</para></listitem>
+<listitem><para>fixed #1124, corrupted attributes after merging with an empty index</para></listitem>
+<listitem><para>fixed #1090, SphinxSE snippets UDF updated to support MySQL 5.5</para></listitem>
+<listitem><para>fixed #1041, added initial support for MVA updates (and other mutex protected things) on FreeBSD</para></listitem>
+<listitem><para>fixed #999, fullscan returned empty result sets in mixed batches of fullscan and fulltext queries</para></listitem>
+<listitem><para>fixed #921, document count/bytes 32bit overflow in indexer progress output</para></listitem>
+<listitem><para>fixed #539, added processing suffix rules with dots in .affix file to spelldump</para></listitem>
+<listitem><para>fixed #481, rotation did not work on Windows with preopen=1</para></listitem>
+<listitem><para>fixed #268, added warnings about duplicate elements in xmlpipe2</para></listitem>
+<listitem><para>fixed CSphStaticMutex (double initialization issue)</para></listitem>
+<listitem><para>fixed documentation typo in SQL data sources</para></listitem>
+<listitem><para>fixed too-late initialization of mutex at daemon</para></listitem>
+<listitem><para>fixed that an instance of searchd resurrected by watchdog could leak resources and/or crash</para></listitem>
+<listitem><para>added a console message about crashes during index loading at startup</para></listitem>
+<listitem><para>added more debug info about failed index loading</para></listitem>
+</itemizedlist>
+</sect1>
 
 <sect1 id="rel206"><title>Version 2.0.6-release, 22 oct 2012</title>
 <bridgehead>Bug fixes</bridgehead>

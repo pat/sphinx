@@ -1,5 +1,5 @@
 //
-// $Id: tests.cpp 3239 2012-06-01 12:31:28Z tomat $
+// $Id: tests.cpp 3824 2013-04-19 19:59:23Z tomat $
 //
 
 //
@@ -413,6 +413,27 @@ void TestTokenizer ( bool bUTF8 )
 
 	printf ( "test utf8 len 2\n" );
 	assert ( sphUTF8Len ( "", 256 )==0 && sphUTF8Len ( NULL, 256 )==0 );
+	printf ( "test utf8 4-bytes codepoint\n" );
+	BYTE sTest21[] = "\xF4\x80\x80\x80\x32\x34\x20";
+	BYTE sTest22[] = "\xEC\x97\xB0";
+	BYTE sRes21[SPH_MAX_WORD_LEN];
+
+	memset ( sRes21, 0, sizeof(sRes21) );
+	BYTE * pTest21 = sTest21;
+	int iCode21 = sphUTF8Decode ( pTest21 );
+	assert ( sphUTF8Encode ( sRes21, iCode21 )==4 );
+	assert ( sTest21[0]==sRes21[0] && sTest21[1]==sRes21[1] && sTest21[2]==sRes21[2] && sTest21[3]==sRes21[3] );
+
+	memset ( sRes21, 0, sizeof(sRes21) );
+	pTest21 = sTest22;
+	int iCode22 = sphUTF8Decode ( pTest21 );
+	assert ( iCode22==0xC5F0 );
+	assert ( sphUTF8Encode ( sRes21, iCode22 )==3 );
+	assert ( memcmp ( sTest22, sRes21, sizeof(sTest22) )==0 );
+
+	pTokenizer = sphCreateUTF8Tokenizer();
+	pTokenizer->SetBuffer ( (BYTE*)sTest21, sizeof(sTest21) );
+	assert ( !strcmp ( (const char*)pTokenizer->GetToken(), "\xF4\x80\x80\x80\x32\x34" ) );
 }
 
 
@@ -1699,7 +1720,7 @@ void TestRTInit ()
 {
 	CSphConfigSection tRTConfig;
 
-	sphRTInit();
+	sphRTInit ( tRTConfig, true );
 	sphRTConfigure ( tRTConfig, true );
 
 	SmallStringHash_T<CSphIndex*> hIndexes;
@@ -2257,5 +2278,5 @@ int main ()
 }
 
 //
-// $Id: tests.cpp 3239 2012-06-01 12:31:28Z tomat $
+// $Id: tests.cpp 3824 2013-04-19 19:59:23Z tomat $
 //

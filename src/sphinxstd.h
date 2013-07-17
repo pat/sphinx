@@ -1,5 +1,5 @@
 //
-// $Id: sphinxstd.h 3461 2012-10-19 09:48:07Z kevg $
+// $Id: sphinxstd.h 3821 2013-04-18 15:15:44Z joric $
 //
 
 //
@@ -62,6 +62,9 @@ typedef int __declspec("SAL_nokernel") __declspec("SAL_nodriver") __prefast_flag
 #include <sys/mman.h>
 #include <errno.h>
 #include <pthread.h>
+#ifdef __FreeBSD__
+#include <semaphore.h>
+#endif
 #endif
 
 /////////////////////////////////////////////////////////////////////////////
@@ -830,10 +833,10 @@ public:
 
 		Sort ();
 
-		int iSrc = 0, iDst = 0;
+		int iSrc = 1, iDst = 1;
 		while ( iSrc<m_iLength )
 		{
-			if ( iDst>0 && m_pData[iDst-1]==m_pData[iSrc] )
+			if ( m_pData[iDst-1]==m_pData[iSrc] )
 				iSrc++;
 			else
 				m_pData[iDst++] = m_pData[iSrc++];
@@ -1670,6 +1673,174 @@ inline void Swap ( CSphString & v1, CSphString & v2 )
 	v1.Swap ( v2 );
 }
 
+
+/// string builder
+/// somewhat quicker than a series of SetSprintf()s
+/// lets you build strings bigger than 1024 bytes, too
+class CSphStringBuilder
+{
+protected:
+	char *	m_sBuffer;
+	int		m_iSize;
+	int		m_iUsed;
+	bool	m_bFirstSeparator;
+
+public:
+	CSphStringBuilder ()
+	{
+		Reset ();
+	}
+
+	~CSphStringBuilder ()
+	{
+		SafeDeleteArray ( m_sBuffer );
+	}
+
+	void Reset ()
+	{
+		m_iSize = 256;
+		m_iUsed = 0;
+		m_sBuffer = new char [ m_iSize ];
+		m_sBuffer[0] = '\0';
+		m_bFirstSeparator = true;
+	}
+
+	CSphStringBuilder & Appendf ( const char * sTemplate, ... ) __attribute__ ( ( format ( printf, 2, 3 ) ) )
+	{
+		assert ( m_sBuffer );
+		assert ( m_iUsed<m_iSize );
+
+		for ( ;; )
+		{
+			int iLeft = m_iSize - m_iUsed;
+
+			// try to append
+			va_list ap;
+			va_start ( ap, sTemplate );
+			int iPrinted = vsnprintf ( m_sBuffer+m_iUsed, iLeft, sTemplate, ap );
+			va_end ( ap );
+
+			// success? bail
+			// note that we check for strictly less, not less or equal
+			// that is because vsnprintf does *not* count the trailing zero
+			// meaning that if we had N bytes left, and N bytes w/o the zero were printed,
+			// we do not have a trailing zero anymore, but vsnprintf succeeds anyway
+			if ( iPrinted>=0 && iPrinted<iLeft )
+			{
+				m_iUsed += iPrinted;
+				break;
+			}
+
+			// we need more chars!
+			// either 256 (happens on Windows; lets assume we need 256 more chars)
+			// or get all the needed chars and 64 more for future calls
+			Grow ( iPrinted<0 ? 256 : iPrinted - iLeft + 64 );
+		}
+		return *this;
+	}
+
+	void ResetSeparator ()
+	{
+		m_bFirstSeparator = true;
+	}
+
+	CSphStringBuilder & AppendSeparator ( const char * sSep )
+	{
+		if ( !m_bFirstSeparator )
+			*this += sSep;
+		m_bFirstSeparator = false;
+		return *this;
+	}
+
+	const char * cstr() const
+	{
+		return m_sBuffer;
+	}
+
+	int Length ()
+	{
+		return m_iUsed;
+	}
+
+	const CSphStringBuilder & operator += ( const char * sText )
+	{
+		if ( !sText || *sText=='\0' )
+			return *this;
+
+		int iLen = strlen ( sText );
+		int iLeft = m_iSize - m_iUsed;
+		if ( iLen>=iLeft )
+			Grow ( iLen - iLeft + 64 );
+
+		memcpy ( m_sBuffer+m_iUsed, sText, iLen+1 );
+		m_iUsed += iLen;
+		return *this;
+	}
+
+	const CSphStringBuilder & operator = ( const CSphStringBuilder & rhs )
+	{
+		if ( this!=&rhs )
+		{
+			m_iUsed = rhs.m_iUsed;
+			m_iSize = rhs.m_iSize;
+			m_bFirstSeparator = rhs.m_bFirstSeparator;
+			SafeDeleteArray ( m_sBuffer );
+			m_sBuffer = new char [ m_iSize ];
+			memcpy ( m_sBuffer, rhs.m_sBuffer, m_iUsed+1 );
+		}
+		return *this;
+	}
+
+	void AppendEscaped ( const char * sText, bool bEscape=true, bool bFixupSpace=true )
+	{
+		if ( !sText || !*sText )
+			return;
+
+		const char * pBuf = sText;
+		int iEsc = 0;
+		for ( ; *pBuf; )
+		{
+			char s = *pBuf++;
+			iEsc = ( bEscape && ( s=='\\' || s=='\'' ) ) ? ( iEsc+1 ) : iEsc;
+		}
+
+		int iLen = pBuf - sText + iEsc;
+		int iLeft = m_iSize - m_iUsed;
+		if ( iLen>=iLeft )
+			Grow ( iLen - iLeft + 64 );
+
+		pBuf = sText;
+		char * pCur = m_sBuffer+m_iUsed;
+		for ( ; *pBuf; )
+		{
+			char s = *pBuf++;
+			if ( bEscape && ( s=='\\' || s=='\'' ) )
+			{
+				*pCur++ = '\\';
+				*pCur++ = s;
+			} else if ( bFixupSpace && ( s==' ' || s=='\t' || s=='\n' || s=='\r' ) )
+			{
+				*pCur++ = ' ';
+			} else
+			{
+				*pCur++ = s;
+			}
+		}
+		*pCur = '\0';
+		m_iUsed = pCur-m_sBuffer;
+	}
+
+private:
+	void Grow ( int iLen )
+	{
+		m_iSize += iLen;
+		char * pNew = new char [ m_iSize ];
+		memcpy ( pNew, m_sBuffer, m_iUsed+1 );
+		Swap ( pNew, m_sBuffer );
+		SafeDeleteArray ( pNew );
+	}
+};
+
 /////////////////////////////////////////////////////////////////////////////
 
 /// immutable string/int/float variant list proxy
@@ -2024,6 +2195,7 @@ class CSphProcessSharedMutex
 {
 public:
 	explicit CSphProcessSharedMutex ( int iExtraSize=0 );
+	~CSphProcessSharedMutex(); // not virtual for now.
 	void	Lock () const;
 	void	Unlock () const;
 	bool	TimedLock ( int tmSpin ) const; // wait at least tmSpin microseconds the lock will available
@@ -2032,7 +2204,11 @@ public:
 protected:
 #if !USE_WINDOWS
 	CSphSharedBuffer<BYTE>		m_pStorage;
+#ifdef __FreeBSD__
+	sem_t *						m_pMutex;
+#else
 	pthread_mutex_t *			m_pMutex;
+#endif
 	CSphString					m_sError;
 #endif
 };
@@ -2050,7 +2226,11 @@ public:
 	{
 		if ( m_pMutex )
 		{
+#ifdef __FreeBSD__
+			m_pValue = reinterpret_cast<T*> ( m_pStorage.GetWritePtr () + sizeof ( sem_t ) );
+#else
 			m_pValue = reinterpret_cast<T*> ( m_pStorage.GetWritePtr () + sizeof ( pthread_mutex_t ) );
+#endif
 			*m_pValue = tInitValue;
 		}
 	}
@@ -2159,7 +2339,7 @@ protected:
 
 
 /// static mutex (for globals)
-class CSphStaticMutex : public CSphMutex
+class CSphStaticMutex : private CSphMutex
 {
 public:
 	CSphStaticMutex()
@@ -2170,6 +2350,16 @@ public:
 	~CSphStaticMutex()
 	{
 		Done();
+	}
+
+	bool Lock ()
+	{
+		return CSphMutex::Lock();
+	}
+
+	bool Unlock ()
+	{
+		return CSphMutex::Unlock();
 	}
 };
 
@@ -2478,5 +2668,5 @@ public:
 #endif // _sphinxstd_
 
 //
-// $Id: sphinxstd.h 3461 2012-10-19 09:48:07Z kevg $
+// $Id: sphinxstd.h 3821 2013-04-18 15:15:44Z joric $
 //

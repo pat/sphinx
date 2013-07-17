@@ -1,5 +1,5 @@
 //
-// $Id: sphinxexpr.cpp 3453 2012-10-15 14:01:10Z kevg $
+// $Id: sphinxexpr.cpp 3754 2013-03-25 11:47:26Z tomat $
 //
 
 //
@@ -365,7 +365,7 @@ static inline int Fibonacci ( int i )
 		f0 += f1; // f_j
 		f1 += f0; // f_{j+1}
 	}
-	return (i&1) ? f1 : f0;
+	return ( i & 1 ) ? f1 : f0;
 }
 
 struct Expr_Fibonacci_c : public Expr_Unary_c
@@ -1168,6 +1168,8 @@ void ExprParser_t::Optimize ( int iNode )
 				}
 				pRoot->m_iToken = TOK_CONST_FLOAT;
 			}
+			pRoot->m_iLeft = -1;
+			pRoot->m_iRight = -1;
 			return;
 		}
 
@@ -1360,6 +1362,7 @@ void ExprParser_t::Optimize ( int iNode )
 	{
 		pRoot->m_iToken = TOK_ATTR_SINT;
 		pRoot->m_tLocator = pLeft->m_tLocator;
+		pRoot->m_iLeft = -1;
 	}
 }
 
@@ -3291,5 +3294,5 @@ ISphExpr * sphExprParse ( const char * sExpr, const CSphSchema & tSchema, ESphAt
 }
 
 //
-// $Id: sphinxexpr.cpp 3453 2012-10-15 14:01:10Z kevg $
+// $Id: sphinxexpr.cpp 3754 2013-03-25 11:47:26Z tomat $
 //

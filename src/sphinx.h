@@ -1,5 +1,5 @@
 //
-// $Id: sphinx.h 3461 2012-10-19 09:48:07Z kevg $
+// $Id: sphinx.h 3812M 2013-05-02 17:13:03Z (local) $
 //
 
 //
@@ -196,7 +196,7 @@ inline const	DWORD *	STATIC2DOCINFO ( const DWORD * pAttrs )	{ return STATIC2DOC
 #define SPHINX_TAG "-dev"
 #endif
 
-#define SPHINX_VERSION			"2.0.6" SPHINX_BITS_TAG SPHINX_TAG " (" SPH_SVN_TAGREV ")"
+#define SPHINX_VERSION			"2.0.8" SPHINX_BITS_TAG SPHINX_TAG " (" SPH_SVN_TAGREV ")"
 #define SPHINX_BANNER			"Sphinx " SPHINX_VERSION "\nCopyright (c) 2001-2012, Andrew Aksyonoff\nCopyright (c) 2008-2012, Sphinx Technologies Inc (http://sphinxsearch.com)\n\n"
 #define SPHINX_SEARCHD_PROTO	1
 
@@ -250,21 +250,38 @@ void			sphInterruptNow();
 void			sphSetProcessInfo ( bool bHead );
 #endif
 
-struct CSphIOStats
+
+/// initialize IO statistics collecting
+bool			sphInitIOStats ();
+
+/// clean up IO statistics collector
+void			sphDoneIOStats ();
+
+
+class CSphIOStats
 {
+public:
 	int64_t		m_iReadTime;
 	DWORD		m_iReadOps;
 	int64_t		m_iReadBytes;
 	int64_t		m_iWriteTime;
 	DWORD		m_iWriteOps;
 	int64_t		m_iWriteBytes;
+
+	CSphIOStats ();
+	~CSphIOStats ();
+
+	void		Start();
+	void		Stop();
+
+	void		Add ( const CSphIOStats & b );
+	bool		IsEnabled() { return m_bEnabled; }
+
+private:
+	bool		m_bEnabled;
+	CSphIOStats * m_pPrev;
 };
 
-/// clear stats, starts collecting
-void				sphStartIOStats ();
-
-/// stops collecting stats, returns results
-const CSphIOStats &	sphStopIOStats ();
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -523,8 +540,10 @@ public:
 	/// was last token a special one?
 	virtual bool					WasTokenSpecial () { return m_bWasSpecial; }
 
+	virtual bool					WasTokenSynonym () const { return m_bWasSynonym; }
+
 	/// get amount of overshort keywords skipped before this token
-	virtual int						GetOvershortCount () { return m_iOvershortCount; }
+	virtual int						GetOvershortCount () { return ( !m_bBlended && m_bBlendedPart ? 0 : m_iOvershortCount ); }
 
 	/// get original tokenized multiform (if any); NULL means there was none
 	virtual BYTE *					GetTokenizedMultiform () { return NULL; }
@@ -576,6 +595,7 @@ protected:
 	bool							m_bBoundary;				///< boundary flag (true immediately after boundary codepoint)
 	int								m_iBoundaryOffset;			///< boundary character offset (in bytes)
 	bool							m_bWasSpecial;				///< special token flag
+	bool							m_bWasSynonym;				///< last token is a synonym token
 	bool							m_bEscaped;					///< backslash handling flag
 	int								m_iOvershortCount;			///< skipped overshort tokens count
 
@@ -1110,7 +1130,7 @@ inline void Swap ( CSphMatch & a, CSphMatch & b )
 /// source statistics
 struct CSphSourceStats
 {
-	int				m_iTotalDocuments;	///< how much documents
+	int64_t			m_iTotalDocuments;	///< how much documents
 	int64_t			m_iTotalBytes;		///< how much bytes
 
 	/// ctor
@@ -2288,6 +2308,7 @@ public:
 	int						m_iQueryTime;		///< query time, milliseconds
 	int64_t					m_iCpuTime;			///< user time, microseconds
 	int						m_iMultiplier;		///< multi-query multiplier, -1 to indicate error
+	CSphIOStats				m_tIOStats;			/// IO statistics
 
 	struct WordStat_t
 	{
@@ -2376,7 +2397,7 @@ struct CSphIndexProgress
 
 	Phase_e			m_ePhase;		///< current indexing phase
 
-	int				m_iDocuments;	///< PHASE_COLLECT: documents collected so far
+	int64_t			m_iDocuments;	///< PHASE_COLLECT: documents collected so far
 	int64_t			m_iBytes;		///< PHASE_COLLECT: bytes collected so far;
 									///< PHASE_PREREAD: bytes read so far;
 	int64_t			m_iBytesTotal;	///< PHASE_PREREAD: total bytes to read;
@@ -2578,7 +2599,7 @@ struct CSphIndexSettings : public CSphSourceSettings
 	CSphString		m_sZones;
 
 	ESphHitless		m_eHitless;
-	CSphString		m_sHitlessFile;
+	CSphString		m_sHitlessFiles;
 
 	bool			m_bVerbose;
 
@@ -2629,6 +2650,7 @@ public:
 	virtual int					GetKillListSize () const = 0;
 	virtual bool				HasDocid ( SphDocID_t uDocid ) const = 0;
 	virtual bool				IsRT() const { return false; }
+	void						SetBinlog ( bool bBinlog ) { m_bBinlog = bBinlog; }
 
 	virtual void				SetEnableStar ( bool bEnableStar ) { m_bEnableStar = bEnableStar; }
 	bool						IsStarEnabled () const { return m_bEnableStar; }
@@ -2728,6 +2750,7 @@ protected:
 
 	bool						m_bKeepFilesOpen;		///< keep files open to avoid race on seamless rotation
 	bool						m_bPreloadWordlist;		///< preload wordlists or keep them on disk
+	bool						m_bBinlog;
 
 	bool						m_bStripperInited;		///< was stripper initialized (old index version (<9) handling)
 	bool						m_bEnableStar;			///< enable star-syntax
@@ -2803,5 +2826,5 @@ void				sphCollationInit ();
 #endif // _sphinx_
 
 //
-// $Id: sphinx.h 3461 2012-10-19 09:48:07Z kevg $
+// $Id: sphinx.h 3812M 2013-05-02 17:13:03Z (local) $
 //

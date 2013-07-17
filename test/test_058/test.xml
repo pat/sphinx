@@ -11,12 +11,28 @@
 searchd
 {
 	<searchd_settings/>
-	seamless_rotate = 0
+	expansion_limit = 2
 	<dynamic>
-		<variant>workers = none</variant>
+		<variant>
+			seamless_rotate = 0
+			workers = none
+		</variant>
+		<variant>
+			seamless_rotate = 0
+			workers = threads
+			binlog_path =
+		</variant>
 		<variant>
 			workers = threads
 			binlog_path =
+			preopen_indexes = 1
+			seamless_rotate = 0
+		</variant>
+		<variant>
+			workers = threads
+			binlog_path =
+			preopen_indexes = 1
+			seamless_rotate = 1
 		</variant>
 	</dynamic>
 }
@@ -59,6 +75,22 @@ index loc3
 {
 	source = locs
 	path = <data_path/>/loc3
+}
+
+source src_expand
+{
+	type = mysql
+	<sql_settings/>
+	sql_query = select 1, 'as' text UNION select 2, 'ask as' text UNION select 3, 'all' text UNION select 4, 'after ask' text
+}
+
+index expand
+{
+	source = src_expand
+	path = <data_path/>/expand
+	dict = keywords
+	min_prefix_len = 1
+	enable_star = 1
 }
 </config>
 
@@ -112,12 +144,17 @@ for ( $i=0; $i<count($res); $i++ )
 return $result;
 ');
 
+$q1 = create_function('$client,$words,$index','
+$result = $client->Query ( $words, $index );	if ( $result ) { unset ( $result["time"] ); return $result; } else return $client->GetLastError();
+');
+
 $results = array();
 $errors = '';
 
 $results[] = $query ( $client, 'first' );
 $results[] = $query ( $client, 'one' );
 $results[] = $mquery ( $client );
+$results[] = $q1 ( $client, 'a*', 'expand' );
 
 mysql_query ( 'update test_table set mode = 3 where id = 1000' );
 RunIndexer ( $errors, '--all --rotate' );
@@ -134,6 +171,7 @@ sleep(2);
 $results[] = $query ( $client, 'first' );
 $results[] = $query ( $client, 'one' );
 $results[] = $mquery ( $client );
+$results[] = $q1 ( $client, 'a*', 'expand' );
 
 ]]></custom_test>
 

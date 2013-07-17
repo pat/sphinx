@@ -19,6 +19,7 @@
 %token	TOK_USERVAR
 %token	TOK_SYSVAR
 %token	TOK_CONST_STRINGS
+%token	TOK_BAD_NUMERIC
 
 %token	TOK_AS
 %token	TOK_ASC
@@ -211,11 +212,12 @@ where_clause:
 
 where_expr:
 	where_item
-	| where_expr TOK_AND where_item 
+	| where_expr TOK_AND where_expr
+	| '(' where_expr ')'
 	;
 
 expr_float_unhandled:	
-	| expr_ident '=' const_float
+	expr_ident '=' const_float
 	| expr_ident TOK_NE const_float
 	| expr_ident '>' const_float
 	| expr_ident '<' const_float
@@ -248,7 +250,7 @@ where_item:
 			if ( !pFilter )
 				YYERROR;
 			pFilter->m_dValues = *$4.m_pValues.Ptr();
-			pFilter->m_dValues.Sort();
+			pFilter->m_dValues.Uniq();
 		}
 	| expr_ident TOK_NOT TOK_IN '(' const_list ')'
 		{
@@ -257,7 +259,7 @@ where_item:
 				YYERROR;
 			pFilter->m_dValues = *$5.m_pValues.Ptr();
 			pFilter->m_bExclude = true;
-			pFilter->m_dValues.Sort();
+			pFilter->m_dValues.Uniq();
 		}
 	| expr_ident TOK_IN TOK_USERVAR
 		{
@@ -302,6 +304,16 @@ where_item:
 	| expr_ident TOK_BETWEEN const_float TOK_AND const_float
 		{
 			if ( !pParser->AddFloatRangeFilter ( $1.m_sValue, $3.m_fValue, $5.m_fValue ) )
+				YYERROR;
+		}
+	| expr_ident TOK_BETWEEN const_int TOK_AND const_float
+		{
+			if ( !pParser->AddFloatRangeFilter ( $1.m_sValue, $3.m_iValue, $5.m_fValue ) )
+				YYERROR;
+		}
+	| expr_ident TOK_BETWEEN const_float TOK_AND const_int
+		{
+			if ( !pParser->AddFloatRangeFilter ( $1.m_sValue, $3.m_fValue, $5.m_iValue ) )
 				YYERROR;
 		}
 	| expr_ident TOK_GTE const_float

@@ -1,5 +1,5 @@
 //
-// $Id: sphinxrt.cpp 3427 2012-10-03 09:16:30Z kevg $
+// $Id: sphinxrt.cpp 3816 2013-04-18 10:40:51Z tomat $
 //
 
 //
@@ -920,6 +920,8 @@ public:
 	void	Replay ( const SmallStringHash_T<CSphIndex*> & hIndexes, DWORD uReplayFlags, ProgressCallbackSimple_t * pfnProgressCallback );
 
 	void	CreateTimerThread ();
+	bool	IsActive ()			{ return !m_bDisabled; }
+	void	CheckPath ( const CSphConfigSection & hSearchd, bool bTestMode );
 
 private:
 	static const DWORD		BINLOG_VERSION = 4;
@@ -1002,6 +1004,7 @@ private:
 	int64_t						m_iSavedTID;
 	int64_t						m_iSavedRam;
 	int64_t						m_tmSaved;
+	DWORD						m_uDiskAttrStatus;
 
 	bool						m_bKeywordDict;
 	int							m_iWordsCheckpoint;
@@ -1067,8 +1070,8 @@ public:
 	virtual bool				IsRT() const { return true; }
 
 	virtual int					UpdateAttributes ( const CSphAttrUpdate & tUpd, int iIndex, CSphString & sError );
-	virtual bool				SaveAttributes () { return true; }
-	virtual DWORD				GetAttributeStatus () const { return 0; }
+	virtual bool				SaveAttributes ();
+	virtual DWORD				GetAttributeStatus () const { return m_uDiskAttrStatus; }
 
 	virtual void				DebugDumpHeader ( FILE * fp, const char * sHeaderName, bool bConfig ) {}
 	virtual void				DebugDumpDocids ( FILE * fp ) {}
@@ -1121,6 +1124,7 @@ RtIndex_t::RtIndex_t ( const CSphSchema & tSchema, const char * sIndexName, int6
 	, m_iSavedTID ( m_iTID )
 	, m_iSavedRam ( 0 )
 	, m_tmSaved ( sphMicroTimer() )
+	, m_uDiskAttrStatus ( 0 )
 	, m_bKeywordDict ( bKeywordDict )
 	, m_iWordsCheckpoint ( SPH_RT_WORDS_PER_CHECKPOINT_v5 )
 {
@@ -1179,7 +1183,7 @@ static int64_t g_iRtFlushPeriod = 10*60*60; // default period is 10 hours
 void RtIndex_t::CheckRamFlush ()
 {
 	int64_t tmSave = sphMicroTimer();
-	if ( m_iTID<=m_iSavedTID || ( tmSave-m_tmSaved )/1000000<g_iRtFlushPeriod )
+	if ( ( g_pRtBinlog->IsActive() && m_iTID<=m_iSavedTID ) || ( tmSave-m_tmSaved )/1000000<g_iRtFlushPeriod )
 		return;
 
 	m_tRwlock.ReadLock();
@@ -1198,7 +1202,7 @@ void RtIndex_t::CheckRamFlush ()
 void RtIndex_t::ForceRamFlush ( bool bPeriodic )
 {
 	int64_t tmSave = sphMicroTimer();
-	if ( m_iTID<=m_iSavedTID )
+	if ( g_pRtBinlog->IsActive() && m_iTID<=m_iSavedTID )
 		return;
 
 	m_tWriterMutex.Lock();
@@ -3322,16 +3326,18 @@ CSphIndex * RtIndex_t::LoadDiskChunk ( int iChunk )
 {
 	MEMORY ( SPH_MEM_IDX_DISK );
 
-	CSphString sChunk, sError, sWarning;
+	CSphString sChunk, sError, sWarning, sName;
 	sChunk.SetSprintf ( "%s.%d", m_sPath.cstr(), iChunk );
+	sName.SetSprintf ( "%s_%d", m_sIndexName.cstr(), iChunk );
 
 	// !COMMIT handle errors gracefully instead of dying
-	CSphIndex * pDiskChunk = sphCreateIndexPhrase ( m_sIndexName.cstr(), sChunk.cstr() );
+	CSphIndex * pDiskChunk = sphCreateIndexPhrase ( sName.cstr(), sChunk.cstr() );
 	if ( !pDiskChunk )
 		sphDie ( "disk chunk %s: alloc failed", sChunk.cstr() );
 
 	pDiskChunk->SetWordlistPreload ( m_bPreloadWordlist );
 	pDiskChunk->m_iExpansionLimit = m_iExpansionLimit;
+	pDiskChunk->SetBinlog ( false );
 
 	if ( !pDiskChunk->Prealloc ( false, m_bPathStripped, sWarning ) )
 		sphDie ( "disk chunk %s: prealloc failed: %s", sChunk.cstr(), pDiskChunk->GetLastError().cstr() );
@@ -4268,6 +4274,7 @@ bool RtIndex_t::MultiQuery ( const CSphQuery * pQuery, CSphQueryResult * pResult
 
 	CSphVector<CSphString> dWrongWords;
 	SmallStringHash_T<CSphQueryResultMeta::WordStat_t> hDiskStats;
+	SmallStringHash_T<CSphQueryResultMeta::WordStat_t> hPrevWordStat = pResult->m_hWordStats;
 	int64_t tmMaxTimer = 0;
 	if ( pQuery->m_uMaxQueryMsec>0 )
 		tmMaxTimer = sphMicroTimer() + pQuery->m_uMaxQueryMsec*1000; // max_query_time
@@ -4291,26 +4298,27 @@ bool RtIndex_t::MultiQuery ( const CSphQuery * pQuery, CSphQueryResult * pResult
 		}
 
 		// check terms inconsistency amongs disk chunks
-		const SmallStringHash_T<CSphQueryResultMeta::WordStat_t> & hSrcStats = tChunkResult.m_hWordStats;
+		const SmallStringHash_T<CSphQueryResultMeta::WordStat_t> & hDstStats = tChunkResult.m_hWordStats;
 		if ( pResult->m_hWordStats.GetLength() )
 		{
-			hSrcStats.IterateStart();
-			while ( hSrcStats.IterateNext() )
+			pResult->m_hWordStats.IterateStart();
+			while ( pResult->m_hWordStats.IterateNext() )
 			{
-				const CSphQueryResultMeta::WordStat_t * pDstStat = pResult->m_hWordStats ( hSrcStats.IterateGetKey() );
-				const CSphQueryResultMeta::WordStat_t & tSrcStat = hSrcStats.IterateGet();
+				const CSphQueryResultMeta::WordStat_t * pDstStat = hDstStats ( pResult->m_hWordStats.IterateGetKey() );
+				const CSphQueryResultMeta::WordStat_t & tSrcStat = pResult->m_hWordStats.IterateGet();
 
 				// all indexes should produce same words from the query
 				if ( !pDstStat && !tSrcStat.m_bExpanded )
 				{
-					dWrongWords.Add ( hSrcStats.IterateGetKey() );
+					dWrongWords.Add ( pResult->m_hWordStats.IterateGetKey() );
 				}
 
-				pResult->AddStat ( hSrcStats.IterateGetKey(), tSrcStat.m_iDocs, tSrcStat.m_iHits, tSrcStat.m_bExpanded );
+				if ( pDstStat )
+					pResult->AddStat ( pResult->m_hWordStats.IterateGetKey(), pDstStat->m_iDocs, pDstStat->m_iHits, pDstStat->m_bExpanded );
 			}
 		} else
 		{
-			pResult->m_hWordStats = hSrcStats;
+			pResult->m_hWordStats = hDstStats;
 		}
 
 		dDiskStrings[iChunk] = tChunkResult.m_pStrings;
@@ -4319,7 +4327,7 @@ bool RtIndex_t::MultiQuery ( const CSphQuery * pQuery, CSphQueryResult * pResult
 
 		// keep last chunk statistics to check vs rt settings
 		if ( iChunk==m_pDiskChunks.GetLength()-1 )
-			hDiskStats = hSrcStats;
+			hDiskStats = hDstStats;
 
 		if ( (iChunk+1)!=m_pDiskChunks.GetLength() && tmMaxTimer>0 && sphMicroTimer()>=tmMaxTimer )
 		{
@@ -4412,23 +4420,9 @@ bool RtIndex_t::MultiQuery ( const CSphQuery * pQuery, CSphQueryResult * pResult
 		return false;
 	}
 
-	// check terms inconsistency disk chunks vs rt
-	if ( pResult->m_hWordStats.GetLength() && hDiskStats.GetLength() )
-	{
-		const SmallStringHash_T<CSphQueryResultMeta::WordStat_t> & hSrcStats = pResult->m_hWordStats;
-		hSrcStats.IterateStart();
-		while ( hSrcStats.IterateNext() )
-		{
-			const CSphQueryResultMeta::WordStat_t * pDstStat = hDiskStats ( hSrcStats.IterateGetKey() );
-			const CSphQueryResultMeta::WordStat_t & tSrcStat = hSrcStats.IterateGet();
-
-			// all indexes should produce same words from the query
-			if ( !pDstStat && !tSrcStat.m_bExpanded )
-			{
-				dWrongWords.Add ( hSrcStats.IterateGetKey() );
-			}
-		}
-	}
+	// check terms inconsistency disk chunks vs rt vs previous indexes
+	sphCheckWordStats ( hDiskStats, pResult->m_hWordStats, m_sIndexName.cstr(), pResult->m_sWarning );
+	sphCheckWordStats ( hPrevWordStat, pResult->m_hWordStats, m_sIndexName.cstr(), pResult->m_sWarning );
 
 	// make warning on terms inconsistency
 	if ( dWrongWords.GetLength() )
@@ -4518,6 +4512,9 @@ bool RtIndex_t::MultiQuery ( const CSphQuery * pQuery, CSphQueryResult * pResult
 
 					tCtx.CalcSort ( tMatch );
 					tCtx.CalcFinal ( tMatch ); // OPTIMIZE? could be possibly done later
+
+					if ( bRandomize )
+						tMatch.m_iWeight = ( sphRand() & 0xffff );
 
 					// storing segment in matches tag for finding strings attrs offset later, biased against default zero
 					tMatch.m_iTag = iSeg+1;
@@ -5127,6 +5124,7 @@ int RtIndex_t::UpdateAttributes ( const CSphAttrUpdate & tUpd, int iIndex, CSphS
 
 			// update stats
 			iUpdated += iRes;
+			m_uDiskAttrStatus |= m_pDiskChunks[iChunk]->GetAttributeStatus();
 
 			// we only need to update the most fresh chunk
 			if ( iRes>0 )
@@ -5143,6 +5141,27 @@ int RtIndex_t::UpdateAttributes ( const CSphAttrUpdate & tUpd, int iIndex, CSphS
 	// all done
 	return iUpdated;
 }
+
+
+bool RtIndex_t::SaveAttributes ()
+{
+	if ( !m_pDiskChunks.GetLength() )
+		return true;
+
+	DWORD uStatus = m_uDiskAttrStatus;
+	bool bAllSaved = true;
+	m_tRwlock.ReadLock();
+	ARRAY_FOREACH ( i, m_pDiskChunks )
+	{
+		bAllSaved &= m_pDiskChunks[i]->SaveAttributes();
+	}
+	m_tRwlock.Unlock();
+	if ( uStatus==m_uDiskAttrStatus )
+		m_uDiskAttrStatus = 0;
+
+	return bAllSaved;
+}
+
 
 //////////////////////////////////////////////////////////////////////////
 // MAGIC CONVERSIONS
@@ -5212,6 +5231,10 @@ bool RtIndex_t::AttachDiskIndex ( CSphIndex * pIndex, CSphString & sError )
 	m_pTokenizer = pIndex->GetTokenizer()->Clone ( false );
 	m_pDict = pIndex->GetDictionary()->Clone ();
 	PostSetup();
+	CSphString sName;
+	sName.SetSprintf ( "%s_%d", m_sIndexName.cstr(), m_pDiskChunks.GetLength() );
+	pIndex->SetName ( sName.cstr() );
+	pIndex->SetBinlog ( false );
 
 	// FIXME? what about copying m_TID etc?
 
@@ -6386,6 +6409,22 @@ bool RtBinlog_c::ReplayCacheAdd ( int iBinlog, BinlogReader_c & tReader ) const
 	return true;
 }
 
+void RtBinlog_c::CheckPath ( const CSphConfigSection & hSearchd, bool bTestMode )
+{
+#ifndef DATADIR
+#define DATADIR "."
+#endif
+
+	m_sLogPath = hSearchd.GetStr ( "binlog_path", bTestMode ? "" : DATADIR );
+	m_bDisabled = m_sLogPath.IsEmpty();
+
+	if ( !m_bDisabled )
+	{
+		LockFile ( true );
+		LockFile ( false );
+	}
+}
+
 //////////////////////////////////////////////////////////////////////////
 
 ISphRtIndex * sphGetCurrentIndexRT()
@@ -6403,18 +6442,20 @@ ISphRtIndex * sphCreateIndexRT ( const CSphSchema & tSchema, const char * sIndex
 }
 
 
-void sphRTInit ()
+void sphRTInit ( const CSphConfigSection & hSearchd, bool bTestMode )
 {
 	MEMORY ( SPH_MEM_BINLOG );
 
 	g_bRTChangesAllowed = false;
-	Verify ( RtSegment_t::m_tSegmentSeq.Init() );
 	Verify ( sphThreadKeyCreate ( &g_tTlsAccumKey ) );
 
 	g_pRtBinlog = new RtBinlog_c();
 	if ( !g_pRtBinlog )
 		sphDie ( "binlog: failed to create binlog" );
 	g_pBinlog = g_pRtBinlog;
+
+	// check binlog path before detaching from the console
+	g_pRtBinlog->CheckPath ( hSearchd, bTestMode );
 }
 
 
@@ -6433,7 +6474,6 @@ void sphRTConfigure ( const CSphConfigSection & hSearchd, bool bTestMode )
 void sphRTDone ()
 {
 	sphThreadKeyDelete ( g_tTlsAccumKey );
-	Verify ( RtSegment_t::m_tSegmentSeq.Done() );
 	// its valid for "searchd --stop" case
 	SafeDelete ( g_pBinlog );
 }
@@ -6493,5 +6533,5 @@ bool sphRTSchemaConfigure ( const CSphConfigSection & hIndex, CSphSchema * pSche
 }
 
 //
-// $Id: sphinxrt.cpp 3427 2012-10-03 09:16:30Z kevg $
+// $Id: sphinxrt.cpp 3816 2013-04-18 10:40:51Z tomat $
 //

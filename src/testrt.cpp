@@ -1,5 +1,5 @@
 //
-// $Id: testrt.cpp 3130 2012-03-01 07:43:56Z tomat $
+// $Id: testrt.cpp 3734 2013-03-13 11:28:35Z joric $
 //
 
 //
@@ -198,7 +198,7 @@ int main ()
 		tSchema.AddAttr ( tSrcSchema.GetAttr(i), false );
 
 	CSphConfigSection tRTConfig;
-	sphRTInit();
+	sphRTInit ( tRTConfig, true );
 	sphRTConfigure ( tRTConfig, true );
 	SmallStringHash_T< CSphIndex * > dTemp;
 	sphReplayBinlog ( dTemp, 0 );
@@ -262,5 +262,5 @@ int main ()
 }
 
 //
-// $Id: testrt.cpp 3130 2012-03-01 07:43:56Z tomat $
+// $Id: testrt.cpp 3734 2013-03-13 11:28:35Z joric $
 //

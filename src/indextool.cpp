@@ -1,5 +1,5 @@
 //
-// $Id: indextool.cpp 3224 2012-05-20 09:36:50Z shodan $
+// $Id: indextool.cpp 3789 2013-04-08 09:21:29Z tomat $
 //
 
 //
@@ -115,7 +115,7 @@ int main ( int argc, char ** argv )
 		OPT1 ( "--dumpheader" )		{ eCommand = CMD_DUMPHEADER; sDumpHeader = argv[++i]; }
 		OPT1 ( "--dumpconfig" )		{ eCommand = CMD_DUMPCONFIG; sDumpHeader = argv[++i]; }
 		OPT1 ( "--dumpdocids" )		{ eCommand = CMD_DUMPDOCIDS; sIndex = argv[++i]; }
-		OPT1 ( "--check" )			{ eCommand = CMD_CHECK; sIndex = argv[++i]; }
+		OPT1 ( "--check" )			{ eCommand = CMD_CHECK; sIndex = argv[++i]; sphSetDebugCheck(); }
 		OPT1 ( "--htmlstrip" )		{ eCommand = CMD_STRIP; sIndex = argv[++i]; }
 		OPT1 ( "--strip-path" )		{ bStripPath = true; }
 		OPT1 ( "--optimize-rt-klists" )
@@ -220,6 +220,24 @@ int main ( int argc, char ** argv )
 
 		if ( !pIndex->Preread() )
 			sphDie ( "index '%s': preread failed: %s\n", sIndex.cstr(), pIndex->GetLastError().cstr() );
+
+		if ( hConf["index"][sIndex]("hitless_words") )
+		{
+			CSphIndexSettings tSettings = pIndex->GetSettings();
+
+			const CSphString & sValue = hConf["index"][sIndex]["hitless_words"];
+			if ( sValue=="all" )
+			{
+				tSettings.m_eHitless = SPH_HITLESS_ALL;
+			} else
+			{
+				tSettings.m_eHitless = SPH_HITLESS_SOME;
+				tSettings.m_sHitlessFiles = sValue;
+			}
+
+			pIndex->Setup ( tSettings );
+		}
+
 
 		break;
 	}
@@ -553,5 +571,5 @@ void DoOptimization ( const CSphString & sIndex, const CSphConfig & hConf )
 }
 
 //
-// $Id: indextool.cpp 3224 2012-05-20 09:36:50Z shodan $
+// $Id: indextool.cpp 3789 2013-04-08 09:21:29Z tomat $
 //

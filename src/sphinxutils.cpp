@@ -1,5 +1,5 @@
 //
-// $Id: sphinxutils.cpp 3445 2012-10-12 10:45:41Z kevg $
+// $Id: sphinxutils.cpp 3788 2013-04-08 08:57:12Z kevg $
 //
 
 //
@@ -241,7 +241,7 @@ static KeyDesc_t g_dKeysIndex[] =
 	{ "stopword_step",			0, NULL },
 	{ "blend_chars",			0, NULL },
 	{ "expand_keywords",		0, NULL },
-	{ "hitless_words",			KEY_LIST, NULL },
+	{ "hitless_words",			0, NULL },
 	{ "hit_format",				0, NULL },
 	{ "rt_field",				KEY_LIST, NULL },
 	{ "rt_attr_uint",			KEY_LIST, NULL },
@@ -442,13 +442,13 @@ bool CSphConfigParser::ValidateKey ( const char * sKey )
 
 #if !USE_WINDOWS
 
-bool CSphConfigParser::TryToExec ( char * pBuffer, char * pEnd, const char * szFilename, CSphVector<char> & dResult )
+bool TryToExec ( char * pBuffer, char * pEnd, const char * szFilename, CSphVector<char> & dResult, char * sError, int iErrorLen )
 {
 	int dPipe[2] = { -1, -1 };
 
 	if ( pipe ( dPipe ) )
 	{
-		snprintf ( m_sError, sizeof ( m_sError ), "pipe() failed (error=%s)", strerror(errno) );
+		snprintf ( sError, iErrorLen, "pipe() failed (error=%s)", strerror(errno) );
 		return false;
 	}
 
@@ -489,7 +489,7 @@ bool CSphConfigParser::TryToExec ( char * pBuffer, char * pEnd, const char * szF
 	} else
 		if ( iChild==-1 )
 		{
-			snprintf ( m_sError, sizeof ( m_sError ), "fork failed: [%d] %s", errno, strerror(errno) );
+			snprintf ( sError, iErrorLen, "fork failed: [%d] %s", errno, strerror(errno) );
 			return false;
 		}
 
@@ -530,7 +530,7 @@ bool CSphConfigParser::TryToExec ( char * pBuffer, char * pEnd, const char * szF
 
 		if ( iResult==-1 && errno!=EINTR )
 		{
-			snprintf ( m_sError, sizeof ( m_sError ), "waitpid() failed: [%d] %s", errno, strerror(errno) );
+			snprintf ( sError, iErrorLen, "waitpid() failed: [%d] %s", errno, strerror(errno) );
 			return false;
 		}
 	}
@@ -539,19 +539,19 @@ bool CSphConfigParser::TryToExec ( char * pBuffer, char * pEnd, const char * szF
 	if ( WIFEXITED ( iStatus ) && WEXITSTATUS ( iStatus ) )
 	{
 		// FIXME? read stderr and log that too
-		snprintf ( m_sError, sizeof ( m_sError ), "error executing '%s' status = %d", pBuffer, WEXITSTATUS ( iStatus ) );
+		snprintf ( sError, iErrorLen, "error executing '%s' status = %d", pBuffer, WEXITSTATUS ( iStatus ) );
 		return false;
 	}
 
 	if ( WIFSIGNALED ( iStatus ) )
 	{
-		snprintf ( m_sError, sizeof ( m_sError ), "error executing '%s', killed by signal %d", pBuffer, WTERMSIG ( iStatus ) );
+		snprintf ( sError, iErrorLen, "error executing '%s', killed by signal %d", pBuffer, WTERMSIG ( iStatus ) );
 		return false;
 	}
 
 	if ( iBytesRead < 0 )
 	{
-		snprintf ( m_sError, sizeof ( m_sError ), "pipe read error: [%d] %s", errno, strerror(errno) );
+		snprintf ( sError, iErrorLen, "pipe read error: [%d] %s", errno, strerror(errno) );
 		return false;
 	}
 
@@ -559,6 +559,11 @@ bool CSphConfigParser::TryToExec ( char * pBuffer, char * pEnd, const char * szF
 	dResult [iTotalRead] = '\0';
 
 	return true;
+}
+
+bool CSphConfigParser::TryToExec ( char * pBuffer, char * pEnd, const char * szFilename, CSphVector<char> & dResult )
+{
+	return ::TryToExec ( pBuffer, pEnd, szFilename, dResult, m_sError, sizeof(m_sError) );
 }
 #endif
 
@@ -991,17 +996,14 @@ bool sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSetti
 	// hit-less indices
 	if ( hIndex("hitless_words") )
 	{
-		for ( const CSphVariant * pVariant = &hIndex["hitless_words"]; pVariant; pVariant = pVariant->m_pNext )
+		const CSphString & sValue = hIndex["hitless_words"];
+		if ( sValue=="all" )
 		{
-			const CSphString & sValue = *pVariant;
-			if ( sValue=="all" )
-			{
-				tSettings.m_eHitless = SPH_HITLESS_ALL;
-			} else
-			{
-				tSettings.m_eHitless = SPH_HITLESS_SOME;
-				tSettings.m_sHitlessFile = sValue;
-			}
+			tSettings.m_eHitless = SPH_HITLESS_ALL;
+		} else
+		{
+			tSettings.m_eHitless = SPH_HITLESS_SOME;
+			tSettings.m_sHitlessFiles = sValue;
 		}
 	}
 
@@ -1578,5 +1580,5 @@ void sphUnlinkIndex ( const char * sName, bool bForce )
 
 
 //
-// $Id: sphinxutils.cpp 3445 2012-10-12 10:45:41Z kevg $
+// $Id: sphinxutils.cpp 3788 2013-04-08 08:57:12Z kevg $
 //

@@ -1,5 +1,5 @@
 //
-// $Id: sphinxquery.cpp 3429 2012-10-04 09:20:27Z kevg $
+// $Id: sphinxquery.cpp 3812 2013-04-16 09:32:15Z kevg $
 //
 
 //
@@ -628,9 +628,13 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 			&& !( *p=='-' && !( p-sToken==1 && sphIsModifier ( p[-1] ) ) ) // !bDashInside copied over from arbitration
 			&& ( *p=='\0' || sphIsSpace(*p) || IsSpecial(*p) ) )
 		{
-			if ( m_pTokenizer->GetToken() && m_pTokenizer->TokenIsBlended() ) // number with blended should be tokenized as usual
+			bool bTok = ( m_pTokenizer->GetToken()!=NULL );
+			if ( bTok && m_pTokenizer->TokenIsBlended() ) // number with blended should be tokenized as usual
 			{
 				m_pTokenizer->SkipBlended();
+				m_pTokenizer->SetBufferPtr ( m_pLastTokenStart );
+			} else if ( bTok && m_pTokenizer->WasTokenSynonym() )
+			{
 				m_pTokenizer->SetBufferPtr ( m_pLastTokenStart );
 			} else
 			{
@@ -670,7 +674,7 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 		if ( !sToken )
 		{
 			m_iPendingNulls = m_pTokenizer->GetOvershortCount ();
-			if ( !m_iPendingNulls )
+			if ( !( m_iPendingNulls || m_pTokenizer->GetBufferPtr()-p>0 ) )
 				return 0;
 			m_iPendingNulls = 0;
 			lvalp->pNode = AddKeyword ( NULL );
@@ -769,6 +773,12 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 				} else
 				{
 					// got stray '<', ignore
+					if ( m_iPendingNulls>0 )
+					{
+						m_iPendingNulls = 0;
+						lvalp->pNode = AddKeyword ( NULL );
+						return TOK_KEYWORD;
+					}
 					continue;
 				}
 			} else
@@ -1075,7 +1085,7 @@ void XQParser_t::DeleteNodesWOFields ( XQNode_t * pNode )
 }
 
 
-static bool CheckQuorum ( XQNode_t * pNode, CSphString * pError )
+static bool CheckQuorumProximity ( XQNode_t * pNode, CSphString * pError )
 {
 	assert ( pError );
 	if ( !pNode )
@@ -1087,10 +1097,16 @@ static bool CheckQuorum ( XQNode_t * pNode, CSphString * pError )
 		return false;
 	}
 
+	if ( pNode->GetOp()==SPH_QUERY_PROXIMITY && pNode->m_iOpArg<1 )
+	{
+		pError->SetSprintf ( "proximity threshold too low (%d)", pNode->m_iOpArg );
+		return false;
+	}
+
 	bool bValid = true;
 	ARRAY_FOREACH_COND ( i, pNode->m_dChildren, bValid )
 	{
-		bValid &= CheckQuorum ( pNode->m_dChildren[i], pError );
+		bValid &= CheckQuorumProximity ( pNode->m_dChildren[i], pError );
 	}
 
 	return bValid;
@@ -1167,7 +1183,7 @@ bool XQParser_t::Parse ( XQQuery_t & tParsed, const char * sQuery, const ISphTok
 		return false;
 	}
 
-	if ( !CheckQuorum ( m_pRoot, &m_pParsed->m_sParseError ) )
+	if ( !CheckQuorumProximity ( m_pRoot, &m_pParsed->m_sParseError ) )
 	{
 		Cleanup();
 		return false;
@@ -1803,5 +1819,5 @@ int sphMarkCommonSubtrees ( int iXQ, const XQQuery_t * pXQ )
 }
 
 //
-// $Id: sphinxquery.cpp 3429 2012-10-04 09:20:27Z kevg $
+// $Id: sphinxquery.cpp 3812 2013-04-16 09:32:15Z kevg $
 //

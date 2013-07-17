@@ -1,12 +1,12 @@
-Sphinx 2.0.6 reference manual
-=============================
+Sphinx 2.0.8-release reference manual
+=====================================
 
 Free open-source SQL full-text search engine
 ============================================
 
-Copyright (c) 2001-2012 Andrew Aksyonoff
+Copyright (c) 2001-2013 Andrew Aksyonoff
 
-Copyright (c) 2008-2012 Sphinx Technologies Inc, http://sphinxsearch.com
+Copyright (c) 2008-2013 Sphinx Technologies Inc, http://sphinxsearch.com
 
 ----------------------------------------------------------------------------
 
@@ -340,23 +340,25 @@ Table of Contents
       11.4.42. prefork_rotation_throttle
 
 A. Sphinx revision history
-   A.1. Version 2.0.6-release, 22 oct 2012
-   A.2. Version 2.0.5-release, 28 jul 2012
-   A.3. Version 2.0.4-release, 02 mar 2012
-   A.4. Version 2.0.3-release, 23 dec 2011
-   A.5. Version 2.0.2-beta, 15 nov 2011
-   A.6. Version 2.0.1-beta, 22 apr 2011
-   A.7. Version 1.10-beta, 19 jul 2010
-   A.8. Version 0.9.9-release, 02 dec 2009
-   A.9. Version 0.9.9-rc2, 08 apr 2009
-   A.10. Version 0.9.9-rc1, 17 nov 2008
-   A.11. Version 0.9.8.1, 30 oct 2008
-   A.12. Version 0.9.8, 14 jul 2008
-   A.13. Version 0.9.7, 02 apr 2007
-   A.14. Version 0.9.7-rc2, 15 dec 2006
-   A.15. Version 0.9.7-rc1, 26 oct 2006
-   A.16. Version 0.9.6, 24 jul 2006
-   A.17. Version 0.9.6-rc1, 26 jun 2006
+   A.1. Version 2.0.8-release, 26 apr 2013
+   A.2. Version 2.0.7-release, 26 mar 2013
+   A.3. Version 2.0.6-release, 22 oct 2012
+   A.4. Version 2.0.5-release, 28 jul 2012
+   A.5. Version 2.0.4-release, 02 mar 2012
+   A.6. Version 2.0.3-release, 23 dec 2011
+   A.7. Version 2.0.2-beta, 15 nov 2011
+   A.8. Version 2.0.1-beta, 22 apr 2011
+   A.9. Version 1.10-beta, 19 jul 2010
+   A.10. Version 0.9.9-release, 02 dec 2009
+   A.11. Version 0.9.9-rc2, 08 apr 2009
+   A.12. Version 0.9.9-rc1, 17 nov 2008
+   A.13. Version 0.9.8.1, 30 oct 2008
+   A.14. Version 0.9.8, 14 jul 2008
+   A.15. Version 0.9.7, 02 apr 2007
+   A.16. Version 0.9.7-rc2, 15 dec 2006
+   A.17. Version 0.9.7-rc1, 26 oct 2006
+   A.18. Version 0.9.6, 24 jul 2006
+   A.19. Version 0.9.6-rc1, 26 jun 2006
 
 List of Examples
 
@@ -1131,7 +1133,7 @@ would be run three times:
 
    1. with $start replaced with 1 and $end replaced with 1000;
    2. with $start replaced with 1001 and $end replaced with 2000;
-   3. with $start replaced with 2000 and $end replaced with 2345.
+   3. with $start replaced with 2001 and $end replaced with 2345.
 
 Obviously, that's not much of a difference for 2000-row table, but when it
 comes to indexing 10-million-row MyISAM table, ranged queries might be of
@@ -2221,13 +2223,13 @@ and then adds bm25 to that per-field sum. Currently implemented field-level
 factors are:
 
    * lcs (integer), the length of a maximum verbatim match between the
-     document and the query, coutned in words. LCS stands for Longest
+     document and the query, counted in words. LCS stands for Longest
      Common Subsequence (or Subset). Takes a minimum value of 1 when only
      stray keywords were matched in a field, and a maximum value of query
      keywords count when the entire query was matched in a field verbatim
      (in the exact query keywords order). For example, if the query is
      'hello world' and the field contains these two words quoted from the
-     query (that is, adjacent to each other, and exaclty in the query
+     query (that is, adjacent to each other, and exactly in the query
      order), lcs will be 2. For example, if the query is 'hello world
      program' and the field contains 'hello world', lcs will be 2. Note
      that any subset of the query keyword works, not just a subset of
@@ -2236,7 +2238,7 @@ factors are:
      well, because both 'hello' and 'program' matched in the same
      respective positions as they were in the query. Finally, if the query
      is 'hello world program' and the field contains 'hello world program',
-     lcs will be 3. (Hopefully that is unsurpising at this point.)
+     lcs will be 3. (Hopefully that is unsurprising at this point.)
    * user_weight (integer), the user specified per-field weight (refer to
      SetFieldWeights() in SphinxAPI and OPTION field_weights in SphinxQL
      respectively). The weights default to 1 if not specified explicitly.
@@ -3900,8 +3902,8 @@ statements syntax.
    |     FROM index [, index2 ...]
    |     [WHERE where_condition]
    |     [GROUP BY {col_name | expr_alias}]
-   |     [ORDER BY {col_name | expr_alias} {ASC | DESC} [, ...]]
    |     [WITHIN GROUP ORDER BY {col_name | expr_alias} {ASC | DESC}]
+   |     [ORDER BY {col_name | expr_alias} {ASC | DESC} [, ...]]
    |     [LIMIT offset, row_count]
    |     [OPTION opt_name = opt_value [, ...]]
 
@@ -3918,7 +3920,8 @@ omissions (such as (currently) missing support for JOINs). Specifically,
      in the future.
    * FROM clause. FROM clause should contain the list of indexes to search
      through. Unlike in regular SQL, comma means enumeration of full-text
-     indexes as in Query() API call rather than JOIN.
+     indexes as in Query() API call rather than JOIN. Index name should be
+     according to the rules of a C identifier.
    * WHERE clause. This clause will map both to fulltext query and filters.
      Comparison operators (=, !=, <, >, <=, >=), IN, AND, NOT, and BETWEEN
      are all supported and map directly to filters. OR is not supported yet
@@ -6090,7 +6093,7 @@ number of options can be specified. Available options are:
 
       | ... WHERE query='test;cutoff=10000;';
 
-   * maxquerytme - maximum allowed query time (in milliseconds), as in
+   * maxquerytime - maximum allowed query time (in milliseconds), as in
      SetMaxQueryTime() API call:
 
       | ... WHERE query='test;maxquerytime=1000;';
@@ -10063,25 +10066,143 @@ Appendix A. Sphinx revision history
 
 Table of Contents
 
-A.1. Version 2.0.6-release, 22 oct 2012
-A.2. Version 2.0.5-release, 28 jul 2012
-A.3. Version 2.0.4-release, 02 mar 2012
-A.4. Version 2.0.3-release, 23 dec 2011
-A.5. Version 2.0.2-beta, 15 nov 2011
-A.6. Version 2.0.1-beta, 22 apr 2011
-A.7. Version 1.10-beta, 19 jul 2010
-A.8. Version 0.9.9-release, 02 dec 2009
-A.9. Version 0.9.9-rc2, 08 apr 2009
-A.10. Version 0.9.9-rc1, 17 nov 2008
-A.11. Version 0.9.8.1, 30 oct 2008
-A.12. Version 0.9.8, 14 jul 2008
-A.13. Version 0.9.7, 02 apr 2007
-A.14. Version 0.9.7-rc2, 15 dec 2006
-A.15. Version 0.9.7-rc1, 26 oct 2006
-A.16. Version 0.9.6, 24 jul 2006
-A.17. Version 0.9.6-rc1, 26 jun 2006
+A.1. Version 2.0.8-release, 26 apr 2013
+A.2. Version 2.0.7-release, 26 mar 2013
+A.3. Version 2.0.6-release, 22 oct 2012
+A.4. Version 2.0.5-release, 28 jul 2012
+A.5. Version 2.0.4-release, 02 mar 2012
+A.6. Version 2.0.3-release, 23 dec 2011
+A.7. Version 2.0.2-beta, 15 nov 2011
+A.8. Version 2.0.1-beta, 22 apr 2011
+A.9. Version 1.10-beta, 19 jul 2010
+A.10. Version 0.9.9-release, 02 dec 2009
+A.11. Version 0.9.9-rc2, 08 apr 2009
+A.12. Version 0.9.9-rc1, 17 nov 2008
+A.13. Version 0.9.8.1, 30 oct 2008
+A.14. Version 0.9.8, 14 jul 2008
+A.15. Version 0.9.7, 02 apr 2007
+A.16. Version 0.9.7-rc2, 15 dec 2006
+A.17. Version 0.9.7-rc1, 26 oct 2006
+A.18. Version 0.9.6, 24 jul 2006
+A.19. Version 0.9.6-rc1, 26 jun 2006
 
-A.1. Version 2.0.6-release, 22 oct 2012
+A.1. Version 2.0.8-release, 26 apr 2013
+=======================================
+
+Bug fixes
+---------
+
+   * fixed #1515, log strings over 2KB were clipped when
+     query_log_format=plain
+   * fixed #1514, RT index disk chunk lose attribute update on daemon
+     restart
+   * fixed #1512, crash while formatting log messages
+   * fixed #1511, crash on indexing PostgreSQL data source with MVA
+     attributes
+   * fixed #1509, blend_chars vs incomplete multi-form and overshort
+   * fixed #1504, RT binlog replay vs descending tid on update
+   * fixed #1499, sql_field_str2wordcount actually is int, not string
+   * fixed #1498, now working with exceptions starting with number too
+   * fixed #1496, multiple destination keywords in wordform
+   * fixed #1494, lost 'mod', '%' operations in select list. Also corrected
+     few typers in the doc.
+   * fixed #1490, expand_keywords vs prefix
+   * fixed #1487, `id` in expression fixed
+   * fixed #1483, snippets limits fix
+   * fixed #1481, shebang config changes check on rotation
+   * fixed #1479, port handling in PHP Sphinx API
+   * fixed #1474, daemon crash at SphinxQL packet overflows max_packet_size
+   * fixed #1472, crash on loading index to indextool for check
+   * fixed #1465, expansion_limit got lost in index rotation
+   * fixed #1427, #1506, utf8 3 and 4-bytes codepoints
+   * fixed #1405, between with mixed int float values
+
+A.2. Version 2.0.7-release, 26 mar 2013
+=======================================
+
+Bug fixes
+---------
+
+   * fixed #1475, memory leak in the expression parser
+   * fixed #1457, error messages over 2KB were clipped
+   * fixed #1454, searchd did not display an error message when the binlog
+     path did not exist
+   * fixed #1441, SHOW META in a query batch was returning the last
+     non-batch error
+   * fixed #1435, typo in the documentation
+   * fixed #1430, rt_flush_period now works even with a disabled binlog
+   * fixed #1427, overlong 4-byte UTF-8 codes in source text could cause
+     indexer crashes or index corruption
+   * fixed #1418, warnings from local index searches were lost with
+     dist_threads>0
+   * fixed #1417, crash handler now works on searchd startup stage, too
+     (eg. to report index load time crashes)
+   * fixed #1410, bad numerics like '123abc' now result in a proper
+     SphinxQL error message
+   * fixed #1404, a tiny memory leak in shared mutex
+   * fixed #1394, race in --iostats caused incorrect I/O statistics in
+     threaded modes
+   * fixed #1391, QUORUM operator vs docinfo=inline returned wrong
+     attribute values
+   * fixed #1389, edge case in the ORDER operator caused occasionaly
+     searchd crashes
+   * fixed #1382, query parts with field limits but without real keywords
+     (like '@name {') are now simply ignored and no longer cause a query
+     syntax error
+   * fixed #1370, Windows indexer builds failed to fetch rows from MSSQL
+     2012
+   * fixed #1368, ORDER BY RAND() did not work in RT indexes
+   * fixed #1364, queries with hitless words could occasionally crash
+     searchd
+   * fixed #1363, '*' in charset_table was causing query syntax errors with
+     enable_star=1
+   * fixed #1353, added filtering by 'id' syntax (in addition to '@id') to
+     SphinxSE
+   * fixed #1346, fixed NEAR operator behavior vs duplicated keywords
+   * fixed #1345, invalid PROXIMITY operator threshold now causes a query
+     syntax error rather than unexpected search behavior
+   * fixed #1343, misconfigured indexes with 0 full text fields are now
+     explicitly forbidden
+   * fixed #1342, specific error messages (from the preload stage) went
+     missing when failing to load the indexes
+   * fixed #1339, no warning on inconsistent word statistics
+   * fixed #1335, typo in searchd help screen
+   * fixed #1334, typo in SELECT documentation
+   * fixed #1316, PHRASE operator did not match in a rare self-repeating
+     document/query case
+   * fixed #1297, letting queries complete gracefully instead of killing
+     them off in seamless_rotate=1, workers=prefork case
+   * fixed #1295, mentioned index naming requirements (proper identifier)
+     in the FROM clause docs
+   * fixed #1221, incorrect results when using @groupby in select list via
+     SphinxAPI with compat_sphinxql_magics=0
+   * fixed #1180, special SPZ chars occasionally leaking into snippets
+   * fixed #1171, preforked children did not reload logs on SIGUSR1
+   * fixed #1150, added support for `id` syntax in DELETE and parents in
+     WHERE
+   * fixed #1135, crashes when using MVA/strings attributes in expression
+     ranker
+   * fixed #1124, corrupted attributes after merging with an empty index
+   * fixed #1090, SphinxSE snippets UDF updated to support MySQL 5.5
+   * fixed #1041, added initial support for MVA updates (and other mutex
+     protected things) on FreeBSD
+   * fixed #999, fullscan returned empty result sets in mixed batches of
+     fullscan and fulltext queries
+   * fixed #921, document count/bytes 32bit overflow in indexer progress
+     output
+   * fixed #539, added processing suffix rules with dots in .affix file to
+     spelldump
+   * fixed #481, rotation did not work on Windows with preopen=1
+   * fixed #268, added warnings about duplicate elements in xmlpipe2
+   * fixed CSphStaticMutex (double initialization issue)
+   * fixed documentation typo in SQL data sources
+   * fixed too-late initialization of mutex at daemon
+   * fixed that an instance of searchd resurrected by watchdog could leak
+     resources and/or crash
+   * added a console message about crashes during index loading at startup
+   * added more debug info about failed index loading
+
+A.3. Version 2.0.6-release, 22 oct 2012
 =======================================
 
 Bug fixes
@@ -10152,7 +10273,7 @@ Bug fixes
    * fixed sample config file
    * fixed x64 configurations for libstemmer
 
-A.2. Version 2.0.5-release, 28 jul 2012
+A.4. Version 2.0.5-release, 28 jul 2012
 =======================================
 
 Bug fixes
@@ -10259,7 +10380,7 @@ Bug fixes
      parser
    * fixed missing command-line switches documentation
 
-A.3. Version 2.0.4-release, 02 mar 2012
+A.5. Version 2.0.4-release, 02 mar 2012
 =======================================
 
 Bug fixes
@@ -10314,7 +10435,7 @@ Bug fixes
    * fixed #1120, negative total_found, docs and hits counter on huge
      indexes
 
-A.4. Version 2.0.3-release, 23 dec 2011
+A.6. Version 2.0.3-release, 23 dec 2011
 =======================================
 
 Bug fixes
@@ -10344,7 +10465,7 @@ Bug fixes
    * fixed build of SphinxSE with MySQL 5.1
    * fixed crash log for 'fork' and 'prefork' workers
 
-A.5. Version 2.0.2-beta, 15 nov 2011
+A.7. Version 2.0.2-beta, 15 nov 2011
 ====================================
 
 Major new features
@@ -10515,7 +10636,7 @@ Bug fixes
    * fixed that field/zone conditions were not propagated to expanded
      keywords with dict=keywords
 
-A.6. Version 2.0.1-beta, 22 apr 2011
+A.8. Version 2.0.1-beta, 22 apr 2011
 ====================================
 
 New general features
@@ -10692,7 +10813,7 @@ Bug fixes
    * fixed libsphinxclient SIGPIPE handling
    * fixed libsphinxclient vs VS2003 compiler bug
 
-A.7. Version 1.10-beta, 19 jul 2010
+A.9. Version 1.10-beta, 19 jul 2010
 ===================================
 
    * added RT indexes support (Chapter 4, Real-time indexes)
@@ -10781,8 +10902,8 @@ A.7. Version 1.10-beta, 19 jul 2010
      etc)
    * fixed #509, indexing ranged results from stored procedures
 
-A.8. Version 0.9.9-release, 02 dec 2009
-=======================================
+A.10. Version 0.9.9-release, 02 dec 2009
+========================================
 
    * added Open, Close, Status calls to libsphinxclient (C API)
    * added automatic persistent connection reopening to PHP, Python APIs
@@ -10844,8 +10965,8 @@ A.8. Version 0.9.9-release, 02 dec 2009
    * fixed #344 (invalid checkpoints after merge)
    * fixed #326 (missing CLOCK_xxx on FreeBSD)
 
-A.9. Version 0.9.9-rc2, 08 apr 2009
-===================================
+A.11. Version 0.9.9-rc2, 08 apr 2009
+====================================
 
    * added IsConnectError(), Open(), Close() calls to Java API (bug #240)
    * added read_buffer, read_unhinted directives
@@ -10943,7 +11064,7 @@ A.9. Version 0.9.9-rc2, 08 apr 2009
      static
    * fixed parser vs @field -keyword, foo|@field bar, "" queries (bug #310)
 
-A.10. Version 0.9.9-rc1, 17 nov 2008
+A.12. Version 0.9.9-rc1, 17 nov 2008
 ====================================
 
    * added min_stemming_len directive
@@ -11006,7 +11127,7 @@ A.10. Version 0.9.9-rc1, 17 nov 2008
    * fixed backslash escaping, added backslash to EscapeString()
    * fixed handling of over-2GB dictionary files (.spi)
 
-A.11. Version 0.9.8.1, 30 oct 2008
+A.13. Version 0.9.8.1, 30 oct 2008
 ==================================
 
    * added configure script to libsphinxclient
@@ -11043,7 +11164,7 @@ A.11. Version 0.9.8.1, 30 oct 2008
    * fixed default ID range (that filtered out all 64-bit values) in Java
      and Python APIs
 
-A.12. Version 0.9.8, 14 jul 2008
+A.14. Version 0.9.8, 14 jul 2008
 ================================
 
 Indexing
@@ -11223,7 +11344,7 @@ Changes and fixes since 0.9.8-rc2
      reusable sorter issue
    * fixed sorting of negative floats in SPH_SORT_EXTENDED mode
 
-A.13. Version 0.9.7, 02 apr 2007
+A.15. Version 0.9.7, 02 apr 2007
 ================================
 
    * added support for sql_str2ordinal_column
@@ -11273,7 +11394,7 @@ A.13. Version 0.9.7, 02 apr 2007
    * fixed wrong assertion in SBCS encoder
    * fixed crashes with no-attribute indexes after rotate
 
-A.14. Version 0.9.7-rc2, 15 dec 2006
+A.16. Version 0.9.7-rc2, 15 dec 2006
 ====================================
 
    * added support for extended matching mode (query language)
@@ -11295,7 +11416,7 @@ A.14. Version 0.9.7-rc2, 15 dec 2006
      paths)
    * fixes for 64-bit platforms
 
-A.15. Version 0.9.7-rc1, 26 oct 2006
+A.17. Version 0.9.7-rc1, 26 oct 2006
 ====================================
 
    * added alpha index merging code
@@ -11324,7 +11445,7 @@ A.15. Version 0.9.7-rc1, 26 oct 2006
    * fixed line numbering in config parser
    * fixed some issues with index rotation
 
-A.16. Version 0.9.6, 24 jul 2006
+A.18. Version 0.9.6, 24 jul 2006
 ================================
 
    * added support for empty indexes
@@ -11333,7 +11454,7 @@ A.16. Version 0.9.6, 24 jul 2006
    * fixed configure issues with --without-mysql and --with-pgsql options
    * fixed building on Solaris 9
 
-A.17. Version 0.9.6-rc1, 26 jun 2006
+A.19. Version 0.9.6-rc1, 26 jun 2006
 ====================================
 
    * added boolean queries support (experimental, beta version)

@@ -1,5 +1,5 @@
 //
-// $Id: spelldump.cpp 3087 2012-01-30 23:07:35Z shodan $
+// $Id: spelldump.cpp 3635 2013-01-29 09:26:04Z kevg $
 //
 
 //
@@ -293,7 +293,11 @@ bool CISpellAffixRule::CheckSuffix ( const CSphString & sWord ) const
 	int iCondI = m_iCondLen-1;
 	for ( int i=m_iWordLen-1; iCondI>=0 && i>=0; --i )
 	{
-		if ( m_sCondition.cstr()[iCondI]!=']' )
+		if ( m_sCondition.cstr()[iCondI]=='.' )
+		{
+			--iCondI;
+		}
+		else if ( m_sCondition.cstr()[iCondI]!=']' )
 		{
 			if ( m_sCondition.cstr()[iCondI]!=sWord.cstr()[i] )
 				return false;
@@ -1191,5 +1195,5 @@ int main ( int iArgs, char ** dArgs )
 }
 
 //
-// $Id: spelldump.cpp 3087 2012-01-30 23:07:35Z shodan $
+// $Id: spelldump.cpp 3635 2013-01-29 09:26:04Z kevg $
 //

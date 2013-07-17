@@ -1,5 +1,5 @@
 //
-// $Id: sphinxexcerpt.cpp 3444 2012-10-12 09:53:51Z kevg $
+// $Id: sphinxexcerpt.cpp 3793 2013-04-08 15:39:13Z kevg $
 //
 
 //
@@ -1041,7 +1041,16 @@ char * ExcerptGen_c::BuildExcerpt ( const ExcerptQuery_t & tQuery )
 	// alloc, fill and return the result
 	m_dResult.Add ( 0 );
 	char * pRes = new char [ m_dResult.GetLength() ];
-	memcpy ( pRes, &m_dResult[0], m_dResult.GetLength() );
+	// if was stripped
+	if ( tQuery.m_sStripMode=="strip" || tQuery.m_sStripMode=="index" )
+	{
+		// replacing sphinx magic (refer to sphinxint.h) characters in output
+		char * d = pRes;
+		for ( BYTE * s=m_dResult.Begin(); *s; s++ )
+			*d++ =  ( *s>0 && *s<=5 )?( ' ' ):( *s );
+		*d = '\0';
+	} else
+		memcpy ( pRes, m_dResult.Begin(), m_dResult.GetLength() );
 	m_dResult.Reset ();
 
 	return pRes;
@@ -1563,7 +1572,11 @@ bool ExcerptGen_c::HighlightBestPassages ( const ExcerptQuery_t & tQuery )
 		{
 			// there might be just enough space to partially display this passage
 			if ( ( iTotalCodes + iKeywordsLength )<=tQuery.m_iLimit )
+			{
 				dShow.Add ( tBest );
+				iTotalWords += tBest.m_iWords;
+				iTotalCodes += tBest.m_iCodes;
+			}
 			break;
 		}
 
@@ -3129,5 +3142,5 @@ char * sphBuildExcerpt ( ExcerptQuery_t & tOptions, const CSphIndex * pIndex, co
 }
 
 //
-// $Id: sphinxexcerpt.cpp 3444 2012-10-12 09:53:51Z kevg $
+// $Id: sphinxexcerpt.cpp 3793 2013-04-08 15:39:13Z kevg $
 //

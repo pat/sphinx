@@ -21,9 +21,11 @@ source test
 {
 	type				= mysql
 	<sql_settings/>
-	sql_query			= select * from test_table
+	sql_query			= select *, '1,2,3' mva32, '1,2,3' mva64 from test_table
 	sql_attr_uint		= gid
 	sql_field_string	= title
+	sql_attr_multi		= uint mva32 from field mva32
+	sql_attr_multi		= bigint mva64 from field mva64
 }
 
 index test
@@ -89,6 +91,10 @@ INSERT INTO test_table VALUES
 <sphinxql>select id, gid, weight(), title from dist where match('seven !(angels !by)') and gid=1 option ranker=expr('query_word_count*100+sum(word_count)*10+sum(hit_count)')</sphinxql>
 <sphinxql>select id, gid, weight(), title from dist where match('lamb') and gid=2 option ranker=expr('doc_word_count*1000+sum(word_count)')</sphinxql>
 
+<!-- rel20 regressions -->
+<sphinxql>select id, gid, weight(), title from test where match('mary') option ranker=expr('crc32(title)')</sphinxql>
+<sphinxql>select id, gid, weight(), title from test where match('mary') option ranker=expr('in(mva32,1)')</sphinxql>
+<sphinxql>select id, gid, weight(), title from test where match('mary') option ranker=expr('in(mva64,1)')</sphinxql>
 </sphqueries>
 
 </test>
