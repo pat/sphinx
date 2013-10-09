@@ -1,10 +1,10 @@
 //
-// $Id: sphinxmetaphone.cpp 3087 2012-01-30 23:07:35Z shodan $
+// $Id: sphinxmetaphone.cpp 3701 2013-02-20 18:10:18Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -82,7 +82,8 @@ static bool StrAt ( const CurrentWord_t & Word, int iStart, int iLength, const c
 }
 
 
-static bool StrAt ( const CurrentWord_t & Word, int iStart, int iLength, const char * szStr1, const char * szStr2, const char * szStr3, const char * szStr4 )
+static bool StrAt ( const CurrentWord_t & Word, int iStart, int iLength, const char * szStr1,
+	const char * szStr2, const char * szStr3, const char * szStr4 )
 {
 	if ( iStart<0 || iStart>=Word.iLengthPadded )
 		return false;
@@ -92,7 +93,8 @@ static bool StrAt ( const CurrentWord_t & Word, int iStart, int iLength, const c
 		|| !strncmp ( szPos, szStr4, iLength );
 }
 
-static bool StrAt ( const CurrentWord_t & Word, int iStart, int iLength, const char * szStr1, const char * szStr2, const char * szStr3, const char * szStr4, const char * szStr5 )
+static bool StrAt ( const CurrentWord_t & Word, int iStart, int iLength, const char * szStr1,
+	const char * szStr2, const char * szStr3, const char * szStr4, const char * szStr5 )
 {
 	if ( iStart<0 || iStart>=Word.iLengthPadded )
 		return false;
@@ -171,8 +173,13 @@ static int ProcessCode ( int iCode, int iCur, CurrentWord_t & Word, BYTE * sPrim
 				ADD_RET ( "K", "X", 2 )
 
 			// greek roots e.g. 'chemistry', 'chorus'
-			if ( iCur==0 && ( StrAt ( Word, iCur+1, 5, "HARAC", "HARIS" ) || StrAt ( Word, iCur+1, 3, "HOR", "HYM", "HIA", "HEM" ) ) && !StrAt ( Word, 0, 5, "CHORE" ) )
+			if ( iCur==0
+				&& ( StrAt ( Word, iCur+1, 5, "HARAC", "HARIS" )
+					|| StrAt ( Word, iCur+1, 3, "HOR", "HYM", "HIA", "HEM" ) )
+				&& !StrAt ( Word, 0, 5, "CHORE" ) )
+			{
 				ADD_RET ( "K", "K", 2 )
+			}
 
 			// germanic, greek, or otherwise 'ch' for 'kh' sound
 			if ( ( StrAt ( Word, 0, 4, "VAN ", "VON " ) || StrAt ( Word, 0, 3, "SCH" ) )
@@ -376,8 +383,12 @@ static int ProcessCode ( int iCode, int iCur, CurrentWord_t & Word, BYTE * sPrim
 				if ( iCur==iLast )
 					ADD ( "J", "" );
 				else
-					if ( !StrAt ( Word, iCur+1, 1, "L", "T", "K", "S" ) && !StrAt ( Word, iCur+1, 1, "N", "M", "B", "Z" ) && !StrAt ( Word, iCur-1, 1, "S", "K", "L" ) )
+					if ( !StrAt ( Word, iCur+1, 1, "L", "T", "K", "S" )
+						&& !StrAt ( Word, iCur+1, 1, "N", "M", "B", "Z" )
+						&& !StrAt ( Word, iCur-1, 1, "S", "K", "L" ) )
+					{
 						ADD ( "J", "J" );
+					}
 			}
 		}
 
@@ -659,5 +670,5 @@ void stem_dmetaphone ( BYTE * pWord, bool bUTF8 )
 }
 
 //
-// $Id: sphinxmetaphone.cpp 3087 2012-01-30 23:07:35Z shodan $
+// $Id: sphinxmetaphone.cpp 3701 2013-02-20 18:10:18Z deogar $
 //

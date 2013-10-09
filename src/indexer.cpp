@@ -1,10 +1,10 @@
 //
-// $Id: indexer.cpp 3795 2013-04-09 04:23:34Z kevg $
+// $Id: indexer.cpp 3701 2013-02-20 18:10:18Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -16,6 +16,7 @@
 #include "sphinx.h"
 #include "sphinxint.h"
 #include "sphinxutils.h"
+#include "sphinxstem.h"
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <ctype.h>
@@ -36,6 +37,7 @@
 bool			g_bQuiet		= false;
 bool			g_bProgress		= true;
 bool			g_bPrintQueries	= false;
+bool			g_bKeepAttrs	= false;
 
 const char *	g_sBuildStops	= NULL;
 int				g_iTopStops		= 100;
@@ -50,8 +52,8 @@ int				g_iMaxFileFieldBuffer	= 1024*1024;
 
 ESphOnFileFieldError	g_eOnFileFieldError = FFE_IGNORE_FIELD;
 
-const int		EXT_COUNT = 8;
-const char *	g_dExt[EXT_COUNT] = { "sph", "spa", "spi", "spd", "spp", "spm", "spk", "sps" };
+const int		EXT_COUNT = 9;
+const char *	g_dExt[EXT_COUNT] = { "sph", "spa", "spi", "spd", "spp", "spm", "spk", "sps", "spe" };
 
 char			g_sMinidump[256];
 
@@ -192,14 +194,17 @@ public:
 	virtual SphWordID_t	GetWordID ( BYTE * pWord );
 	virtual SphWordID_t	GetWordID ( const BYTE * pWord, int iLen, bool );
 
-	virtual void		LoadStopwords ( const char *, ISphTokenizer * ) {}
-	virtual bool		LoadWordforms ( const char *, ISphTokenizer *, const char * ) { return true; }
-	virtual bool		SetMorphology ( const char *, bool, CSphString & ) { return true; }
+	virtual void		LoadStopwords ( const char *, const ISphTokenizer * ) {}
+	virtual void		LoadStopwords ( const CSphVector<SphWordID_t> & ) {}
+	virtual void		WriteStopwords ( CSphWriter & ) {}
+	virtual bool		LoadWordforms ( const CSphVector<CSphString> &, const CSphEmbeddedFiles *, const ISphTokenizer *, const char * ) { return true; }
+	virtual void		WriteWordforms ( CSphWriter & ) {}
+	virtual int			SetMorphology ( const char *, bool, CSphString & ) { return ST_OK; }
 
 	virtual void		Setup ( const CSphDictSettings & tSettings ) { m_tSettings = tSettings; }
 	virtual const CSphDictSettings & GetSettings () const { return m_tSettings; }
 	virtual const CSphVector <CSphSavedFile> & GetStopwordsFileInfos () { return m_dSWFileInfos; }
-	virtual const CSphSavedFile & GetWordformsFileInfo () { return m_tWFFileInfo; }
+	virtual const CSphVector <CSphSavedFile> & GetWordformsFileInfos () { return m_dWFFileInfos; }
 	virtual const CSphMultiformContainer * GetMultiWordforms () const { return NULL; }
 
 	virtual bool IsStopWord ( const BYTE * ) const { return false; }
@@ -219,7 +224,7 @@ protected:
 	// fake setttings
 	CSphDictSettings			m_tSettings;
 	CSphVector <CSphSavedFile>	m_dSWFileInfos;
-	CSphSavedFile				m_tWFFileInfo;
+	CSphVector <CSphSavedFile>	m_dWFFileInfos;
 };
 
 
@@ -283,25 +288,6 @@ void ShowProgress ( const CSphIndexProgress * pProgress, bool bPhaseEnd )
 
 	fprintf ( stdout, "%s%c", pProgress->BuildMessage(), bPhaseEnd ? '\n' : '\r' );
 	fflush ( stdout );
-}
-
-static void Logger ( ESphLogLevel eLevel, const char * sFmt, va_list ap )
-{
-	if ( eLevel>=SPH_LOG_DEBUG )
-		return;
-
-	switch ( eLevel )
-	{
-		case SPH_LOG_FATAL: fprintf ( stdout, "FATAL: " ); break;
-		case SPH_LOG_WARNING: fprintf ( stdout, "WARNING: " ); break;
-		case SPH_LOG_INFO: fprintf ( stdout, "WARNING: " ); break;
-		case SPH_LOG_DEBUG: // yes, I know that this branch will never execute because of the condition above.
-		case SPH_LOG_VERBOSE_DEBUG:
-		case SPH_LOG_VERY_VERBOSE_DEBUG: fprintf ( stdout, "DEBUG: " ); break;
-	}
-
-	vfprintf ( stdout, sFmt, ap );
-	fprintf ( stdout, "\n" );
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -412,7 +398,8 @@ bool ParseMultiAttr ( const char * sBuf, CSphColumnInfo & tAttr, const char * sS
 	for ( CSphVariant * pVal = hSource(_key); pVal; pVal = pVal->m_pNext ) \
 		_arg.Add ( pVal->cstr() );
 
-void SqlAttrsConfigure ( CSphSourceParams_SQL & tParams, const CSphVariant * pHead, ESphAttr eAttrType, const char * sSourceName, bool bIndexedAttr=false )
+void SqlAttrsConfigure ( CSphSourceParams_SQL & tParams, const CSphVariant * pHead,
+	ESphAttr eAttrType, const char * sSourceName, bool bIndexedAttr = false )
 {
 	for ( const CSphVariant * pCur = pHead; pCur; pCur= pCur->m_pNext )
 	{
@@ -593,6 +580,9 @@ bool SqlParamsConfigure ( CSphSourceParams_SQL & tParams, const CSphConfigSectio
 	LOC_GETA ( tParams.m_dQueryPostIndex,	"sql_query_post_index" );
 	LOC_GETL ( tParams.m_iRangeStep,		"sql_range_step" );
 	LOC_GETS ( tParams.m_sQueryKilllist,	"sql_query_killlist" );
+	LOC_GETS ( tParams.m_sHookConnect,		"hook_connect" );
+	LOC_GETS ( tParams.m_sHookQueryRange,	"hook_query_range" );
+	LOC_GETS ( tParams.m_sHookPostIndex,	"hook_post_index" );
 
 	LOC_GETI ( tParams.m_iRangedThrottle,	"sql_ranged_throttle" );
 
@@ -607,9 +597,11 @@ bool SqlParamsConfigure ( CSphSourceParams_SQL & tParams, const CSphConfigSectio
 	SqlAttrsConfigure ( tParams,	hSource("sql_attr_float"),			SPH_ATTR_FLOAT,		sSourceName );
 	SqlAttrsConfigure ( tParams,	hSource("sql_attr_bigint"),			SPH_ATTR_BIGINT,	sSourceName );
 	SqlAttrsConfigure ( tParams,	hSource("sql_attr_string"),			SPH_ATTR_STRING,	sSourceName );
+	SqlAttrsConfigure ( tParams,	hSource("sql_attr_json"),			SPH_ATTR_JSON,		sSourceName );
 	SqlAttrsConfigure ( tParams,	hSource("sql_attr_str2wordcount"),	SPH_ATTR_WORDCOUNT,	sSourceName );
+
 	SqlAttrsConfigure ( tParams,	hSource("sql_field_string"),		SPH_ATTR_STRING,	sSourceName, true );
-	SqlAttrsConfigure ( tParams,	hSource("sql_field_str2wordcount"),	SPH_ATTR_WORDCOUNT,	sSourceName, true );
+	SqlAttrsConfigure ( tParams,	hSource("sql_field_str2wordcount"),	SPH_ATTR_STRING,	sSourceName, true );
 
 	LOC_GETA ( tParams.m_dFileFields,			"sql_file_field" );
 
@@ -784,7 +776,8 @@ CSphSource * SpawnSourceXMLPipe ( const CSphConfigSection & hSource, const char 
 			fprintf ( stdout, "ERROR: source '%s': xmlpipe2 should only be used with charset_type=utf-8\n", sSourceName );
 		}
 #else
-		fprintf ( stdout, "WARNING: source '%s': xmlpipe2 support NOT compiled in. To use xmlpipe2, install missing XML libraries, reconfigure, and rebuild Sphinx\n", sSourceName );
+		fprintf ( stdout, "WARNING: source '%s': xmlpipe2 support NOT compiled in. To use xmlpipe2, "
+			"install missing XML libraries, reconfigure, and rebuild Sphinx\n", sSourceName );
 #endif
 	} else
 	{
@@ -827,7 +820,8 @@ CSphSource * SpawnSource ( const CSphConfigSection & hSource, const char * sSour
 
 	if ( hSource["type"]=="xmlpipe" && bWordDict )
 	{
-		fprintf ( stdout, "ERROR: source '%s': type xmlpipe incompatible with dict=keywords option use xmlpipe2 instead; skipping.\n", sSourceName );
+		fprintf ( stdout, "ERROR: source '%s': type xmlpipe incompatible with dict=keywords option;"
+			" use xmlpipe2 instead; skipping.\n", sSourceName );
 		return NULL;
 	}
 
@@ -849,7 +843,8 @@ CSphSource * SpawnSource ( const CSphConfigSection & hSource, const char * sSour
 // INDEXING
 //////////////////////////////////////////////////////////////////////////
 
-bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const CSphConfigType & hSources, bool bVerbose, FILE * fpDumpRows )
+bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName,
+	const CSphConfigType & hSources, bool bVerbose, FILE * fpDumpRows )
 {
 	// check index type
 	bool bPlain = true;
@@ -901,16 +896,22 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 		}
 	}
 
+	// configure early
+	// (need bigram settings to spawn a proper indexing tokenizer)
+	CSphString sError;
+	CSphIndexSettings tSettings;
+	if ( !sphConfIndex ( hIndex, tSettings, sError ) )
+		sphDie ( "index '%s': %s", sIndexName, sError.cstr() );
+
 	///////////////////
 	// spawn tokenizer
 	///////////////////
 
-	CSphString sError;
 	CSphTokenizerSettings tTokSettings;
 	if ( !sphConfTokenizer ( hIndex, tTokSettings, sError ) )
 		sphDie ( "index '%s': %s", sIndexName, sError.cstr() );
 
-	ISphTokenizer * pTokenizer = ISphTokenizer::Create ( tTokSettings, sError );
+	ISphTokenizer * pTokenizer = ISphTokenizer::Create ( tTokSettings, NULL, sError );
 	if ( !pTokenizer )
 		sphDie ( "index '%s': %s", sIndexName, sError.cstr() );
 
@@ -928,30 +929,48 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 	CSphDict * pDict = NULL;
 	CSphDictSettings tDictSettings;
 
+	// setup filters
 	if ( !g_sBuildStops )
 	{
-		ISphTokenizer * pTokenFilter = NULL;
+		// multiforms filter
 		sphConfDictionary ( hIndex, tDictSettings );
 
-		// FIXME! no support for infixes in keywords dict yet
-		if ( tDictSettings.m_bWordDict && bInfix )
+		if ( tSettings.m_bAotFilter )
 		{
-			tDictSettings.m_bWordDict = false;
-			fprintf ( stdout, "WARNING: min_infix_len is not supported yet with dict=keywords; using dict=crc\n" );
+			CSphString sDictFile;
+			sDictFile.SetSprintf ( "%s/ru.pak", g_sLemmatizerBase.cstr() );
+			if ( !sphAotInitRu ( sDictFile, sError ) )
+				sphDie ( "index '%s': %s", sIndexName, sError.cstr() );
 		}
 
 		pDict = tDictSettings.m_bWordDict
-			? sphCreateDictionaryKeywords ( tDictSettings, pTokenizer, sError, sIndexName )
-			: sphCreateDictionaryCRC ( tDictSettings, pTokenizer, sError, sIndexName );
+			? sphCreateDictionaryKeywords ( tDictSettings, NULL, pTokenizer, sIndexName, sError )
+			: sphCreateDictionaryCRC ( tDictSettings, NULL, pTokenizer, sIndexName, sError );
 		if ( !pDict )
 			sphDie ( "index '%s': %s", sIndexName, sError.cstr() );
 
-		if ( !sError.IsEmpty () )
-			fprintf ( stdout, "WARNING: index '%s': %s\n", sIndexName, sError.cstr() );
+		pTokenizer = ISphTokenizer::CreateMultiformFilter ( pTokenizer, pDict->GetMultiWordforms () );
 
-		pTokenFilter = ISphTokenizer::CreateTokenFilter ( pTokenizer, pDict->GetMultiWordforms () );
-		pTokenizer = pTokenFilter ? pTokenFilter : pTokenizer;
+		// bigram filter
+		pTokenizer = ISphTokenizer::CreateBigramFilter ( pTokenizer, tSettings.m_eBigramIndex, tSettings.m_sBigramWords, sError );
+		if ( !pTokenizer )
+			sphDie ( "index '%s': %s", sIndexName, sError.cstr() );
+
+		// aot filter
+		if ( tSettings.m_bAotFilter )
+			pTokenizer = sphAotCreateFilter ( pTokenizer, pDict );
 	}
+
+	ISphFieldFilter * pFieldFilter = NULL;
+	CSphFieldFilterSettings tFilterSettings;
+	if ( sphConfFieldFilter ( hIndex, tFilterSettings, sError ) )
+	{
+		tFilterSettings.m_bUTF8 = tTokSettings.m_iType!=TOKENIZER_SBCS;
+		pFieldFilter = sphCreateFieldFilter ( tFilterSettings, sError );
+	}
+
+	if ( !sError.IsEmpty () )
+		fprintf ( stdout, "WARNING: index '%s': %s\n", sIndexName, sError.cstr() );
 
 	// boundary
 	bool bInplaceEnable = hIndex.GetInt ( "inplace_enable", 0 )!=0;
@@ -1057,6 +1076,7 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 		}
 
 		pSource->SetTokenizer ( pTokenizer );
+		pSource->SetFieldFilter ( pFieldFilter );
 		pSource->SetDumpRows ( fpDumpRows );
 		dSources.Add ( pSource );
 	}
@@ -1104,13 +1124,25 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 				continue;
 			}
 			while ( dSources[i]->IterateDocument ( sError ) && dSources[i]->m_tDocInfo.m_iDocID )
+			{
 				while ( dSources[i]->IterateHits ( sError ) )
 				{
 				}
+				if ( !sError.IsEmpty() )
+				{
+					fprintf ( stdout, "ERROR: index '%s': %s\n", sIndexName, sError.cstr() );
+					sError = "";
+				}
+			}
+			if ( !sError.IsEmpty() )
+				fprintf ( stdout, "ERROR: index '%s': %s\n", sIndexName, sError.cstr() );
 		}
 		tDict.Save ( g_sBuildStops, g_iTopStops, g_bBuildFreqs );
 
+		SafeDelete ( pFieldFilter );
 		SafeDelete ( pTokenizer );
+
+		bOK = true;
 
 	} else
 	{
@@ -1133,10 +1165,6 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 			exit ( 1 );
 		}
 
-		CSphString sError;
-		CSphIndexSettings tSettings;
-		if ( !sphConfIndex ( hIndex, tSettings, sError ) )
-			sphDie ( "index '%s': %s.", sIndexName, sError.cstr() );
 		tSettings.m_bVerbose = bVerbose;
 
 		if ( tSettings.m_bIndexExactWords && !pDict->HasMorphology () )
@@ -1159,10 +1187,25 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 
 		pIndex->SetProgressCallback ( ShowProgress );
 		if ( bInplaceEnable )
+		{
 			pIndex->SetInplaceSettings ( iHitGap, iDocinfoGap, fRelocFactor, fWriteFactor );
+			if ( g_bKeepAttrs )
+			{
+				fprintf ( stdout, "WARNING: index '%s': inplace_enable=1: --keep-attrs has no effect, ignoring\n", sIndexName );
+				g_bKeepAttrs = false;
+			}
+		}
 
+		if ( g_bKeepAttrs && tSettings.m_eDocinfo==SPH_DOCINFO_INLINE )
+		{
+			fprintf ( stdout, "WARNING: index '%s': docinfo=inline: --keep-attrs has no effect, ignoring\n", sIndexName );
+			g_bKeepAttrs = false;
+		}
+
+		pIndex->SetFieldFilter ( pFieldFilter );
 		pIndex->SetTokenizer ( pTokenizer );
 		pIndex->SetDictionary ( pDict );
+		pIndex->SetKeepAttrs ( g_bKeepAttrs );
 		pIndex->Setup ( tSettings );
 
 		bOK = pIndex->Build ( dSources, g_iMemLimit, g_iWriteBuffer )!=0;
@@ -1293,10 +1336,10 @@ bool DoMerge ( const CSphConfigSection & hDst, const char * sDst,
 	int iExt;
 	for ( iExt=0; iExt<EXT_COUNT; iExt++ )
 	{
-		snprintf ( sFrom, sizeof(sFrom), "%s.%s.tmp", sPath, g_dExt[iExt] );
+		snprintf ( sFrom, sizeof(sFrom), "%s.tmp.%s", sPath, g_dExt[iExt] );
 		sFrom [ sizeof(sFrom)-1 ] = '\0';
 
-		if ( g_bRotate )
+		if ( bRotate )
 			snprintf ( sTo, sizeof(sTo), "%s.new.%s", sPath, g_dExt[iExt] );
 		else
 			snprintf ( sTo, sizeof(sTo), "%s.%s", sPath, g_dExt[iExt] );
@@ -1530,13 +1573,12 @@ bool SendRotate ( const CSphConfig & hConf, bool bForce )
 
 int main ( int argc, char ** argv )
 {
-	sphSetLogger ( Logger );
-
 	const char * sOptConfig = NULL;
 	bool bMerge = false;
 	CSphVector<CSphFilterSettings> dMergeDstFilters;
 
 	CSphVector<const char *> dIndexes;
+	CSphVector<const char *> dWildIndexes;
 	bool bIndexAll = false;
 	bool bMergeKillLists = false;
 	bool bVerbose = false;
@@ -1608,9 +1650,25 @@ int main ( int argc, char ** argv )
 		{
 			bVerbose = true;
 
-		} else if ( isalnum ( argv[i][0] ) || argv[i][0]=='_' )
+		} else if ( isalnum ( argv[i][0] ) || argv[i][0]=='_' || sphIsWild ( argv[i][0] ) )
 		{
-			dIndexes.Add ( argv[i] );
+			bool bHasWilds = false;
+			const char * s = argv[i];
+
+			while ( *s )
+			{
+				if ( sphIsWild(*s) )
+				{
+					bHasWilds = true;
+					break;
+				}
+				s++;
+			}
+
+			if ( bHasWilds )
+				dWildIndexes.Add ( argv[i] );
+			else
+				dIndexes.Add ( argv[i] );
 
 		} else if ( strcasecmp ( argv[i], "--dump-rows" )==0 && (i+1)<argc )
 		{
@@ -1619,6 +1677,10 @@ int main ( int argc, char ** argv )
 		} else if ( strcasecmp ( argv[i], "--print-queries" )==0 )
 		{
 			g_bPrintQueries = true;
+
+		} else if ( strcasecmp ( argv[i], "--keep-attrs" )==0 )
+		{
+			g_bKeepAttrs = true;
 
 		} else
 		{
@@ -1671,6 +1733,7 @@ int main ( int argc, char ** argv )
 				"\t\t\tafter merge; note that src k-list applies anyway)\n"
 				"--dump-rows <FILE>\tdump indexed rows into FILE\n"
 				"--print-queries\t\tprint SQL queries (for debugging)\n"
+				"--keep-attrs\t\tretain attributes from the old index"
 				"\n"
 				"Examples:\n"
 				"indexer --quiet myidx1\treindex 'myidx1' defined in 'sphinx.conf'\n"
@@ -1680,12 +1743,13 @@ int main ( int argc, char ** argv )
 		return 1;
 	}
 
-	if ( !bMerge && !bIndexAll && !dIndexes.GetLength() )
+	if ( !bMerge && !bIndexAll && !dIndexes.GetLength() && !dWildIndexes.GetLength() )
 	{
 		fprintf ( stdout, "ERROR: nothing to do.\n" );
 		return 1;
 	}
 
+	sphBacktraceSetBinaryName ( argv[0] );
 	SetSignalHandlers();
 
 	///////////////
@@ -1698,6 +1762,8 @@ int main ( int argc, char ** argv )
 
 	if ( !hConf ( "source" ) )
 		sphDie ( "no indexes found in config file '%s'", sOptConfig );
+
+	sphCheckDuplicatePaths ( hConf );
 
 	if ( hConf("indexer") && hConf["indexer"]("indexer") )
 	{
@@ -1721,7 +1787,37 @@ int main ( int argc, char ** argv )
 				sphDie ( "unknown on_field_field_error value (must be one of ignore_field, skip_document, fail_index)" );
 		}
 
+		bool bJsonStrict = false;
+		bool bJsonAutoconvNumbers = false;
+		bool bJsonKeynamesToLowercase = false;
+		if ( hIndexer("on_json_attr_error") )
+		{
+			const CSphString & sVal = hIndexer["on_json_attr_error"];
+			if ( sVal=="ignore_attr" )
+				bJsonStrict = false;
+			else if ( sVal=="fail_index" )
+				bJsonStrict = true;
+			else
+				sphDie ( "unknown on_json_attr_error value (must be one of ignore_attr, fail_index)" );
+		}
+
+		if ( hIndexer("json_autoconv_keynames") )
+		{
+			const CSphString & sVal = hIndexer["json_autoconv_keynames"];
+			if ( sVal=="lowercase" )
+				bJsonKeynamesToLowercase = true;
+			else
+				sphDie ( "unknown json_autoconv_keynames value (must be 'lowercase')" );
+		}
+
+		bJsonAutoconvNumbers = ( hIndexer.GetInt ( "json_autoconv_numbers", 0 )!=0 );
+		sphSetJsonOptions ( bJsonStrict, bJsonAutoconvNumbers, bJsonKeynamesToLowercase );
+
 		sphSetThrottling ( hIndexer.GetInt ( "max_iops", 0 ), hIndexer.GetSize ( "max_iosize", 0 ) );
+
+		if ( hIndexer("lemmatizer_base") )
+			g_sLemmatizerBase = hIndexer["lemmatizer_base"];
+		sphAotSetCacheSize ( hIndexer.GetSize ( "lemmatizer_cache", 262144 ) );
 	}
 
 	/////////////////////
@@ -1734,6 +1830,20 @@ int main ( int argc, char ** argv )
 		fpDumpRows = fopen ( sDumpRows.cstr(), "wb+" );
 		if ( !fpDumpRows )
 			sphDie ( "failed to open %s: %s", sDumpRows.cstr(), strerror(errno) );
+	}
+
+	hConf["index"].IterateStart();
+	while ( hConf["index"].IterateNext() )
+	{
+		ARRAY_FOREACH ( i, dWildIndexes )
+		{
+			if ( sphWildcardMatch ( hConf["index"].IterateGetKey().cstr(), dWildIndexes[i] ) )
+			{
+				dIndexes.Add ( hConf["index"].IterateGetKey().cstr() );
+				// do not add index twice
+				break;
+			}
+		}
 	}
 
 	sphInitIOStats ();
@@ -1812,5 +1922,5 @@ int main ( int argc, char ** argv )
 }
 
 //
-// $Id: indexer.cpp 3795 2013-04-09 04:23:34Z kevg $
+// $Id: indexer.cpp 3701 2013-02-20 18:10:18Z deogar $
 //

@@ -1,10 +1,10 @@
 //
-// $Id: sphinxutils.h 3788 2013-04-08 08:57:12Z kevg $
+// $Id: sphinxutils.h 3701 2013-02-20 18:10:18Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -22,7 +22,7 @@
 #include <ctype.h>
 #include <stdarg.h>
 
-/////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
 
 /// my own isalpha (let's build our own theme park!)
 inline int sphIsAlpha ( int c )
@@ -45,31 +45,20 @@ inline bool sphIsModifier ( int iSymbol )
 }
 
 
-/// string splitter, extracts sequences of alphas (as in sphIsAlpha)
-inline void sphSplit ( CSphVector<CSphString> & dOut, const char * sIn )
+/// all wildcards
+inline bool sphIsWild ( char c )
 {
-	if ( !sIn )
-		return;
-
-	const char * p = (char*)sIn;
-	while ( *p )
-	{
-		// skip non-alphas
-		while ( (*p) && !sphIsAlpha(*p) )
-			p++;
-		if ( !(*p) )
-			break;
-
-		// this is my next token
-		assert ( sphIsAlpha(*p) );
-		const char * sNext = p;
-		while ( sphIsAlpha(*p) )
-			p++;
-		if ( sNext!=p )
-			dOut.Add().SetBinary ( sNext, p-sNext );
-	}
+	return c=='*' || c=='?' || c=='%';
 }
 
+
+/// string splitter, extracts sequences of alphas (as in sphIsAlpha)
+void sphSplit ( CSphVector<CSphString> & dOut, const char * sIn );
+
+/// string wildcard matching (case-sensitive, supports * and ? patterns)
+bool sphWildcardMatch ( const char * sSstring, const char * sPattern );
+
+//////////////////////////////////////////////////////////////////////////
 
 /// config section (hash of variant values)
 class CSphConfigSection : public SmallStringHash_T < CSphVariant >
@@ -97,7 +86,8 @@ public:
 	}
 
 	/// get size option (plain int, or with K/M prefix) value by key and default value
-	int GetSize ( const char * sKey, int iDefault ) const;
+	int		GetSize ( const char * sKey, int iDefault ) const;
+	int64_t GetSize64 ( const char * sKey, int64_t iDefault ) const;
 };
 
 /// config section type (hash of sections)
@@ -142,10 +132,6 @@ protected:
 	char *			GetBufferString ( char * szDest, int iMax, const char * & szSource );
 };
 
-#if !USE_WINDOWS
-bool TryToExec ( char * pBuffer, char * pEnd, const char * szFilename, CSphVector<char> & dResult, char * sError, int iErrorLen );
-#endif
-
 /////////////////////////////////////////////////////////////////////////////
 
 enum
@@ -163,6 +149,9 @@ bool			sphConfTokenizer ( const CSphConfigSection & hIndex, CSphTokenizerSetting
 
 /// configure dictionary from index definition section
 void			sphConfDictionary ( const CSphConfigSection & hIndex, CSphDictSettings & tSettings );
+
+/// configure field filter from index definition section
+bool			sphConfFieldFilter ( const CSphConfigSection & hIndex, CSphFieldFilterSettings & tSettings, CSphString & sError );
 
 /// configure index from index definition section
 bool			sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSettings, CSphString & sError );
@@ -182,12 +171,12 @@ enum ESphLogLevel
 
 typedef void ( *SphLogger_fn )( ESphLogLevel, const char *, va_list );
 
-void sphWarning ( const char * sFmt, ... ) __attribute__((format(printf,1,2)));
-void sphInfo ( const char * sFmt, ... ) __attribute__((format(printf,1,2)));
-void sphLogFatal ( const char * sFmt, ... ) __attribute__((format(printf,1,2)));
-void sphLogDebug ( const char * sFmt, ... ) __attribute__((format(printf,1,2)));
-void sphLogDebugv ( const char * sFmt, ... ) __attribute__((format(printf,1,2)));
-void sphLogDebugvv ( const char * sFmt, ... ) __attribute__((format(printf,1,2)));
+void sphWarning ( const char * sFmt, ... ) __attribute__((format(printf,1,2))); //NOLINT
+void sphInfo ( const char * sFmt, ... ) __attribute__((format(printf,1,2))); //NOLINT
+void sphLogFatal ( const char * sFmt, ... ) __attribute__((format(printf,1,2))); //NOLINT
+void sphLogDebug ( const char * sFmt, ... ) __attribute__((format(printf,1,2))); //NOLINT
+void sphLogDebugv ( const char * sFmt, ... ) __attribute__((format(printf,1,2))); //NOLINT
+void sphLogDebugvv ( const char * sFmt, ... ) __attribute__((format(printf,1,2))); //NOLINT
 void sphSetLogger ( SphLogger_fn fnLog );
 
 //////////////////////////////////////////////////////////////////////////
@@ -199,7 +188,7 @@ void sphSetLogger ( SphLogger_fn fnLog );
 		#define CRASH_EXIT { signal ( sig, SIG_DFL ); kill ( getpid(), sig ); }
 	#else
 		// UNIX release build, just die
-		#define CRASH_EXIT exit ( 2 )
+		#define CRASH_EXIT { exit ( 2 ); }
 	#endif
 #else
 	#ifndef NDEBUG
@@ -226,8 +215,15 @@ void sphBacktrace ( int iFD, bool bSafe=false );
 void sphBacktrace ( EXCEPTION_POINTERS * pExc, const char * sFile );
 #endif
 
+void sphBacktraceSetBinaryName ( const char * sName );
+
+/// plain backtrace - returns static buffer with the text of the call stack
+const char * DoBacktrace ( int iDepth=0, int iSkip=0 );
+
+void sphCheckDuplicatePaths ( const CSphConfig & hConf );
+
 #endif // _sphinxutils_
 
 //
-// $Id: sphinxutils.h 3788 2013-04-08 08:57:12Z kevg $
+// $Id: sphinxutils.h 3701 2013-02-20 18:10:18Z deogar $
 //

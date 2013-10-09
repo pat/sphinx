@@ -7,6 +7,7 @@
 searchd
 {
 	<searchd_settings/>
+compat_sphinxql_magics = 1
 }
 
 source test
@@ -28,7 +29,7 @@ index test
 
 index tstar : test
 {
-	path						= <data_path/>/tstar
+	path						= <data_path/>/tstar1
 	min_prefix_len		= 1
 	enable_star			= 1	
 	morphology			= stem_enru
@@ -36,7 +37,7 @@ index tstar : test
 
 index stars : test
 {
-	path						= <data_path/>/tstar
+	path						= <data_path/>/tstar2
 	min_infix_len		= 1
 	enable_star			= 1	
 	morphology			= stem_en

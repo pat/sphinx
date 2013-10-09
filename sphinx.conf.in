@@ -209,6 +209,13 @@ source src1
 	# sql_attr_str2wordcount	= stitle
 
 
+	# JSON attribute declaration
+	# multi-value (an arbitrary number of these is allowed), optional
+	# lets you store a JSON document as an (in-memory) attribute for later use
+	#
+	# sql_attr_json		= properties
+
+
 	# combined field plus attribute declaration (from a single column)
 	# stores column as an attribute, but also indexes it as a full-text field
 	#
@@ -261,6 +268,25 @@ source src1
 	# unpack_mysqlcompress_maxsize	= 16M
 
 
+	# hook command to run when SQL connection succeeds
+	# optional, default value is empty (do nothing)
+	#
+	# hook_connect			= bash sql_connect.sh
+
+
+	# hook command to run after (any) SQL range query
+	# it may print out "minid maxid" (w/o quotes) to override the range
+	# optional, default value is empty (do nothing)
+	#
+	# hook_query_range		= bash sql_query_range.sh
+
+
+	# hook command to run on successful indexing completion
+	# $maxid expands to max document ID actually fetched from DB
+	# optional, default value is empty (do nothing)
+	#
+	# hook_post_index		= bash sql_post_index.sh $maxid
+
 	#####################################################################
 	## xmlpipe2 settings
 	#####################################################################
@@ -282,9 +308,21 @@ source src1
 	# xmlpipe2 attribute declaration
 	# multi-value, optional, default is empty
 	# all xmlpipe_attr_XXX options are fully similar to sql_attr_XXX
+	# examples:
 	#
 	# xmlpipe_attr_timestamp	= published
 	# xmlpipe_attr_uint	= author_id
+	# xmlpipe_attr_str2ordinal= author
+	# xmlpipe_attr_bool	= is_enabled
+	# xmlpipe_attr_float	= latitude
+	# xmlpipe_attr_bigint	= guid
+	# xmlpipe_attr_multi	= tags
+	# xmlpipe_attr_multi_64	= tags64
+	# xmlpipe_attr_string	= title
+	# xmlpipe_attr_wordcount	= title_num_words
+	# xmlpipe_attr_json	= extra_data
+	# xmlpipe_field_string	= content
+	# xmlpipe_field_wordcount	= content_num_words
 
 
 	# perform UTF-8 validation, and filter out incorrect codes
@@ -335,6 +373,15 @@ index test1
 	# known values are 'none', 'extern' and 'inline'
 	docinfo			= extern
 
+	# dictionary type, 'crc' or 'keywords'
+	# crc is faster to index when no substring/wildcards searches are needed
+	# crc with substrings might be faster to search but is much slower to index
+	# (because all substrings are pre-extracted as individual keywords)
+	# keywords is much faster to index with substrings, and index is much (3-10x) smaller
+	# keywords supports wildcards, crc does not, and never will
+	# optional, default is 'crc'
+	dict			= keywords
+
 	# memory locking for cached data (.spa and .spi), to prevent swapping
 	# optional, default is 0 (do not mlock)
 	# requires searchd to be run from root
@@ -381,6 +428,14 @@ index test1
 	# exceptions		= @CONFDIR@/data/exceptions.txt
 
 
+	# embedded file size limit
+	# optional, default is 16K
+	#
+	# exceptions, wordforms, and stopwords files smaller than this limit
+	# are stored in the index; otherwise, their paths and sizes are stored
+	#
+	# embedded_limit		= 16K
+
 	# minimum indexed word length
 	# default is 1 (index everything)
 	min_word_len		= 1
@@ -420,6 +475,12 @@ index test1
 	# optional, default is 0 (do not index infixes)
 	#
 	# min_infix_len		= 0
+
+
+	# maximum substring (prefix or infix) length to index
+	# optional, default is 0 (do not limit substring length)
+	#
+	# max_substring_len	= 8
 
 
 	# list of fields to limit prefix/infix indexing to
@@ -568,6 +629,55 @@ index test1
 	# optional, default is empty string (do not index zones)
 	#
 	# index_zones		= title, h*, th
+
+
+	# index per-document and average per-index field lengths, in tokens
+	# required for the BM25A(), BM25F() in expression ranker
+	# optional, default is 0 (do not index field lenghts)
+	#
+	# index_field_lengths	= 1
+
+
+	# regular expressions (regexps) to filter the fields and queries with
+	# gets applied to data source fields when indexing
+	# gets applied to search queries when searching
+	# multi-value, optional, default is empty list of regexps
+	#
+	# regexp_filter		= \b(\d+)\" => \1inch
+	# regexp_filter		= (blue|red) => color
+
+
+	# list of the words considered frequent with respect to bigram indexing
+	# optional, default is empty
+	#
+	# bigram_freq_words	= the, a, i, you, my
+
+
+	# bigram indexing mode
+	# known values are none, all, first_freq, both_freq
+	# option, default is none (do not index bigrams)
+	#
+	# bigram_index		= both_freq
+
+
+	# snippet document file name prefix
+	# preprended to file names when generating snippets using load_files option
+	# WARNING, this is a prefix (not a path), trailing slash matters!
+	# optional, default is empty
+	#
+	# snippets_file_prefix	= /mnt/mydocs/server1
+
+
+	# whether to apply stopwords before or after stemming
+	# optional, default is 0 (apply stopwords after stemming)
+	#
+	# stopwords_unstemmed	= 0
+
+
+	# path to a global (cluster-wide) keyword IDFs file
+	# optional, default is empty (use local IDFs)
+	#
+	# global_idf		= /usr/local/sphinx/var/global.idf
 }
 
 
@@ -604,10 +714,25 @@ index dist1
 	agent			= localhost:9314:remote2,remote3
 	# agent			= /var/run/searchd.sock:remote4
 
+	# remote agent mirrors groups, aka mirrors, aka HA agents
+	# defines 2 or more interchangeable mirrors for a given index part
+	#
+	# agent			= server3:9312 | server4:9312 :indexchunk2
+	# agent			= server3:9312:chunk2server3 | server4:9312:chunk2server4
+	# agent			= server3:chunk2server3 | server4:chunk2server4
+	# agent			= server21|server22|server23:chunk2
+
+
 	# blackhole remote agent, for debugging/testing
 	# network errors and search results will be ignored
 	#
 	# agent_blackhole		= testbox:9312:testindex1,testindex2
+
+
+	# persistenly connected remote agent
+	# reduces connect() pressure, requires that workers IS threads
+	#
+	# agent_persistent		= testbox:9312:testindex1,testindex2
 
 
 	# remote agent connection timeout, milliseconds
@@ -616,7 +741,13 @@ index dist1
 
 	# remote agent query timeout, milliseconds
 	# optional, default is 3000 ms, ie. 3 sec
-	agent_query_timeout	= 3000
+	agent_query_timeout		= 3000
+
+	# HA mirror agent strategy
+	# optional, defaults to ??? (random mirror)
+	# know values are nodeads, noerrors, roundrobin, nodeadstm, noerrorstm
+	#
+	# ha_strategy				= nodeads
 }
 
 
@@ -650,12 +781,15 @@ index rt
 	rt_attr_uint		= gid
 
 	# RT indexes currently support the following attribute types:
-	# uint, bigint, float, timestamp, string
+	# uint, bigint, float, timestamp, string, mva, mva64, json
 	#
 	# rt_attr_bigint		= guid
 	# rt_attr_float		= gpa
 	# rt_attr_timestamp	= ts_added
 	# rt_attr_string		= author
+	# rt_attr_multi		= tags
+	# rt_attr_multi_64	= tags64
+	# rt_attr_json		= extra_data
 }
 
 #############################################################################
@@ -698,6 +832,48 @@ indexer
 	# optional, default is 8M, minimum is 1M
 	#
 	# max_file_field_buffer	= 32M
+
+
+	# how to handle IO errors in file fields
+	# known values are 'ignore_field', 'skip_document', and 'fail_index'
+	# optional, default is 'ignore_field'
+	#
+	# on_file_field_error = skip_document
+
+
+	# how to handle syntax errors in JSON attributes
+	# known values are 'ignore_attr' and 'fail_index'
+	# optional, default is 'ignore_attr'
+	#
+	# on_json_attr_error = fail_index
+
+
+	# whether to auto-convert numeric values from strings in JSON attributes
+	# with auto-conversion, string value with actually numeric data
+	# (as in {"key":"12345"}) gets stored as a number, rather than string
+	# optional, allowed values are 0 and 1, default is 0 (do not convert)
+	#
+	# json_autoconv_numbers = 1
+
+
+	# whether and how to auto-convert key names in JSON attributes
+	# known value is 'lowercase'
+	# optional, default is unspecified (do nothing)
+	#
+	# json_autoconv_keynames = lowercase
+
+
+	# lemmatizer dictionaries base path
+	# optional, defaut is /usr/local/share (see ./configure --datadir)
+	#
+	# lemmatizer_base = /usr/local/share/sphinx/dicts
+
+
+	# lemmatizer cache size
+	# improves the indexing time when the lemmatization is enabled
+	# optional, default is 256K
+	#
+	# lemmatizer_cache = 512M
 }
 
 #############################################################################
@@ -738,6 +914,11 @@ searchd
 	# maximum amount of children to fork (concurrent searches to run)
 	# optional, default is 0 (unlimited)
 	max_children		= 30
+
+	# maximum amount of persistent connections from this master to each agent host
+	# optional, but necessary if you use agent_persistent. It is reasonable to set the value
+	# as max_children, or less on the agent's hosts.
+	persistent_connections_limit	= 30
 
 	# PID file, searchd process ID file name
 	# mandatory
@@ -836,8 +1017,8 @@ searchd
 
 	# multi-processing mode (MPM)
 	# known values are none, fork, prefork, and threads
+	# threads is required for RT backend to work
 	# optional, default is fork
-	#
 	workers			= threads # for RT to work
 
 
@@ -928,6 +1109,54 @@ searchd
 	# optional, default is 1 (old-style)
 	#
 	# compat_sphinxql_magics	= 1
+
+
+	# costs for max_predicted_time model, in (imaginary) nanoseconds
+	# optional, default is "doc=64, hit=48, skip=2048, match=64"
+	#
+	# predicted_time_costs	= doc=64, hit=48, skip=2048, match=64
+
+
+	# current SphinxQL state (uservars etc) serialization path
+	# optional, default is none (do not serialize SphinxQL state)
+	#
+	# sphinxql_state			= sphinxvars.sql
+
+
+	# maximum RT merge thread IO calls per second, and per-call IO size
+	# useful for throttling (the background) OPTIMIZE INDEX impact
+	# optional, default is 0 (unlimited)
+	#
+	# rt_merge_iops			= 40
+	# rt_merge_maxiosize		= 1M
+
+
+	# interval between agent mirror pings, in milliseconds
+	# 0 means disable pings
+	# optional, default is 1000
+	#
+	# ha_ping_interval		= 0
+
+
+	# agent mirror statistics window size, in seconds
+	# stats older than the window size (karma) are retired
+	# that is, they will not affect master choice of agents in any way
+	# optional, default is 60 seconds
+	#
+	# ha_period_karma			= 60
+
+
+	# delay between preforked children restarts on rotation, in milliseconds
+	# optional, default is 0 (no delay)
+	#
+	# prefork_rotation_throttle	= 100
+
+
+	# a prefix to prepend to the local file names when creating snippets
+	# with load_files and/or load_files_scatter options
+	# optional, default is empty
+	#
+	# snippets_file_prefix		= /mnt/common/server1/
 }
 
 # --eof--

@@ -1,0 +1,310 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test>
+
+<name>JSON attributes</name>
+
+<requires><sphinxql_keep_null/></requires>
+
+<config>
+indexer
+{
+	mem_limit				= 16M
+	on_json_attr_error		= ignore_attr
+	json_autoconv_numbers	= 1
+}
+
+searchd
+{
+	<searchd_settings/>
+	workers = threads
+	compat_sphinxql_magics = 0
+}
+
+source test
+{
+	type			= mysql
+	<sql_settings/>
+	sql_query		= select * from test_table
+	sql_attr_uint	= gid
+	sql_attr_json	= j
+}
+
+index test
+{
+	source			= test
+	path			= <data_path/>/test
+}
+
+source src1
+{
+	type			= mysql
+	<sql_settings/>
+	sql_query		= select *, 1 as gid, 'dummy' as title from json_table where id%3=1
+	sql_attr_uint	= gid
+	sql_attr_json	= j
+}
+source src2
+{
+	type			= mysql
+	<sql_settings/>
+	sql_query		= select *, 2 as gid, 'dummy' as title from json_table where id%3=2
+	sql_attr_uint	= gid
+	sql_attr_json	= j
+}
+source src3
+{
+	type			= mysql
+	<sql_settings/>
+	sql_query		= select *, 3 as gid, 'dummy' as title from json_table where id%3=0
+	sql_attr_uint	= gid
+	sql_attr_json	= j
+}
+
+index i1
+{
+	source		= src1
+	path			= <data_path/>/i1
+}
+index i2
+{
+	source		= src2
+	path			= <data_path/>/i2
+}
+index i3
+{
+	source		= src3
+	path			= <data_path/>/i3
+}
+
+index loc
+{
+	type			= distributed
+	local			= i1
+	local			= i2
+}
+index dist
+{
+	type			= distributed
+	agent		= <my_address/>:i1
+	agent		= <my_address/>:i2
+}
+index dist1
+{
+	type			= distributed
+	agent		= <my_address/>:i1
+	agent		= <my_address/>:i2
+	local			= i3
+}
+index loc1
+{
+	type			= distributed
+	local			= i1
+	agent		= <my_address/>:i2
+}
+
+index loc_field
+{
+	type			= distributed
+	local			= test
+	agent		= <my_address/>:i2
+}
+index dist_field
+{
+	type			= distributed
+	local			= <my_address/>:i2
+	agent		= <my_address/>:test
+}
+
+source src_case
+{
+	type			= mysql
+	<sql_settings/>
+	sql_query		= select *, 11 as gid, 'dummy' as title from json_case
+	sql_attr_uint	= gid
+	sql_attr_json	= j
+}
+
+index json_case
+{
+	source		= src_case
+	path			= <data_path/>/case
+}
+
+index rt
+{
+	type = rt
+	path = <data_path/>/rt
+	rt_field = title
+	rt_attr_json = data
+}
+</config>
+
+<db_create>
+CREATE TABLE `test_table` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `gid` int(11) NOT NULL,
+  `title` varchar(255) NOT NULL,
+  `j` varchar(8192) NOT NULL,
+  PRIMARY KEY (`id`)
+);
+</db_create>
+<db_drop>DROP TABLE IF EXISTS `test_table`;</db_drop>
+<db_insert>
+INSERT INTO `test_table` VALUES
+(1,1,'test one','{"name":"Alice","uid":123}'),
+(2,1,'test two','{"name":"Bob","uid":234,"gid":12}'),
+(3,2,'another doc','{"name":"Charlie","uid":345}'),
+(4,2,'doc number four','{"name":"Damon","uid":456,"gid":23}'),
+(5,3,'numeric fixup','{"12":345, "34":"567"}'),
+(6,3,'numeric fixup contd','{"12":"346", "179":"971"}'),
+(7,3,'strings over 256 bytes','{"long":"
+You can run on for a long time
+Run on for a long time
+Run on for a long time
+Sooner or later God\'ll cut you down
+Sooner or later God\'ll cut you down
+
+Go tell that long tongue liar
+Go and tell that midnight rider
+Tell the rambler, the gambler, the back biter
+Tell \'em that God\'s gonna cut \'em down
+Tell \'em that God\'s gonna cut \'em down
+", "short":"ohai"}'),
+(8,3,'stringvector test','{sv:["one","two","three"],gid:315}'),
+(9,3,'empty','{}'),
+(10,3,'empty v2',''),
+(11,3,'all the bitnesses','{"t1":123456789,"t2":-123456789,
+	"t3":3123456789,"t4":-3123456789,
+	"t5":9876543210,"t6":-9876543210}'),
+(12,3,'stringvector vs longer strings','{sv:["
+Mary had a little lamb, whose fleece was white as snow.
+And everywhere that Mary went, the lamb was sure to go.
+It followed her to school one day which was against the rules.
+It made the children laugh and play, to see a lamb at school.
+And so the teacher turned it out, but still it lingered near.",
+"another world, another time, the age of wonders"],
+	"gid":316}'),
+(13,3,'long numbers vs string to numeric fixup','{
+	i1:"123",
+	i2:"-123",	
+	i3:"18446744073709551615",
+	i4:"-18446744073709551615",
+	i5:"9223372036854775807",
+	i6:"9223372036854775808",
+	i7:"9223372036854775809",
+	i8:"-9223372036854775807",
+	i9:"-9223372036854775808",
+	i10:"-9223372036854775809",
+	i11:"123abc",
+	i12:"-123abc",
+	f1:"3.15",
+	f2:"16777217.123"}'),
+(14,3,'floats','{
+	f1:3.15,
+	f2:-7.40,
+	f3:65536.7,
+	f4:16777217.123}'),
+(15,3,'invalid json','{ this is not valid }')
+</db_insert>
+<db_create>CREATE TABLE `json_table` ( `id` int(11) NOT NULL, `j` varchar(8192) NOT NULL );</db_create>
+<db_drop>DROP TABLE IF EXISTS `json_table`;</db_drop>
+<db_insert>
+INSERT INTO `json_table` VALUES
+(1,'{"uid":123}'),
+(2,'{"uid":234}'),
+(3,'{"uid":345}'),
+(4,'{"uid":456}'),
+(5,'{"uid":567}'),
+(6,'{"uid":678}'),
+(7,'{"uid":123}'),
+(8,'{"uid":567}'),
+(9,'{"uid":345}'),
+( 100, '' )
+</db_insert>
+<db_create>CREATE TABLE `json_case` ( `id` int(11) NOT NULL, `j` varchar(8192) NOT NULL );</db_create>
+<db_drop>DROP TABLE IF EXISTS `json_case`;</db_drop>
+<db_insert>
+INSERT INTO `json_case` VALUES
+(1,'{"Attr":123,	"aTTr":12,	"Str":"nope",		"STR":"yep"		}'),
+(2,'{"Attr":23,				 			"Str":"nope",		"STR":"yep2"	}'),
+(3,'{"Attr":123,	"aTTr":12,							"STR":"yep"		}'),
+(4,'{"Attr":123,	"aTTr":212,	"Str":"nope11"							}'),
+(5,'{"Attr":12,		 "aTTr":12														}'),
+(6,'{											"Str":"nope", 	"STR":"yep"		}'),
+(7,'{						"aTTr":212,							"STR":"yep2"	}'),
+(8,'{"Attr":12,							"Str":"nope11"							}')
+</db_insert>
+
+
+<queries>
+<!-- json via API -->
+<query index="loc" select="*, @count" groupattr="j.uid" sortmode="extended" sortby="id asc" groupsort="id asc"/>
+<query index="loc1" select="*, @count" groupattr="j.uid" sortmode="extended" sortby="id asc" groupsort="id asc"/>
+<query index="dist" select="*, @count" groupattr="j.uid" sortmode="extended" sortby="id asc" groupsort="id asc"/>
+<query index="dist1" select="*, @count" groupattr="j.uid" sortmode="extended" sortby="id asc" groupsort="id asc"/>
+<!-- json.field via API -->
+<query index="loc_field" select="bigint ( id ), j.uid, j.name" filter="j.uid" filter_range="249 1000"/>
+<query index="loc_field" select="bigint ( id ), j.uid, j.name" sortmode="extended" sortby="j.name asc, j.gid desc"/>
+<query index="dist_field" select="bigint ( id ), j.name, j.uid" sortmode="extended" sortby="j.name desc, j.gid asc"/>
+<query index="dist_field" select="bigint ( id ), j.name, j.34, j.179, j.uid, j.sv,  j.t6, j. f2, j.f1"/>
+</queries>
+
+<sphqueries>
+<!-- group by vs distributed index -->
+<sphinxql>select *, count(*) from loc group by j.uid order by id asc</sphinxql>
+<sphinxql>select *, count(*) from loc1 group by j.uid order by id asc</sphinxql>
+<sphinxql>select *, count(*) from dist group by j.uid order by id asc</sphinxql>
+<sphinxql>select *, count(*) from dist1 group by j.uid order by id asc</sphinxql>
+<!-- query that cause crash -->
+<sphinxql>select * from count() loc group by j.uid</sphinxql>
+
+<sphinxql>select * from test</sphinxql>
+<sphinxql>select * from test where j.uid&gt;200</sphinxql>
+<sphinxql>select * from test where j.t1&gt;0</sphinxql>
+<sphinxql>select * from test where j.t2&lt;0</sphinxql>
+<sphinxql>select * from test where j.t5&gt;0</sphinxql>
+<sphinxql>select * from test where j.t6&lt;0</sphinxql>
+<sphinxql>select * from test where j.name='Alice'</sphinxql>
+<sphinxql>select * from test where j.name='alice'</sphinxql>
+<sphinxql>select * from test where j.short='ohai'</sphinxql>
+<sphinxql>select * from test where j.gid=315</sphinxql>
+<sphinxql>select * from test where j.gid='315'</sphinxql>
+<sphinxql>select * from test where j.gid>315</sphinxql>
+<sphinxql>select * from test where j.gid=12</sphinxql>
+<sphinxql>select * from test where id=13</sphinxql>
+<sphinxql>select * from test where id=14</sphinxql>
+<!-- ORDER BY, NULL(able) values are presented first if you do ORDER BY ... ASC and last if you do ORDER BY ... DESC -->
+<sphinxql>select id, j from test order by j.name asc, j.gid desc</sphinxql>
+<sphinxql>select id, j from test order by j.name desc, j.gid asc</sphinxql>
+<!-- json.field via SphinxQL -->
+<sphinxql>select id, j.uid, j.name from loc_field where j.uid>250</sphinxql>
+<sphinxql>select id, j.uid, j.name from loc_field order by j.name asc, j.gid desc</sphinxql>
+<sphinxql>select id, j.name, j.uid from dist_field order by j.name desc, j.gid asc</sphinxql>
+<sphinxql>select id, j.name, j.34, j.179, j.uid, j.sv,  j.t6, j. f2, j.f1 from dist_field </sphinxql>
+<!-- json.field case -->
+<sphinxql>select id, j.Attr as j1, j.aTTr j2, j.Str as j3, j.STR j4 from json_case</sphinxql>
+<sphinxql>select id, j.Attr, j.aTTr, j.Str, j.STR from json_case where j.Attr>100</sphinxql>
+<sphinxql>select id, j.Attr, j.aTTr, j.Str, j.STR from json_case where j.aTTr&lt;100</sphinxql>
+<sphinxql>select id, j.Attr, j.aTTr, j.Str, j.STR from json_case where j.Str='nope'</sphinxql>
+<sphinxql>select id, j.Attr, j.aTTr, j.Str, j.STR from json_case where j.STR='yep'</sphinxql>
+<sphinxql>select id, count(*) c, j.Attr, j.aTTr, j.Str, j.STR from json_case group by j.Attr</sphinxql>
+<sphinxql>select id, count(*) c, j.Attr, j.aTTr, j.Str, j.STR from json_case group by j.aTTr</sphinxql>
+<sphinxql>select id, count(*) c, j.Attr, j.aTTr, j.Str, j.STR from json_case group by j.Str</sphinxql>
+<sphinxql>select id, count(*) c, j.Attr, j.aTTr, j.Str, j.STR from json_case group by j.STR</sphinxql>
+<sphinxql>select id, j.Attr, j.aTTr, j.Str, j.STR from json_case order by j.Attr asc, id desc</sphinxql>
+<sphinxql>select id, j.Attr, j.aTTr, j.Str, j.STR from json_case order by j.aTTr desc, id desc</sphinxql>
+<sphinxql>select id, j.Attr, j.aTTr, j.Str, j.STR from json_case order by j.Str asc, id desc</sphinxql>
+<sphinxql>select id, j.Attr, j.aTTr, j.Str, j.STR from json_case order by j.STR desc, id desc</sphinxql>
+<!-- json vs rt -->
+<sphinxql>insert into rt (id, title, data) values (1, 'title1','{attr1:10, attr2:"test1"}')</sphinxql>
+<sphinxql>insert into rt (id, title, data) values (2, 'title2','{attr1:20, attr2:"test2"}')</sphinxql>
+<sphinxql>insert into rt (id, title, data) values (3, 'title3','{attr1:30, attr2:"test3"}')</sphinxql>
+<sphinxql>select * from rt</sphinxql>
+<sphinxql>select * from rt where data.attr1=20</sphinxql>
+<sphinxql>select * from rt group by data.attr1</sphinxql>
+<sphinxql>replace into rt (id, data) values (3, '{attr1:100, attr2:"replaced", new_attr:"text"}')</sphinxql>
+<sphinxql>select * from rt</sphinxql>
+<sphinxql>select * from rt group by data.new_attr</sphinxql>
+</sphqueries>
+
+</test>

@@ -1,10 +1,10 @@
 //
-// $Id: sphinxutils.cpp 3788 2013-04-08 08:57:12Z kevg $
+// $Id: sphinxutils.cpp 3701 2013-02-20 18:10:18Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -18,6 +18,7 @@
 
 #include "sphinx.h"
 #include "sphinxutils.h"
+#include "sphinxint.h"
 #include <ctype.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -33,9 +34,12 @@
 #else
 #include <sys/wait.h>
 #include <signal.h>
+#include <glob.h>
 #endif
 
-/////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+// STRING FUNCTIONS
+//////////////////////////////////////////////////////////////////////////
 
 static char * ltrim ( char * sLine )
 {
@@ -60,9 +64,138 @@ static char * trim ( char * sLine )
 	return ltrim ( rtrim ( sLine ) );
 }
 
+
+void sphSplit ( CSphVector<CSphString> & dOut, const char * sIn )
+{
+	if ( !sIn )
+		return;
+
+	const char * p = (char*)sIn;
+	while ( *p )
+	{
+		// skip non-alphas
+		while ( (*p) && !sphIsAlpha(*p) )
+			p++;
+		if ( !(*p) )
+			break;
+
+		// this is my next token
+		assert ( sphIsAlpha(*p) );
+		const char * sNext = p;
+		while ( sphIsAlpha(*p) )
+			p++;
+		if ( sNext!=p )
+			dOut.Add().SetBinary ( sNext, p-sNext );
+	}
+}
+
+
+bool sphWildcardMatch ( const char * sString, const char * sPattern )
+{
+	if ( !sString || !sPattern )
+		return false;
+
+	const char * s = sString;
+	const char * p = sPattern;
+	while ( *s )
+	{
+		switch ( *p )
+		{
+		case '\\':
+			// escaped char, strict match the next one literally
+			p++;
+			if ( *s++!=*p++ )
+				return false;
+			break;
+
+		case '?':
+			// match any character
+			s++;
+			p++;
+			break;
+
+		case '%':
+			// gotta match either 0 or 1 characters
+			// well, lets look ahead and see what we need to match next
+			p++;
+
+			// just a shortcut, %* can be folded to just *
+			if ( *p=='*' )
+				break;
+
+			// plain char after a hash? check the non-ambiguous cases
+			if ( !sphIsWild(*p) )
+			{
+				if ( s[0]!=*p )
+				{
+					// hash does not match 0 chars
+					// check if we can match 1 char, or it's a no-match
+					if ( s[1]!=*p )
+						return false;
+					s++;
+					break;
+				} else
+				{
+					// hash matches 0 chars
+					// check if we could ambiguously match 1 char too, though
+					if ( s[1]!=*p )
+						break;
+					// well, fall through to "scan both options" route
+				}
+			}
+
+			// could not decide yet
+			// so just recurse both options
+			if ( sphWildcardMatch ( s, p ) )
+				return true;
+			if ( sphWildcardMatch ( s+1, p ) )
+				return true;
+			return false;
+
+		case '*':
+			// skip all the extra stars and question marks
+			for ( p++; *p=='*' || *p=='?'; p++ )
+				if ( *p=='?' )
+				{
+					s++;
+					if ( !*s )
+						return p[1]=='\0';
+				}
+
+				// short-circuit trailing star
+				if ( !*p )
+					return true;
+
+				// so our wildcard expects a real character
+				// scan forward for its occurrences and recurse
+				for ( ;; )
+				{
+					if ( !*s )
+						return false;
+					if ( *s==*p && sphWildcardMatch ( s+1, p+1 ) )
+						return true;
+					s++;
+				}
+				break;
+
+		default:
+			// default case, strict match
+			if ( *s++!=*p++ )
+				return false;
+			break;
+		}
+	}
+
+	// string done
+	// pattern should be either done too, or a trailing star, or a trailing hash
+	return p[0]=='\0'
+		|| ( p[0]=='*' && p[1]=='\0' )
+		|| ( p[0]=='%' && p[1]=='\0' );
+}
+
 //////////////////////////////////////////////////////////////////////////
 
-int CSphConfigSection::GetSize ( const char * sKey, int iDefault ) const
+int64_t CSphConfigSection::GetSize64 ( const char * sKey, int64_t iDefault ) const
 {
 	CSphVariant * pEntry = (*this)( sKey );
 	if ( !pEntry )
@@ -95,18 +228,24 @@ int CSphConfigSection::GetSize ( const char * sKey, int iDefault ) const
 	if ( !*sErr )
 	{
 		iRes *= iScale;
-		if ( iRes>INT_MAX )
-		{
-			sphWarning ( "'%s = %s' clamped to INT_MAX", sKey, pEntry->cstr() );
-			iRes = INT_MAX;
-		}
 	} else
 	{
 		sphWarning ( "'%s = %s' parse error '%s'", sKey, pEntry->cstr(), sErr );
 		iRes = iDefault;
 	}
 
-	return (int)iRes;
+	return iRes;
+}
+
+int CSphConfigSection::GetSize ( const char * sKey, int iDefault ) const
+{
+	int64_t iSize = GetSize64 ( sKey, iDefault );
+	if ( iSize>INT_MAX )
+	{
+		iSize = INT_MAX;
+		sphWarning ( "'%s = "INT64_FMT"' clamped to %d(INT_MAX)", sKey, iSize, INT_MAX );
+	}
+	return (int)iSize;
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -117,7 +256,8 @@ int CSphConfigSection::GetSize ( const char * sKey, int iDefault ) const
 enum
 {
 	KEY_DEPRECATED		= 1UL<<0,
-	KEY_LIST			= 1UL<<1
+	KEY_LIST			= 1UL<<1,
+	KEY_HIDDEN			= 1UL<<2,
 };
 
 /// key descriptor for validation purposes
@@ -141,9 +281,9 @@ static KeyDesc_t g_dKeysSource[] =
 	{ "sql_port",				0, NULL },
 	{ "sql_sock",				0, NULL },
 	{ "mysql_connect_flags",	0, NULL },
-	{ "mysql_ssl_key",			0, NULL },
-	{ "mysql_ssl_cert",			0, NULL },
-	{ "mysql_ssl_ca",			0, NULL },
+	{ "mysql_ssl_key",			0, NULL }, // check.pl mysql_ssl
+	{ "mysql_ssl_cert",			0, NULL }, // check.pl mysql_ssl
+	{ "mysql_ssl_ca",			0, NULL }, // check.pl mysql_ssl
 	{ "mssql_winauth",			0, NULL },
 	{ "mssql_unicode",			0, NULL },
 	{ "sql_query_pre",			KEY_LIST, NULL },
@@ -174,6 +314,7 @@ static KeyDesc_t g_dKeysSource[] =
 	{ "xmlpipe_attr_multi_64",	KEY_LIST, NULL },
 	{ "xmlpipe_attr_string",	KEY_LIST, NULL },
 	{ "xmlpipe_attr_wordcount",	KEY_LIST, NULL },
+	{ "xmlpipe_attr_json",		KEY_LIST, NULL },
 	{ "xmlpipe_field_string",	KEY_LIST, NULL },
 	{ "xmlpipe_field_wordcount",	KEY_LIST, NULL },
 	{ "xmlpipe_fixup_utf8",		0, NULL },
@@ -191,6 +332,10 @@ static KeyDesc_t g_dKeysSource[] =
 	{ "sql_field_str2wordcount",	KEY_LIST, NULL },
 	{ "sql_file_field",			KEY_LIST, NULL },
 	{ "sql_column_buffers",		0, NULL },
+	{ "sql_attr_json",			KEY_LIST, NULL },
+	{ "hook_connect",			KEY_HIDDEN, NULL },
+	{ "hook_query_range",		KEY_HIDDEN, NULL },
+	{ "hook_post_index",		KEY_HIDDEN, NULL },
 	{ NULL,						0, NULL }
 };
 
@@ -205,13 +350,15 @@ static KeyDesc_t g_dKeysIndex[] =
 	{ "stopwords",				0, NULL },
 	{ "synonyms",				KEY_DEPRECATED, "exceptions" },
 	{ "exceptions",				0, NULL },
-	{ "wordforms",				0, NULL },
+	{ "wordforms",				KEY_LIST, NULL },
+	{ "embedded_limit",			0, NULL },
 	{ "min_word_len",			0, NULL },
 	{ "charset_type",			0, NULL },
 	{ "charset_table",			0, NULL },
 	{ "ignore_chars",			0, NULL },
 	{ "min_prefix_len",			0, NULL },
 	{ "min_infix_len",			0, NULL },
+	{ "max_substring_len",		0, NULL },
 	{ "prefix_fields",			0, NULL },
 	{ "infix_fields",			0, NULL },
 	{ "enable_star",			0, NULL },
@@ -224,7 +371,9 @@ static KeyDesc_t g_dKeysIndex[] =
 	{ "local",					KEY_LIST, NULL },
 	{ "agent",					KEY_LIST, NULL },
 	{ "agent_blackhole",		KEY_LIST, NULL },
+	{ "agent_persistent",		KEY_LIST, NULL },
 	{ "agent_connect_timeout",	0, NULL },
+	{ "ha_strategy",			0, NULL	},
 	{ "agent_query_timeout",	0, NULL },
 	{ "html_strip",				0, NULL },
 	{ "html_index_attrs",		0, NULL },
@@ -242,7 +391,7 @@ static KeyDesc_t g_dKeysIndex[] =
 	{ "blend_chars",			0, NULL },
 	{ "expand_keywords",		0, NULL },
 	{ "hitless_words",			0, NULL },
-	{ "hit_format",				0, NULL },
+	{ "hit_format",				KEY_HIDDEN, NULL },
 	{ "rt_field",				KEY_LIST, NULL },
 	{ "rt_attr_uint",			KEY_LIST, NULL },
 	{ "rt_attr_bigint",			KEY_LIST, NULL },
@@ -251,11 +400,19 @@ static KeyDesc_t g_dKeysIndex[] =
 	{ "rt_attr_string",			KEY_LIST, NULL },
 	{ "rt_attr_multi",			KEY_LIST, NULL },
 	{ "rt_attr_multi_64",		KEY_LIST, NULL },
+	{ "rt_attr_json",			KEY_LIST, NULL },
 	{ "rt_mem_limit",			0, NULL },
 	{ "dict",					0, NULL },
 	{ "index_sp",				0, NULL },
 	{ "index_zones",			0, NULL },
 	{ "blend_mode",				0, NULL },
+	{ "regexp_filter",			KEY_LIST, NULL },
+	{ "bigram_freq_words",		0, NULL },
+	{ "bigram_index",			0, NULL },
+	{ "index_field_lengths",	0, NULL },
+	{ "divide_remote_ranges",	KEY_HIDDEN, NULL },
+	{ "stopwords_unstemmed",	0, NULL },
+	{ "global_idf",				0, NULL },
 	{ NULL,						0, NULL }
 };
 
@@ -269,6 +426,11 @@ static KeyDesc_t g_dKeysIndexer[] =
 	{ "max_file_field_buffer",	0, NULL },
 	{ "write_buffer",			0, NULL },
 	{ "on_file_field_error",	0, NULL },
+	{ "on_json_attr_error",		0, NULL },
+	{ "json_autoconv_numbers",	0, NULL },
+	{ "json_autoconv_keynames",	0, NULL },
+	{ "lemmatizer_base",		0, NULL },
+	{ "lemmatizer_cache",		0, NULL },
 	{ NULL,						0, NULL }
 };
 
@@ -276,7 +438,7 @@ static KeyDesc_t g_dKeysIndexer[] =
 static KeyDesc_t g_dKeysSearchd[] =
 {
 	{ "address",				KEY_DEPRECATED, "listen" },
-	{ "port",					0, NULL },
+	{ "port",					KEY_DEPRECATED, "listen" },
 	{ "listen",					KEY_LIST, NULL },
 	{ "log",					0, NULL },
 	{ "query_log",				0, NULL },
@@ -302,7 +464,7 @@ static KeyDesc_t g_dKeysSearchd[] =
 	{ "subtree_docs_cache",		0, NULL },
 	{ "subtree_hits_cache",		0, NULL },
 	{ "workers",				0, NULL },
-	{ "prefork",				0, NULL },
+	{ "prefork",				KEY_HIDDEN, NULL },
 	{ "dist_threads",			0, NULL },
 	{ "binlog_flush",			0, NULL },
 	{ "binlog_path",			0, NULL },
@@ -318,6 +480,14 @@ static KeyDesc_t g_dKeysSearchd[] =
 	{ "collation_libc_locale",	0, NULL },
 	{ "watchdog",				0, NULL },
 	{ "prefork_rotation_throttle", 0, NULL },
+	{ "snippets_file_prefix",	0, NULL },
+	{ "sphinxql_state",			0, NULL },
+	{ "rt_merge_iops",			0, NULL },
+	{ "rt_merge_maxiosize",		0, NULL },
+	{ "ha_ping_interval",		0, NULL },
+	{ "ha_period_karma",		0, NULL },
+	{ "predicted_time_costs",	0, NULL },
+	{ "persistent_connections_limit",	0, NULL },
 	{ NULL,						0, NULL }
 };
 
@@ -426,7 +596,8 @@ bool CSphConfigParser::ValidateKey ( const char * sKey )
 	// warn about deprecate keys
 	if ( pDesc->m_iFlags & KEY_DEPRECATED )
 		if ( ++m_iWarnings<=WARNS_THRESH )
-			fprintf ( stdout, "WARNING: key '%s' is deprecated in %s line %d; use '%s' instead.\n", sKey, m_sFileName.cstr(), m_iLine, pDesc->m_sExtra );
+			fprintf ( stdout, "WARNING: key '%s' is deprecated in %s line %d; use '%s' instead.\n",
+				sKey, m_sFileName.cstr(), m_iLine, pDesc->m_sExtra );
 
 	// warn about list/non-list keys
 	if (!( pDesc->m_iFlags & KEY_LIST ))
@@ -442,13 +613,13 @@ bool CSphConfigParser::ValidateKey ( const char * sKey )
 
 #if !USE_WINDOWS
 
-bool TryToExec ( char * pBuffer, char * pEnd, const char * szFilename, CSphVector<char> & dResult, char * sError, int iErrorLen )
+bool CSphConfigParser::TryToExec ( char * pBuffer, char * pEnd, const char * szFilename, CSphVector<char> & dResult )
 {
 	int dPipe[2] = { -1, -1 };
 
 	if ( pipe ( dPipe ) )
 	{
-		snprintf ( sError, iErrorLen, "pipe() failed (error=%s)", strerror(errno) );
+		snprintf ( m_sError, sizeof ( m_sError ), "pipe() failed (error=%s)", strerror(errno) );
 		return false;
 	}
 
@@ -489,7 +660,7 @@ bool TryToExec ( char * pBuffer, char * pEnd, const char * szFilename, CSphVecto
 	} else
 		if ( iChild==-1 )
 		{
-			snprintf ( sError, iErrorLen, "fork failed: [%d] %s", errno, strerror(errno) );
+			snprintf ( m_sError, sizeof ( m_sError ), "fork failed: [%d] %s", errno, strerror(errno) );
 			return false;
 		}
 
@@ -530,7 +701,7 @@ bool TryToExec ( char * pBuffer, char * pEnd, const char * szFilename, CSphVecto
 
 		if ( iResult==-1 && errno!=EINTR )
 		{
-			snprintf ( sError, iErrorLen, "waitpid() failed: [%d] %s", errno, strerror(errno) );
+			snprintf ( m_sError, sizeof ( m_sError ), "waitpid() failed: [%d] %s", errno, strerror(errno) );
 			return false;
 		}
 	}
@@ -539,19 +710,19 @@ bool TryToExec ( char * pBuffer, char * pEnd, const char * szFilename, CSphVecto
 	if ( WIFEXITED ( iStatus ) && WEXITSTATUS ( iStatus ) )
 	{
 		// FIXME? read stderr and log that too
-		snprintf ( sError, iErrorLen, "error executing '%s' status = %d", pBuffer, WEXITSTATUS ( iStatus ) );
+		snprintf ( m_sError, sizeof ( m_sError ), "error executing '%s' status = %d", pBuffer, WEXITSTATUS ( iStatus ) );
 		return false;
 	}
 
 	if ( WIFSIGNALED ( iStatus ) )
 	{
-		snprintf ( sError, iErrorLen, "error executing '%s', killed by signal %d", pBuffer, WTERMSIG ( iStatus ) );
+		snprintf ( m_sError, sizeof ( m_sError ), "error executing '%s', killed by signal %d", pBuffer, WTERMSIG ( iStatus ) );
 		return false;
 	}
 
 	if ( iBytesRead < 0 )
 	{
-		snprintf ( sError, iErrorLen, "pipe read error: [%d] %s", errno, strerror(errno) );
+		snprintf ( m_sError, sizeof ( m_sError ), "pipe read error: [%d] %s", errno, strerror(errno) );
 		return false;
 	}
 
@@ -559,11 +730,6 @@ bool TryToExec ( char * pBuffer, char * pEnd, const char * szFilename, CSphVecto
 	dResult [iTotalRead] = '\0';
 
 	return true;
-}
-
-bool CSphConfigParser::TryToExec ( char * pBuffer, char * pEnd, const char * szFilename, CSphVector<char> & dResult )
-{
-	return ::TryToExec ( pBuffer, pEnd, szFilename, dResult, m_sError, sizeof(m_sError) );
 }
 #endif
 
@@ -716,7 +882,18 @@ bool CSphConfigParser::Parse ( const char * sFileName, const char * pBuffer )
 			if ( isspace(*p) )				continue;
 			if ( *p=='#' )					{ LOC_PUSH ( S_SKIP2NL ); continue; }
 			if ( !sToken[0] )				{ LOC_ERROR ( "internal error (empty token in S_TYPE)" ); }
-			if ( IsPlainSection(sToken) )	{ if ( !AddSection ( sToken, sToken ) ) break; sToken[0] = '\0'; LOC_POP (); LOC_PUSH ( S_SEC ); LOC_PUSH ( S_CHR ); iCh = '{'; LOC_BACK(); continue; }
+			if ( IsPlainSection(sToken) )
+			{
+				if ( !AddSection ( sToken, sToken ) )
+					break;
+				sToken[0] = '\0';
+				LOC_POP();
+				LOC_PUSH ( S_SEC );
+				LOC_PUSH ( S_CHR );
+				iCh = '{';
+				LOC_BACK();
+				continue;
+			}
 			if ( IsNamedSection(sToken) )	{ m_sSectionType = sToken; sToken[0] = '\0'; LOC_POP (); LOC_PUSH ( S_SECNAME ); LOC_BACK(); continue; }
 											LOC_ERROR2 ( "invalid section type '%s'", sToken );
 		}
@@ -877,7 +1054,7 @@ bool sphConfTokenizer ( const CSphConfigSection & hIndex, CSphTokenizerSettings 
 	}
 
 	tSettings.m_sCaseFolding = hIndex.GetStr ( "charset_table" );
-	tSettings.m_iMinWordLen = Max ( hIndex.GetInt ( "min_word_len" ), 0 );
+	tSettings.m_iMinWordLen = Max ( hIndex.GetInt ( "min_word_len", 1 ), 1 );
 	tSettings.m_sNgramChars = hIndex.GetStr ( "ngram_chars" );
 	tSettings.m_sSynonymsFile = hIndex.GetStr ( "exceptions" ); // new option name
 	if ( tSettings.m_sSynonymsFile.IsEmpty() )
@@ -898,8 +1075,73 @@ void sphConfDictionary ( const CSphConfigSection & hIndex, CSphDictSettings & tS
 {
 	tSettings.m_sMorphology = hIndex.GetStr ( "morphology" );
 	tSettings.m_sStopwords = hIndex.GetStr ( "stopwords" );
-	tSettings.m_sWordforms = hIndex.GetStr ( "wordforms" );
 	tSettings.m_iMinStemmingLen = hIndex.GetInt ( "min_stemming_len", 1 );
+	tSettings.m_bStopwordsUnstemmed = hIndex.GetInt ( "stopwords_unstemmed" )!=0;
+
+	for ( CSphVariant * pWordforms = hIndex("wordforms"); pWordforms; pWordforms = pWordforms->m_pNext )
+	{
+		if ( !pWordforms->cstr() || !*pWordforms->cstr() )
+			continue;
+
+		CSphVector<CSphString> dFilesFound;
+
+#if USE_WINDOWS
+		WIN32_FIND_DATA tFFData;
+		const char * sLastSlash = NULL;
+		for ( const char * s = pWordforms->cstr(); *s; s++ )
+			if ( *s=='/' || *s=='\\' )
+				sLastSlash = s;
+
+		CSphString sPath;
+		if ( sLastSlash )
+			sPath = pWordforms->SubString ( 0, sLastSlash - pWordforms->cstr() + 1 );
+
+		HANDLE hFind = FindFirstFile ( pWordforms->cstr(), &tFFData );
+		if ( hFind!=INVALID_HANDLE_VALUE )
+		{
+			if ( !sPath.IsEmpty() )
+			{
+				dFilesFound.Resize ( dFilesFound.GetLength()+1 );
+				dFilesFound.Last().SetSprintf ( "%s%s", sPath.cstr(), tFFData.cFileName );
+			} else
+				dFilesFound.Add ( tFFData.cFileName );
+
+			while ( FindNextFile ( hFind, &tFFData )!=0 )
+			{
+				if ( !sPath.IsEmpty() )
+				{
+					dFilesFound.Resize ( dFilesFound.GetLength()+1 );
+					dFilesFound.Last().SetSprintf ( "%s%s", sPath.cstr(), tFFData.cFileName );
+				} else
+					dFilesFound.Add ( tFFData.cFileName );
+			}
+
+			FindClose ( hFind );
+		}
+#else
+		glob_t tGlob;
+		glob ( pWordforms->cstr(), GLOB_MARK | GLOB_NOSORT, NULL, &tGlob );
+		if ( tGlob.gl_pathv )
+			for ( int i = 0; i < (int)tGlob.gl_pathc; i++ )
+			{
+				const char * szPathName = tGlob.gl_pathv[i];
+				if ( !szPathName )
+					continue;
+
+				int iLen = strlen ( szPathName );
+				if ( !iLen || szPathName[iLen-1]=='/' )
+					continue;
+
+				dFilesFound.Add ( szPathName );
+			}
+
+		globfree ( &tGlob );
+#endif
+
+		dFilesFound.Uniq();
+		ARRAY_FOREACH ( i, dFilesFound )
+			tSettings.m_dWordforms.Add ( dFilesFound[i] );
+	}
 
 	if ( hIndex("dict") )
 	{
@@ -911,16 +1153,38 @@ void sphConfDictionary ( const CSphConfigSection & hIndex, CSphDictSettings & tS
 	}
 }
 
+#if USE_RE2
+bool sphConfFieldFilter ( const CSphConfigSection & hIndex, CSphFieldFilterSettings & tSettings, CSphString & )
+{
+	// regular expressions
+	tSettings.m_dRegexps.Resize ( 0 );
+	for ( CSphVariant * pFilter = hIndex("regexp_filter"); pFilter; pFilter = pFilter->m_pNext )
+		tSettings.m_dRegexps.Add ( pFilter->cstr() );
+
+	return tSettings.m_dRegexps.GetLength() > 0;
+}
+#else
+bool sphConfFieldFilter ( const CSphConfigSection & hIndex, CSphFieldFilterSettings &, CSphString & sError )
+{
+	if ( hIndex ( "regexp_filter" ) )
+		sError.SetSprintf ( "regexp_filter specified but no regexp support compiled" );
+
+	return false;
+}
+#endif
 
 bool sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSettings, CSphString & sError )
 {
 	// misc settings
 	tSettings.m_iMinPrefixLen = Max ( hIndex.GetInt ( "min_prefix_len" ), 0 );
 	tSettings.m_iMinInfixLen = Max ( hIndex.GetInt ( "min_infix_len" ), 0 );
+	tSettings.m_iMaxSubstringLen = Max ( hIndex.GetInt ( "max_substring_len" ), 0 );
 	tSettings.m_iBoundaryStep = Max ( hIndex.GetInt ( "phrase_boundary_step" ), -1 );
 	tSettings.m_bIndexExactWords = hIndex.GetInt ( "index_exact_words" )!=0;
 	tSettings.m_iOvershortStep = Min ( Max ( hIndex.GetInt ( "overshort_step", 1 ), 0 ), 1 );
 	tSettings.m_iStopwordStep = Min ( Max ( hIndex.GetInt ( "stopword_step", 1 ), 0 ), 1 );
+	tSettings.m_iEmbeddedLimit = hIndex.GetSize ( "embedded_limit", 16384 );
+	tSettings.m_bIndexFieldLens = hIndex.GetInt ( "index_field_lengths" )!=0;
 
 	// prefix/infix fields
 	CSphString sFields;
@@ -963,6 +1227,31 @@ bool sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSetti
 		return false;
 	}
 
+	if ( tSettings.m_iMaxSubstringLen && tSettings.m_iMaxSubstringLen<tSettings.m_iMinInfixLen )
+	{
+		sError.SetSprintf ( "max_substring_len=%d is less than min_infix_len=%d", tSettings.m_iMaxSubstringLen, tSettings.m_iMinInfixLen );
+		return false;
+	}
+
+	if ( tSettings.m_iMaxSubstringLen && tSettings.m_iMaxSubstringLen<tSettings.m_iMinPrefixLen )
+	{
+		sError.SetSprintf ( "max_substring_len=%d is less than min_prefix_len=%d", tSettings.m_iMaxSubstringLen, tSettings.m_iMinPrefixLen );
+		return false;
+	}
+
+	bool bWordDict = ( strcmp ( hIndex.GetStr ( "dict", "" ), "keywords" )==0 );
+	if ( hIndex("type") && hIndex["type"]=="rt" && ( tSettings.m_iMinInfixLen>0 || tSettings.m_iMinPrefixLen>0 ) && !bWordDict )
+	{
+		sError.SetSprintf ( "RT indexes support prefixes and infixes with only dict=keywords" );
+		return false;
+	}
+
+	if ( bWordDict && tSettings.m_iMaxSubstringLen>0 )
+	{
+		sError.SetSprintf ( "max_substring_len can not be used with dict=keywords" );
+		return false;
+	}
+
 	// html stripping
 	if ( hIndex ( "html_strip" ) )
 	{
@@ -980,6 +1269,12 @@ bool sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSetti
 		else if ( hIndex["docinfo"]=="extern" )	tSettings.m_eDocinfo = SPH_DOCINFO_EXTERN;
 		else
 			fprintf ( stdout, "WARNING: unknown docinfo=%s, defaulting to extern\n", hIndex["docinfo"].cstr() );
+
+		if ( tSettings.m_eDocinfo==SPH_DOCINFO_INLINE && tSettings.m_bIndexFieldLens )
+		{
+			sError.SetSprintf ( "index_field_lengths must be disabled for docinfo=inline" );
+			return false;
+		}
 	}
 
 	// hit format
@@ -1011,6 +1306,42 @@ bool sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSetti
 	tSettings.m_bIndexSP = ( hIndex.GetInt ( "index_sp" )!=0 );
 	tSettings.m_sZones = hIndex.GetStr ( "index_zones" );
 
+	// bigrams
+	tSettings.m_eBigramIndex = SPH_BIGRAM_NONE;
+	if ( hIndex("bigram_index") )
+	{
+		CSphString & s = hIndex["bigram_index"];
+		s.ToLower();
+		if ( s=="all" )
+			tSettings.m_eBigramIndex = SPH_BIGRAM_ALL;
+		else if ( s=="first_freq" )
+			tSettings.m_eBigramIndex = SPH_BIGRAM_FIRSTFREQ;
+		else if ( s=="both_freq" )
+			tSettings.m_eBigramIndex = SPH_BIGRAM_BOTHFREQ;
+		else
+		{
+			sError.SetSprintf ( "unknown bigram_index=%s (must be all, first_freq, or both_freq)", s.cstr() );
+			return false;
+		}
+	}
+
+	tSettings.m_sBigramWords = hIndex.GetStr ( "bigram_freq_words" );
+	tSettings.m_sBigramWords.Trim();
+
+	bool bEmptyOk = tSettings.m_eBigramIndex==SPH_BIGRAM_NONE || tSettings.m_eBigramIndex==SPH_BIGRAM_ALL;
+	if ( bEmptyOk!=tSettings.m_sBigramWords.IsEmpty() )
+	{
+		sError.SetSprintf ( "bigram_index=%s, bigram_freq_words must%s be empty", hIndex["bigram_index"].cstr(),
+			bEmptyOk ? "" : " not" );
+		return false;
+	}
+
+	// aot
+	CSphVector<CSphString> dMorphs;
+	sphSplit ( dMorphs, hIndex.GetStr ( "morphology" ) );
+
+	tSettings.m_bAotFilter = ARRAY_ANY ( tSettings.m_bAotFilter, dMorphs, dMorphs[_any]=="lemmatize_ru_all" );
+
 	// all good
 	return true;
 }
@@ -1026,7 +1357,7 @@ bool sphFixupIndexSettings ( CSphIndex * pIndex, const CSphConfigSection & hInde
 		if ( !sphConfTokenizer ( hIndex, tSettings, sError ) )
 			return false;
 
-		ISphTokenizer * pTokenizer = ISphTokenizer::Create ( tSettings, sError );
+		ISphTokenizer * pTokenizer = ISphTokenizer::Create ( tSettings, NULL, sError );
 		if ( !pTokenizer )
 			return false;
 
@@ -1040,19 +1371,23 @@ bool sphFixupIndexSettings ( CSphIndex * pIndex, const CSphConfigSection & hInde
 		if ( pIndex->m_bId32to64 )
 			tSettings.m_bCrc32 = true;
 		sphConfDictionary ( hIndex, tSettings );
-		CSphDict * pDict = sphCreateDictionaryCRC ( tSettings, pIndex->GetTokenizer (), sError, pIndex->GetName() );
+		CSphDict * pDict = sphCreateDictionaryCRC ( tSettings, NULL, pIndex->GetTokenizer (), pIndex->GetName(), sError );
 		if ( !pDict )
+		{
+			sphWarning ( "index '%s': %s", pIndex->GetName(), sError.cstr() );
 			return false;
+		}
 
 		pIndex->SetDictionary ( pDict );
 	}
 
 	if ( bTokenizerSpawned )
 	{
-		ISphTokenizer * pTokenizer = pIndex->LeakTokenizer ();
-		ISphTokenizer * pTokenFilter = ISphTokenizer::CreateTokenFilter ( pTokenizer, pIndex->GetDictionary ()->GetMultiWordforms () );
-		pIndex->SetTokenizer ( pTokenFilter ? pTokenFilter : pTokenizer );
+		pIndex->SetTokenizer ( ISphTokenizer::CreateMultiformFilter ( pIndex->LeakTokenizer(),
+			pIndex->GetDictionary()->GetMultiWordforms () ) );
 	}
+
+	pIndex->SetupQueryTokenizer();
 
 	if ( !pIndex->IsStripperInited () )
 	{
@@ -1069,8 +1404,27 @@ bool sphFixupIndexSettings ( CSphIndex * pIndex, const CSphConfigSection & hInde
 		pIndex->Setup ( tSettings );
 	}
 
-	pIndex->PostSetup();
+	// exact words fixup, needed for RT indexes
+	// cloned from indexer, remove somehow?
+	CSphDict * pDict = pIndex->GetDictionary();
+	assert ( pDict );
 
+	CSphIndexSettings tSettings = pIndex->GetSettings ();
+	if ( tSettings.m_bIndexExactWords && !pDict->HasMorphology() )
+	{
+		tSettings.m_bIndexExactWords = false;
+		pIndex->Setup ( tSettings );
+		fprintf ( stdout, "WARNING: no morphology, index_exact_words=1 has no effect, ignoring\n" );
+	}
+
+	if ( pDict->GetSettings().m_bWordDict && pDict->HasMorphology() && tSettings.m_iMinPrefixLen && !tSettings.m_bIndexExactWords )
+	{
+		tSettings.m_bIndexExactWords = true;
+		pIndex->Setup ( tSettings );
+		fprintf ( stdout, "WARNING: dict=keywords and prefixes and morphology enabled, forcing index_exact_words=1\n" );
+	}
+
+	pIndex->PostSetup();
 	return true;
 }
 
@@ -1118,7 +1472,26 @@ const char * sphLoadConfig ( const char * sOptConfig, bool bQuiet, CSphConfigPar
 
 //////////////////////////////////////////////////////////////////////////
 
-static SphLogger_fn g_pLogger = NULL;
+static void StdoutLogger ( ESphLogLevel eLevel, const char * sFmt, va_list ap )
+{
+	if ( eLevel>=SPH_LOG_DEBUG )
+		return;
+
+	switch ( eLevel )
+	{
+	case SPH_LOG_FATAL: fprintf ( stdout, "FATAL: " ); break;
+	case SPH_LOG_WARNING: fprintf ( stdout, "WARNING: " ); break;
+	case SPH_LOG_INFO: fprintf ( stdout, "WARNING: " ); break;
+	case SPH_LOG_DEBUG: // yes, I know that this branch will never execute because of the condition above.
+	case SPH_LOG_VERBOSE_DEBUG:
+	case SPH_LOG_VERY_VERBOSE_DEBUG: fprintf ( stdout, "DEBUG: " ); break;
+	}
+
+	vfprintf ( stdout, sFmt, ap );
+	fprintf ( stdout, "\n" );
+}
+
+static SphLogger_fn g_pLogger = &StdoutLogger;
 
 inline void Log ( ESphLogLevel eLevel, const char * sFmt, va_list ap )
 {
@@ -1326,6 +1699,8 @@ static int sphVSprintf ( char * pOutput, const char * sFmt, va_list ap )
 		case 's': // string
 			{
 				const char * pValue = va_arg ( ap, const char * );
+				if ( !pValue )
+					pValue = "(null)";
 				int iValue = strlen ( pValue );
 
 				if ( iWidth && bHeadingSpace )
@@ -1406,10 +1781,55 @@ void sphSafeInfo ( int iFD, const char * sFmt, ... )
 }
 
 
+int sphSafeInfo ( char * pBuf, const char * sFmt, ... )
+{
+	va_list ap;
+	va_start ( ap, sFmt );
+	int iLen = sphVSprintf ( pBuf, sFmt, ap ); // FIXME! make this vsnprintf
+	va_end ( ap );
+	return iLen;
+}
+
+
 #if !USE_WINDOWS
 
 #define SPH_BACKTRACE_ADDR_COUNT 128
+#define SPH_BT_BINARY_NAME 2
+#define SPH_BT_ADDRS 3
 static void * g_pBacktraceAddresses [SPH_BACKTRACE_ADDR_COUNT];
+static char g_pBacktrace[4096];
+static const char g_sSourceTail[] = "> source.txt\n";
+static const char * g_pArgv[128] = { "addr2line", "-e", "./searchd", "0x0", NULL };
+static CSphString g_sBinaryName;
+
+#if HAVE_BACKTRACE & HAVE_BACKTRACE_SYMBOLS
+const char * DoBacktrace ( int iDepth, int iSkip )
+{
+	if ( !iDepth || iDepth > SPH_BACKTRACE_ADDR_COUNT )
+		iDepth = SPH_BACKTRACE_ADDR_COUNT;
+	iDepth = backtrace ( g_pBacktraceAddresses, iDepth );
+	char ** ppStrings = backtrace_symbols ( g_pBacktraceAddresses, iDepth );
+	if ( !ppStrings )
+		return NULL;
+	char * pDst = g_pBacktrace;
+	for ( int i=iSkip; i<iDepth; ++i )
+	{
+		const char * pStr = ppStrings[i];
+		do
+			*pDst++ = *pStr++;
+		while (*pStr);
+		*pDst++='\n';
+	}
+	*pDst = '\0';
+	free ( ppStrings );
+	return g_pBacktrace; ///< sorry, no backtraces on Windows...
+}
+#else
+const char * DoBacktrace ( int iDepth, int iSkip )
+{
+	return NULL; ///< sorry, no backtraces on Windows...
+}
+#endif
 
 void sphBacktrace ( int iFD, bool bSafe )
 {
@@ -1419,6 +1839,10 @@ void sphBacktrace ( int iFD, bool bSafe )
 	sphSafeInfo ( iFD, "-------------- backtrace begins here ---------------" );
 #ifdef COMPILER
 	sphSafeInfo ( iFD, "Program compiled with " COMPILER );
+#endif
+
+#ifdef CONFIGURE_FLAGS
+	sphSafeInfo ( iFD, "Configured with flags: "CONFIGURE_FLAGS );
 #endif
 
 #ifdef OS_UNAME
@@ -1438,7 +1862,7 @@ void sphBacktrace ( int iFD, bool bSafe )
 
 	while ( pMyStack && !bSafe )
 	{
-		sphSafeInfo ( iFD, "begin of manual backtrace:" );
+		sphSafeInfo ( iFD, "Trying manual backtrace:" );
 		BYTE ** pFramePointer = NULL;
 
 		int iFrameCount = 0;
@@ -1460,7 +1884,7 @@ void sphBacktrace ( int iFD, bool bSafe )
 
 		if ( !pFramePointer )
 		{
-			sphSafeInfo ( iFD, "Frame pointer is null, backtrace failed (did you build with -fomit-frame-pointer?)" );
+			sphSafeInfo ( iFD, "Frame pointer is null, manual backtrace failed (did you build with -fomit-frame-pointer?)" );
 			break;
 		}
 
@@ -1468,11 +1892,12 @@ void sphBacktrace ( int iFD, bool bSafe )
 		{
 			int iRound = Min ( 65536, iStackSize );
 			pMyStack = (void *) ( ( (size_t) &pFramePointer + iRound ) & ~(size_t)65535 );
-			sphSafeInfo ( iFD, "Something wrong with thread stack, backtrace may be incorrect (fp=%p)", pFramePointer );
+			sphSafeInfo ( iFD, "Something wrong with thread stack, manual backtrace may be incorrect (fp=0x%p)", pFramePointer );
 
 			if ( pFramePointer > (BYTE**) pMyStack || pFramePointer < (BYTE**) pMyStack - iStackSize )
 			{
-				sphSafeInfo ( iFD, "Wrong stack limit or frame pointer, backtrace failed (fp=%p, stack=%p, stacksize=%d)", pFramePointer, pMyStack, iStackSize );
+				sphSafeInfo ( iFD, "Wrong stack limit or frame pointer, manual backtrace failed (fp=0x%p, stack=0x%p, stacksize=0x%x)",
+					pFramePointer, pMyStack, iStackSize );
 				break;
 			}
 		}
@@ -1483,7 +1908,7 @@ void sphBacktrace ( int iFD, bool bSafe )
 		while ( pFramePointer < (BYTE**) pMyStack )
 		{
 			pNewFP = (BYTE**) *pFramePointer;
-			sphSafeInfo ( iFD, "%p", iFrameCount==iReturnFrameCount? *(pFramePointer + SIGRETURN_FRAME_OFFSET) : *(pFramePointer + 1) );
+			sphSafeInfo ( iFD, "0x%p", iFrameCount==iReturnFrameCount ? *(pFramePointer + SIGRETURN_FRAME_OFFSET) : *(pFramePointer + 1) );
 
 			bOk = pNewFP > pFramePointer;
 			if ( !bOk ) break;
@@ -1493,34 +1918,133 @@ void sphBacktrace ( int iFD, bool bSafe )
 		}
 
 		if ( !bOk )
-			sphSafeInfo ( iFD, "Something wrong in frame pointers, backtrace failed (fp=%p)", pNewFP );
+			sphSafeInfo ( iFD, "Something wrong in frame pointers, manual backtrace failed (fp=%p)", pNewFP );
 
 		break;
 	}
 
+	int iDepth = 0;
 #if HAVE_BACKTRACE
-	sphSafeInfo ( iFD, "begin of system backtrace:" );
-	int iDepth = backtrace ( g_pBacktraceAddresses, SPH_BACKTRACE_ADDR_COUNT );
+	sphSafeInfo ( iFD, "Trying system backtrace:" );
+	iDepth = backtrace ( g_pBacktraceAddresses, SPH_BACKTRACE_ADDR_COUNT );
+	if ( iDepth>0 )
+		bOk = true;
 #if HAVE_BACKTRACE_SYMBOLS
 	sphSafeInfo ( iFD, "begin of system symbols:" );
 	backtrace_symbols_fd ( g_pBacktraceAddresses, iDepth, iFD );
 #elif !HAVE_BACKTRACE_SYMBOLS
 	sphSafeInfo ( iFD, "begin of manual symbols:" );
-	for ( int i=0; i<Depth; i++ )
+	for ( int i=0; i<iDepth; i++ )
 		sphSafeInfo ( iFD, "%p", g_pBacktraceAddresses[i] );
 #endif // HAVE_BACKTRACE_SYMBOLS
 #endif // !HAVE_BACKTRACE
 
+	sphSafeInfo ( iFD, "-------------- backtrace ends here ---------------" );
+
 	if ( bOk )
 		sphSafeInfo ( iFD, "Backtrace looks OK. Now you have to do following steps:\n"
-							"  1. Run the command over the crashed binary (for example, 'indexer'):\n"
-							"     nm -n indexer > indexer.sym\n"
+							"  1. Run the command over the crashed binary (for example, 'searchd'):\n"
+							"     nm -n searchd > searchd.sym\n"
 							"  2. Attach the binary, generated .sym and the text of backtrace (see above) to the bug report.\n"
 							"Also you can read the section about resolving backtraces in the documentation.");
-	sphSafeInfo ( iFD, "-------------- backtrace ends here ---------------" );
+
+	// convert all BT addresses to source code lines
+	int iCount = Min ( iDepth, (int)( sizeof(g_pArgv)/sizeof(g_pArgv[0]) - SPH_BT_ADDRS - 1 ) );
+	sphSafeInfo ( iFD, "--- BT to source lines (depth %d): ---", iCount );
+	char * pCur = g_pBacktrace;
+	for ( int i=0; i<iCount; i++ )
+	{
+		// early our on strings buffer overrun
+		if ( pCur>=g_pBacktrace+sizeof(g_pBacktrace)-48 )
+		{
+			iCount = i;
+			break;
+		}
+		g_pArgv[i+SPH_BT_ADDRS] = pCur;
+		pCur += sphSafeInfo ( pCur, "0x%x", g_pBacktraceAddresses[i] );
+		*(pCur-1) = '\0'; // make null terminated string from EOL string
+	}
+	g_pArgv[iCount+SPH_BT_ADDRS] = NULL;
+
+	int iChild = fork();
+
+	if ( iChild==0 )
+	{
+		// map stdout to log file
+		if ( iFD!=1 )
+		{
+			close ( 1 );
+			dup2 ( iFD, 1 );
+		}
+
+		execvp ( g_pArgv[0], const_cast<char **> ( g_pArgv ) ); // using execvp instead execv to auto find addr2line in directories
+
+		// if we here - execvp failed, ask user to do conversion manually
+		sphSafeInfo ( iFD, "conversion failed (error '%s'):\n"
+			"  1. Run the command provided below over the crashed binary (for example, '%s'):\n"
+			"  2. Attach the source.txt to the bug report.", strerror ( errno ), g_pArgv[SPH_BT_BINARY_NAME] );
+
+		int iColumn = 0;
+		for ( int i=0; g_pArgv[i]!=NULL; i++ )
+		{
+			const char * s = g_pArgv[i];
+			while ( *s )
+				s++;
+			int iLen = s-g_pArgv[i];
+			sphWrite ( iFD, g_pArgv[i], iLen );
+			sphWrite ( iFD, " ", 1 );
+			int iWas = iColumn % 80;
+			iColumn += iLen;
+			int iNow = iColumn % 80;
+			if ( iNow<iWas )
+				sphWrite ( iFD, "\n", 1 );
+		}
+		sphWrite ( iFD, g_sSourceTail, sizeof(g_sSourceTail)-1 );
+		exit ( 1 );
+
+	} else
+	if ( iChild==-1 )
+	{
+		sphSafeInfo ( iFD, "fork for running execvp failed: [%d] %s", errno, strerror(errno) );
+		return;
+	}
+
+	int iStatus, iResult;
+	do
+	{
+		// can be interrupted by pretty much anything (e.g. SIGCHLD from other searchd children)
+		iResult = waitpid ( iChild, &iStatus, 0 );
+
+		// they say this can happen if child exited and SIGCHLD was ignored
+		// a cleaner one would be to temporary handle it here, but can we be bothered
+		if ( iResult==-1 && errno==ECHILD )
+		{
+			iResult = iChild;
+			iStatus = 0;
+		}
+
+		if ( iResult==-1 && errno!=EINTR )
+		{
+			sphSafeInfo ( iFD, "waitpid() failed: [%d] %s", errno, strerror(errno) );
+			return;
+		}
+	} while ( iResult!=iChild );
+
+	sphSafeInfo ( iFD, "--- BT to source lines finished ---" );
+}
+
+void sphBacktraceSetBinaryName ( const char * sName )
+{
+	g_sBinaryName = sName;
+	g_pArgv[SPH_BT_BINARY_NAME] = g_sBinaryName.cstr();
 }
 
 #else // USE_WINDOWS
+
+const char * DoBacktrace ( int, int )
+{
+	return NULL; ///< sorry, no backtraces on Windows...
+}
 
 void sphBacktrace ( EXCEPTION_POINTERS * pExc, const char * sFile )
 {
@@ -1549,6 +2073,10 @@ void sphBacktrace ( EXCEPTION_POINTERS * pExc, const char * sFile )
 		sphInfo ( "can't dump minidump" );
 }
 
+void sphBacktraceSetBinaryName ( const char * )
+{
+}
+
 #endif // USE_WINDOWS
 
 
@@ -1565,8 +2093,8 @@ void sphUnlinkIndex ( const char * sName, bool bForce )
 		return;
 
 	// FIXME! ext list must be in sync with sphinx.cpp, searchd.cpp
-	const int EXT_COUNT = 9;
-	const char * dCurExts[EXT_COUNT] = { ".sph", ".spa", ".spi", ".spd", ".spp", ".spm", ".spk", ".sps", ".mvp" };
+	const int EXT_COUNT = 10;
+	const char * dCurExts[EXT_COUNT] = { ".sph", ".spa", ".spi", ".spd", ".spp", ".spm", ".spk", ".sps", ".spe", ".mvp" };
 	char sFileName[SPH_MAX_FILENAME_LEN];
 
 	for ( int j=0; j<EXT_COUNT; j++ )
@@ -1579,6 +2107,24 @@ void sphUnlinkIndex ( const char * sName, bool bForce )
 }
 
 
+void sphCheckDuplicatePaths ( const CSphConfig & hConf )
+{
+	CSphOrderedHash < CSphString, CSphString, CSphStrHashFunc, 256 > hPaths;
+	hConf["index"].IterateStart ();
+	while ( hConf["index"].IterateNext() )
+	{
+		CSphConfigSection & hIndex = hConf["index"].IterateGet ();
+		if ( hIndex ( "path" ) )
+		{
+			const CSphString & sIndex = hConf["index"].IterateGetKey ();
+			if ( hPaths ( hIndex["path"] ) )
+				sphDie ( "duplicate paths: index '%s' has the same path as '%s'.\n", sIndex.cstr(), hPaths[hIndex["path"]].cstr() );
+			hPaths.Add ( sIndex, hIndex["path"] );
+		}
+	}
+}
+
+
 //
-// $Id: sphinxutils.cpp 3788 2013-04-08 08:57:12Z kevg $
+// $Id: sphinxutils.cpp 3701 2013-02-20 18:10:18Z deogar $
 //

@@ -32,21 +32,25 @@
      TOK_KEYWORD = 258,
      TOK_NEAR = 259,
      TOK_INT = 260,
-     TOK_FIELDLIMIT = 261,
-     TOK_ZONE = 262,
-     TOK_BEFORE = 263,
-     TOK_SENTENCE = 264,
-     TOK_PARAGRAPH = 265
+     TOK_FLOAT = 261,
+     TOK_FIELDLIMIT = 262,
+     TOK_ZONE = 263,
+     TOK_ZONESPAN = 264,
+     TOK_BEFORE = 265,
+     TOK_SENTENCE = 266,
+     TOK_PARAGRAPH = 267
    };
 #endif
 #define TOK_KEYWORD 258
 #define TOK_NEAR 259
 #define TOK_INT 260
-#define TOK_FIELDLIMIT 261
-#define TOK_ZONE 262
-#define TOK_BEFORE 263
-#define TOK_SENTENCE 264
-#define TOK_PARAGRAPH 265
+#define TOK_FLOAT 261
+#define TOK_FIELDLIMIT 262
+#define TOK_ZONE 263
+#define TOK_ZONESPAN 264
+#define TOK_BEFORE 265
+#define TOK_SENTENCE 266
+#define TOK_PARAGRAPH 267
 
 
 
@@ -59,6 +63,7 @@ typedef union YYSTYPE {
 	{
 		int			iValue;
 		int			iStrIndex;
+		float		fValue;
 	} tInt;
 	struct							// field spec
 	{

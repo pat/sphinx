@@ -1,10 +1,10 @@
 //
-// $Id: sphinxfilter.h 3087 2012-01-30 23:07:35Z shodan $
+// $Id: sphinxfilter.h 3701 2013-02-20 18:10:18Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -25,8 +25,12 @@ struct ISphFilter
 	virtual void SetRangeFloat ( float, float ) {}
 	virtual void SetValues ( const SphAttr_t *, int ) {}
 	virtual void SetMVAStorage ( const DWORD * ) {}
+	virtual void SetStringStorage ( const BYTE * ) {}
+	virtual void SetRefString ( const CSphString & ) {}
 
 	virtual ~ISphFilter () {}
+
+	virtual ISphFilter * Optimize() { return this; }
 
 	/// evaluate filter for a given match
 	/// returns true if match satisfies the filter critertia (i.e. in range, found in values list etc)
@@ -52,11 +56,11 @@ protected :
 	bool m_bUsesAttrs;
 };
 
-ISphFilter * sphCreateFilter ( const CSphFilterSettings &, const CSphSchema &, const DWORD * pMva, CSphString & sError );
+ISphFilter * sphCreateFilter ( const CSphFilterSettings & tSettings, const CSphSchema & tSchema, const DWORD * pMvaPool, const BYTE * pStrings, CSphString & sError );
 ISphFilter * sphJoinFilters ( ISphFilter *, ISphFilter * );
 
 #endif // _sphinxfilter_
 
 //
-// $Id: sphinxfilter.h 3087 2012-01-30 23:07:35Z shodan $
+// $Id: sphinxfilter.h 3701 2013-02-20 18:10:18Z deogar $
 //

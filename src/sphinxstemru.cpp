@@ -1,10 +1,10 @@
 //
-// $Id: sphinxstemru.cpp 3458 2012-10-17 10:36:31Z kevg $
+// $Id: sphinxstemru.cpp 3701 2013-02-20 18:10:18Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -167,5 +167,5 @@ void stem_ru_init ()
 }
 
 //
-// $Id: sphinxstemru.cpp 3458 2012-10-17 10:36:31Z kevg $
+// $Id: sphinxstemru.cpp 3701 2013-02-20 18:10:18Z deogar $
 //

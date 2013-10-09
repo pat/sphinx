@@ -11,6 +11,7 @@ indexer
 searchd
 {
 	<searchd_settings/>
+	workers = threads
 	compat_sphinxql_magics = 0
 }
 
@@ -21,12 +22,45 @@ source test
 	sql_query = SELECT * FROM test_table
 	sql_attr_uint = aa
 	sql_attr_multi = uint mm from field
+	sql_attr_string = kk
+	sql_attr_float = f1
+	sql_attr_float = f2
 }
 
 index test
 {
 	source	= test
 	path	= <data_path/>/test
+}
+
+source cmp
+{
+	type = mysql
+	<sql_settings/>
+	sql_query = SELECT * FROM cmp_table
+	sql_attr_multi = uint mva32 from field
+	sql_attr_multi = bigint mva64 from field
+	sql_attr_float = f1
+	sql_attr_uint = gid
+}
+index cmp
+{
+	source	= cmp
+	path	= <data_path/>/cmp
+}
+
+source cmp2
+{
+	type = mysql
+	<sql_settings/>
+	sql_query = SELECT * FROM cmp_table
+	sql_attr_uint = f1
+	sql_attr_uint = gid
+}
+index cmp2
+{
+	source	= cmp2
+	path	= <data_path/>/cmp2
 }
 </config>
 
@@ -36,43 +70,48 @@ CREATE TABLE test_table
 	id INT NOT NULL,
 	aa INT NOT NULL,
 	title VARCHAR(255) NOT NULL,
-	mm VARCHAR(255) NOT NULL
+	mm VARCHAR(255) NOT NULL,
+	kk VARCHAR(255) NOT NULL,
+	f1 FLOAT NOT NULL,
+	f2 FLOAT NOT NULL
 );
 </db_create>
 
-<db_drop>
-DROP TABLE IF EXISTS test_table;
-</db_drop>
+<db_create>
+CREATE TABLE cmp_table
+(
+	id INT NOT NULL,
+	title VARCHAR(255) NOT NULL,
+	mva32 VARCHAR(255) NOT NULL,
+	mva64 VARCHAR(255) NOT NULL,
+	f1 FLOAT NOT NULL,
+	gid INT NOT NULL
+);
+</db_create>
+
+<db_drop>DROP TABLE IF EXISTS test_table;</db_drop>
+<db_drop>DROP TABLE IF EXISTS cmp_table;</db_drop>
+
 
 <db_insert>
-INSERT INTO test_table ( id, aa, title, mm ) VALUES
-( 1, 2, 'dummy', '' ),
-( 10, 3, 'ohai', '7 40')
+INSERT INTO test_table ( id, aa, title, mm, kk, f1, f2 ) VALUES
+( 1, 2, 'dummy', '', 'one', 0, 0 ),
+( 10, 3, 'ohai', '7 40', 'ten', 0, 0 ),
+( 11, 4, 'ohai2', '', 'eleventy', 0.123123, 0.456789 )
 </db_insert>
 
-<query_attributes>
-	<attr>aa</attr>
-	<attr>sel</attr>
-</query_attributes>
-
-<queries>
-	<query select="aa div 2 as sel, *" index="test"/>
-	<query select="aa / 2 as sel, *" index="test"/>
-	<query select="aa mod 2 as sel, *" index="test"/>
-	<query select="aa % 2 as sel, *" index="test"/>
-</queries>
-	
+<db_insert>
+INSERT INTO cmp_table VALUES
+( 1, 'dummy', '101, 107, 102', '-100, -50, 20, 70', 1.2, 10 ),
+( 2, 'dummy', '201, 220, 210', '-200, -350 ', 21.2, 20 ),
+( 3, 'dummy', '310, 330, 301', '-300, -350, 320', 31.3, 33 ),
+( 4, 'dummy', '900, 400, 601', '1000, 500, 401', 101.2, 110 )
+</db_insert>
 
 <sphqueries>
 
 <!-- test boolean operator precedence -->
 <sphinxql>SELECT 0 AND 0 OR 1 AS a, 0 AND 1 OR 1 AS b, 1 OR 0 AND 0 AS c, 1 OR 1 AND 0 AS d FROM test WHERE id=1</sphinxql>
-
-<!-- test common ariphmetic -->
-<sphinxql>SELECT id, aa div 2 as sel from test</sphinxql>
-<sphinxql>SELECT id, aa / 2 as sel from test</sphinxql>
-<sphinxql>SELECT id, aa mod 2 as sel from test</sphinxql>
-<sphinxql>SELECT id, aa % 2 as sel from test</sphinxql>
 
 <!-- test argument type check -->
 <sphinxql>SELECT id, CRC32('test') FROM test WHERE id=10</sphinxql>
@@ -80,7 +119,50 @@ INSERT INTO test_table ( id, aa, title, mm ) VALUES
 <sphinxql>SELECT id, IF(IN(mm,7),111,222) FROM test</sphinxql>
 <sphinxql>SELECT IN(aa-(aa-15), 15) FROM test WHERE id=10</sphinxql>
 
-<sphinxql>SELECT ABS(1), ABS(-1), ABS(1.1), ABS(-1.1) FROM test WHERE id=10</sphinxql>
+<!-- various function and operators for test coverage -->
+<sphinxql>SELECT SINT(1-2) FROM test WHERE id=10</sphinxql>
+<sphinxql>SELECT FIBONACCI(5) FROM test WHERE id=10</sphinxql>
+<sphinxql>SELECT INTERVAL(1, -1,3,5.0) FROM test WHERE id=10</sphinxql>
+<sphinxql>SELECT INTERVAL(id, id-1, id+2) FROM test WHERE id=10</sphinxql>
+<sphinxql>SELECT BITDOT(5, 11,33,55) FROM test WHERE id=10</sphinxql>
+<sphinxql>SELECT GEODIST(0,0,1,1) FROM test WHERE id=10</sphinxql>
+<sphinxql>SELECT CONTAINS(POLY2D(1,2,3,4,5,6.0),2,3), CONTAINS(POLY2D(1.0,1+1,aa,4,5,6),22,3) FROM test WHERE id=10</sphinxql>
+<sphinxql>SELECT CONTAINS(GEOPOLY2D(55.7522222, 37.6155556, 40.7141667, -74.0063889, 37.9833333, 23.7333333), 51.5, -0.116667) FROM test WHERE id=10</sphinxql>
+<sphinxql>SELECT CONTAINS(GEOPOLY2D(55.7522222, 37.6155556, 40.7141667, -74.0063889, 37.9833333, 23.7333333), 43.25, -2.9666667) FROM test WHERE id=10</sphinxql>
+<sphinxql>SELECT CRC32(TO_STRING(123 + 877)) FROM test WHERE id=10</sphinxql>
+<sphinxql>SELECT ABS(-1), ABS(-1.1), CEIL(1.3), FLOOR(1.3), COS(3.14/2), LN(2.7), LOG10(100), EXP(1) FROM test WHERE id=10</sphinxql>
+<sphinxql>SELECT SINT(aa), NOT SINT(aa), CRC32(kk) FROM test WHERE id=10</sphinxql>
+<sphinxql>SELECT IN(id, 10.1) FROM test WHERE id=10;</sphinxql>
+
+<sphinxql>SELECT (1=1 AND 1=0), (1=1 AND 1=1), (1=0 AND 1=0), (1=0 AND 1=1) FROM test WHERE id=10</sphinxql>
+<sphinxql>SELECT (1=1 OR 1=0), (1=1 OR 1=1), (1=0 OR 1=0), (1=0 OR 1=1) FROM test WHERE id=10</sphinxql>
+<sphinxql>SELECT NOT 1=1, NOT 1=0 FROM test WHERE id=10</sphinxql>
+<sphinxql>SELECT 1&lt;=1, 1&lt;=2, 1&lt;&gt;1, 1&lt;&gt;0 FROM test WHERE id=10</sphinxql>
+
+<sphinxql>SELECT 3/2, id*2-2.1, 1.0-(1.0+id), 2*(3*id), 2.0/(3.0*id), 3 div 2, 3.1 div 2.2 FROM test WHERE id=10</sphinxql>
+<sphinxql>SELECT (1-id)+id, (1.0/id)*id, id/2.5 FROM test WHERE id=10</sphinxql>
+<sphinxql>SELECT 1&amp;3, 1&amp;2, 1|3, 1|2, 13%10, 3%10 FROM test WHERE id=10</sphinxql>
+<sphinxql>SELECT 1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+11 FROM test WHERE id=10</sphinxql>
+
+<sphinxql>SET GLOBAL @happyvar = (432)</sphinxql>
+<sphinxql>SELECT IN(mm, @happyvar) FROM test WHERE id=10</sphinxql>
+
+<sphinxql>SELECT FLOOR(f1*1000)*100000 + FLOOR(f2*1000) FROM test WHERE id=11</sphinxql>
+<sphinxql>SELECT FLOOR(f1*1000)*10000000 + FLOOR(f2*1000) FROM test WHERE id=11</sphinxql>
+
+<!-- added <,> comparsion to float and int to float conversion at filter -->
+<sphinxql>SELECT id FROM cmp, cmp2 WHERE f1>22</sphinxql>
+<sphinxql>SELECT id FROM cmp, cmp2 WHERE f1 between 21 and 32</sphinxql>
+<sphinxql>SELECT id FROM cmp WHERE f1&lt;31.3</sphinxql>
+<sphinxql>SELECT id FROM cmp WHERE f1&gt;=31.3</sphinxql>
+<sphinxql>SELECT id, mva32 FROM cmp WHERE mva32&lt;=310</sphinxql>
+<sphinxql>SELECT id, mva32 FROM cmp WHERE mva32&gt;220</sphinxql>
+<sphinxql>SELECT id, mva32 FROM cmp WHERE mva32&lt;301</sphinxql>
+<sphinxql>SELECT id, mva32 FROM cmp WHERE mva32&gt;=330</sphinxql>
+<sphinxql>SELECT id, mva64 FROM cmp WHERE mva64&lt;=-350</sphinxql>
+<sphinxql>SELECT id, mva64 FROM cmp WHERE mva64&gt;-200</sphinxql>
+<sphinxql>SELECT id, mva64 FROM cmp WHERE mva64 between -100 and 400</sphinxql>
+<sphinxql>SELECT id, mva32 FROM cmp WHERE mva32 between 105 and 205</sphinxql>
 
 </sphqueries>
 

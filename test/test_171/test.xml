@@ -137,6 +137,62 @@ index distinct2 : dist_no
 	path			= <data_path/>/distinct2
 }
 
+<!-- regression sub select offset -->
+source sub_src_1
+{
+	type			= mysql
+	<sql_settings/>
+	sql_query = SELECT id, 1 as tag, text FROM sub_table WHERE id%2=1
+	sql_attr_uint	= tag
+}
+source sub_src_2
+{
+	type			= mysql
+	<sql_settings/>
+	sql_query = SELECT id, 1 as tag, text FROM sub_table WHERE id%2=0
+	sql_attr_uint	= tag
+}
+index sub_loc_1
+{
+	source			= sub_src_1
+	path			= <data_path/>/sub_loc_1
+	docinfo			= extern
+	charset_type	= utf-8
+}
+index sub_loc_2
+{
+	source			= sub_src_2
+	path			= <data_path/>/sub_loc_2
+	docinfo			= extern
+	charset_type	= utf-8
+}
+index sub_dist_loc
+{
+	type					= distributed
+	local					= sub_loc_1
+	local					= sub_loc_2
+}
+index sub_dist_1
+{
+	type					= distributed
+	agent				= <my_address/>:sub_loc_1
+	agent				= <my_address/>:sub_loc_2
+}
+index sub_dist_2
+{
+	type					= distributed
+	local					= sub_dist_1
+	agent				= <my_address/>:sub_loc_2
+}
+
+index dist_offset
+{
+	type					= distributed
+	agent				= <my_address/>:sub_loc_1
+	agent				= <my_address/>:sub_loc_2
+	divide_remote_ranges = 1
+}
+
 source words_src : src
 {
      sql_query = SELECT 1 as id, 11 as idd, 'yes of' as title UNION  SELECT 2 as id, 22 as idd, 'yes pey' as title
@@ -176,6 +232,14 @@ index words_rt2
 	charset_table	= 0..9, A..X->a..x, _, a..x
 	rt_field = title
 	rt_attr_uint = idd
+}
+
+index dist_just1
+{
+	type					= distributed
+	agent				= <my_address/>:idx1
+	agent_connect_timeout	= 1000
+	agent_query_timeout		= 3000
 }
 
 </config>
@@ -247,36 +311,22 @@ index words_rt2
 <sphinxql>select gr from dist3 where weight()=1</sphinxql>
 <sphinxql>select gr from dist3 where @weight=1</sphinxql>
 
-<!-- The warnings on old syntax -->
-<sphinxql>select @id idd from dist_no where match('test')</sphinxql>
-<sphinxql>show warnings</sphinxql>
-<sphinxql>select @count cnt from dist_no group by gr</sphinxql>
-<sphinxql>show warnings</sphinxql>
-<sphinxql>select @weight cnt from dist_no group by gr</sphinxql>
-<sphinxql>show warnings</sphinxql>
-<sphinxql>select @id idd from dist0 where match('test')</sphinxql>
-<sphinxql>show warnings</sphinxql>
-<sphinxql>select @count cnt from dist0 group by gr</sphinxql>
-<sphinxql>show warnings</sphinxql>
-<sphinxql>select @weight cnt from dist0 group by gr</sphinxql>
-<sphinxql>show warnings</sphinxql>
-<sphinxql>select @id idd from dist1 where match('test')</sphinxql>
-<sphinxql>show warnings</sphinxql>
-<sphinxql>select @count cnt from dist1 group by gr</sphinxql>
-<sphinxql>show warnings</sphinxql>
-<sphinxql>select @weight cnt from dist1 group by gr</sphinxql>
-<sphinxql>show warnings</sphinxql>
-<sphinxql>select @id idd from dist2 where match('test')</sphinxql>
-<sphinxql>show warnings</sphinxql>
-<sphinxql>select @count cnt from dist2 group by gr</sphinxql>
-<sphinxql>show warnings</sphinxql>
-<sphinxql>select @weight cnt from dist2 group by gr</sphinxql>
-<sphinxql>show warnings</sphinxql>
-<sphinxql>select @id idd from dist3 where match('test')</sphinxql>
-<sphinxql>show warnings</sphinxql>
-<sphinxql>select @count cnt from dist3 group by gr</sphinxql>
-<sphinxql>show warnings</sphinxql>
-<sphinxql>select @weight cnt from dist3 group by gr</sphinxql>
+<!-- Checking group by result sets (formerly warnings on old syntax) -->
+<sphinxql>select id idd from dist_no where match('test')</sphinxql>
+<sphinxql>select count(*) cnt from dist_no group by gr</sphinxql>
+<sphinxql>select weight() cnt from dist_no group by gr</sphinxql>
+<sphinxql>select id idd from dist0 where match('test')</sphinxql>
+<sphinxql>select count(*) cnt from dist0 group by gr</sphinxql>
+<sphinxql>select weight() cnt from dist0 group by gr</sphinxql>
+<sphinxql>select id idd from dist1 where match('test')</sphinxql>
+<sphinxql>select count(*) cnt from dist1 group by gr</sphinxql>
+<sphinxql>select weight() cnt from dist1 group by gr</sphinxql>
+<sphinxql>select id idd from dist2 where match('test')</sphinxql>
+<sphinxql>select count(*) cnt from dist2 group by gr</sphinxql>
+<sphinxql>select weight() cnt from dist2 group by gr</sphinxql>
+<sphinxql>select id idd from dist3 where match('test')</sphinxql>
+<sphinxql>select count(*) cnt from dist3 group by gr</sphinxql>
+<sphinxql>select weight() cnt from dist3 group by gr</sphinxql>
 
 <!-- Mixing old and new syntax -->
 <sphinxql>select @id idd, count(*) cnt from dist_no group by gr</sphinxql>
@@ -327,6 +377,15 @@ index words_rt2
 <!-- incorrect(aggregate) filtering -->
 <sphinxql>select id, max(tag) as cond from idx1 where cond&lt;5 group by gr</sphinxql>
 
+<!-- regression sub select offset -->
+<sphinxql>SELECT * FROM ( SELECT * FROM sub_dist_loc ORDER BY id asc LIMIT 15 ) ORDER BY id desc LIMIT 3,5</sphinxql>
+<sphinxql>SELECT * FROM ( SELECT * FROM sub_dist_1 ORDER BY id desc LIMIT 7 ) ORDER BY id desc LIMIT 4,3</sphinxql>
+<sphinxql>SELECT * FROM ( SELECT * FROM sub_dist_2 ORDER BY id asc LIMIT 11 ) ORDER BY id desc LIMIT 1,5</sphinxql>
+<sphinxql>SELECT * FROM ( SELECT * FROM sub_dist_loc ORDER BY id asc LIMIT 5 ) ORDER BY id desc LIMIT 2,4</sphinxql>
+
+<!-- regression missed offset and wrong limit at agent with divide_remote_ranges -->
+<sphinxql>SELECT * FROM dist_offset ORDER BY id asc LIMIT 23, 5</sphinxql>
+
 <!-- regression missed warning when words statistics varies -->
 <sphinxql>INSERT INTO words_rt1 VALUES ( 100, 'yes of', 111 ), ( 102, 'yes pey', 122 )</sphinxql>
 <sphinxql>INSERT INTO words_rt2 VALUES ( 200, 'yes of', 211 ), ( 202, 'yes pey', 222 )</sphinxql>
@@ -336,6 +395,27 @@ index words_rt2
 <sphinxql>show meta</sphinxql>
 <sphinxql>select * from words_rt1, words2 where match('yes | pey')</sphinxql>
 <sphinxql>show meta</sphinxql>
+
+<!-- implicit group by -->
+<sphinxql>SELECT id, COUNT(*) FROM dist_no</sphinxql>
+<sphinxql>SELECT id, MIN(gr) FROM dist_no</sphinxql>
+<sphinxql>SELECT id, COUNT(DISTINCT gr) FROM dist_no</sphinxql>
+<sphinxql>SELECT id, COUNT(*) FROM dist_no WITHIN GROUP ORDER BY id DESC</sphinxql>
+
+<sphinxql>SELECT id, COUNT(*) FROM dist2</sphinxql>
+<sphinxql>SELECT id, MIN(gr) FROM dist2</sphinxql>
+<sphinxql>SELECT id, COUNT(DISTINCT gr) FROM dist2</sphinxql>
+
+<!-- < and > were <= and >= at distributed index -->
+<sphinxql>SELECT * FROM idx1</sphinxql>
+<sphinxql>SELECT * FROM idx1 WHERE id&gt;1</sphinxql>
+<sphinxql>SELECT * FROM dist_just1 WHERE id&gt;1</sphinxql>
+
+<!-- regression sub select order by weight -->
+<sphinxql>SELECT * FROM ( SELECT @id, @weight FROM sub_dist_loc WHERE MATCH ( 'test ( my | of )' ) ORDER BY @weight asc, @id desc LIMIT 15 ) ORDER BY @weight desc, @id asc LIMIT 0, 5</sphinxql>
+<!-- same, not using deprecated syntax -->
+<sphinxql>SELECT * FROM ( SELECT id, weight() as wgt FROM sub_dist_loc WHERE MATCH ( 'test ( my | of )' ) ORDER BY wgt asc, id desc LIMIT 15 ) ORDER BY wgt desc, id asc LIMIT 0, 5</sphinxql>
+
 </sphqueries>
 
 <db_create>
@@ -366,6 +446,29 @@ INSERT INTO `test_table` VALUES
 ( 8, 2, 6, 'test'),
 ( 9, 2, 5, 'test'),
 ( 10, 2, 4, 'test')
+</db_insert>
+
+<db_create>
+CREATE TABLE `sub_table` (
+  `id` int(11),
+  `text` varchar(255) NOT NULL
+)
+</db_create>
+ <db_drop>
+DROP TABLE IF EXISTS `sub_table`
+</db_drop>
+
+<db_insert>
+INSERT INTO `sub_table` VALUES
+( 1, 'test of'),( 2, 'my test'),( 3, 'test is'),( 4, 'goes to test'),( 5, 'test was'),
+( 6, 'test of'),( 7, 'my test'),( 8, 'test is'),( 9, 'goes to test'),( 10, 'test was'),
+( 11, 'test of'),( 12, 'my test'),( 13, 'test is'),( 14, 'goes to test'),( 15, 'test was'),
+( 16, 'test of'),( 17, 'my test'),( 18, 'test is'),( 19, 'goes to test'),( 20, 'test was'),
+( 21, 'test of'),( 22, 'my test'),( 23, 'test is'),( 24, 'goes to test'),( 25, 'test was'),
+( 101, 'test of'),( 102, 'my test'),( 103, 'test is'),( 104, 'goes to test'),( 105, 'test was'),
+( 106, 'test of'),( 107, 'my test'),( 108, 'test is'),( 109, 'goes to test'),( 110, 'test was'),
+( 111, 'test of'),( 112, 'my test'),( 113, 'test is'),( 114, 'goes to test'),( 115, 'test was'),
+( 116, 'test of'),( 117, 'my test'),( 118, 'test is'),( 119, 'goes to test'),( 120, 'test was')
 </db_insert>
 
 </test>

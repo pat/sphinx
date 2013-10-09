@@ -1,10 +1,10 @@
 //
-// $Id: spelldump.cpp 3635 2013-01-29 09:26:04Z kevg $
+// $Id: spelldump.cpp 3701 2013-02-20 18:10:18Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -1195,5 +1195,5 @@ int main ( int iArgs, char ** dArgs )
 }
 
 //
-// $Id: spelldump.cpp 3635 2013-01-29 09:26:04Z kevg $
+// $Id: spelldump.cpp 3701 2013-02-20 18:10:18Z deogar $
 //

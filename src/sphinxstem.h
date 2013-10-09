@@ -1,10 +1,10 @@
 //
-// $Id: sphinxstem.h 3087 2012-01-30 23:07:35Z shodan $
+// $Id: sphinxstem.h 3701 2013-02-20 18:10:18Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -39,6 +39,9 @@ void	stem_cz_init ();
 /// stem lowercase Czech word
 void	stem_cz ( BYTE * pWord );
 
+/// stem Arabic word in UTF-8 encoding
+void	stem_ar_utf8 ( BYTE * word );
+
 /// calculate soundex in-place if the word is lowercase English letters only;
 /// do nothing if it's not
 void	stem_soundex ( BYTE * pWord );
@@ -46,8 +49,31 @@ void	stem_soundex ( BYTE * pWord );
 /// double metaphone stemmer
 void	stem_dmetaphone ( BYTE * pWord, bool bUTF8 );
 
+/// pre-init AOT setup, cache size (in bytes)
+void	sphAotSetCacheSize ( int iCacheSize );
+
+/// init AOT lemmatizer
+bool	sphAotInitRu ( const CSphString & sDictFile, CSphString & sError );
+
+/// lemmatize (or guess a normal form) a Russian word in Windows-1251 encoding
+void	sphAotLemmatizeRu1251 ( BYTE * pWord );
+
+/// lemmatize (or guess a normal form) a Russian word in UTF-8 encoding, return a single "best" lemma
+void	sphAotLemmatizeRuUTF8 ( BYTE * pWord );
+
+/// lemmatize (or guess a normal form) a Russian word, return all lemmas
+void	sphAotLemmatizeRu ( CSphVector<CSphString> & dLemmas, const BYTE * pWord, bool bUtf8 );
+
+/// get lemmatizer dictionary info (file name, crc)
+const CSphNamedInt &	sphAotDictinfoRu();
+
+/// create token filter that returns all morphological hypotheses
+/// NOTE, takes over wordforms from pDict, in AOT case they must be handled by the fitler
+class CSphTokenFilter;
+CSphTokenFilter *		sphAotCreateFilter ( ISphTokenizer * pTokenizer, CSphDict * pDict );
+
 #endif // _sphinxstem_
 
 //
-// $Id: sphinxstem.h 3087 2012-01-30 23:07:35Z shodan $
+// $Id: sphinxstem.h 3701 2013-02-20 18:10:18Z deogar $
 //

@@ -1,10 +1,10 @@
 //
-// $Id: sphinxexcerpt.h 3205 2012-05-04 17:31:58Z tomat $
+// $Id: sphinxexcerpt.h 3701 2013-02-20 18:10:18Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -53,12 +53,13 @@ public:
 	bool			m_bEmitZones;		///< whether to emit zone for passage
 	int				m_iRawFlags;		///< flags as they received from proto (to avoid coding/decoding to agents)
 	CSphString		m_sRawPassageBoundary; ///< boundary as it received from proto (to avoid coding/decoding to agents)
+	CSphString		m_sFilePrefix;		///< the prefix for reading the file
 
 public:
 	int64_t			m_iSize;			///< file size, to sort to work-queue order
 	int				m_iSeq;				///< request order, to sort back to request order
 	int				m_iNext;			///< the next one in one-link list for batch processing. -1 terminate the list. -2 sign of other (out-of-the-lists)
-	char *			m_sRes;				///< snippet result holder (NOT owned)
+	CSphVector<BYTE>	m_dRes;				///< snippet result holder
 	CSphString		m_sError;			///< snippet error message
 	bool			m_bHasBeforePassageMacro;
 	bool			m_bHasAfterPassageMacro;
@@ -76,11 +77,11 @@ struct XQQuery_t;
 /// an excerpt generator
 /// returns a newly allocated string in encoding specified by tokenizer on success
 /// returns NULL on failure
-char * sphBuildExcerpt ( ExcerptQuery_t & tOptions, const CSphIndex * pIndex, const CSphHTMLStripper * pStripper, const XQQuery_t & tExtQuery,
+void sphBuildExcerpt ( ExcerptQuery_t & tOptions, const CSphIndex * pIndex, const CSphHTMLStripper * pStripper, const XQQuery_t & tExtQuery,
 						DWORD eExtQuerySPZ, CSphString & sError, CSphDict * pDict, ISphTokenizer * pDocTokenizer, ISphTokenizer * pQueryTokenizer );
 
 #endif // _sphinxexcerpt_
 
 //
-// $Id: sphinxexcerpt.h 3205 2012-05-04 17:31:58Z tomat $
+// $Id: sphinxexcerpt.h 3701 2013-02-20 18:10:18Z deogar $
 //

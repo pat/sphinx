@@ -1,10 +1,10 @@
 //
-// $Id: indextool.cpp 3789 2013-04-08 09:21:29Z tomat $
+// $Id: indextool.cpp 3701 2013-02-20 18:10:18Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -46,260 +46,56 @@ void StripStdin ( const char * sIndexAttrs, const char * sRemoveElements )
 	fprintf ( stdout, "dumping stripped results...\n%s\n", &dBuffer[0] );
 }
 
-void DoOptimization ( const CSphString & sIndex, const CSphConfig & hConfig );
 
-int main ( int argc, char ** argv )
+void ApplyMorphology ( CSphIndex * pIndex )
 {
-	fprintf ( stdout, SPHINX_BANNER );
-	if ( argc<=1 )
+	CSphVector<BYTE> dInBuffer, dOutBuffer;
+	const int READ_BUFFER_SIZE = 1024;
+	dInBuffer.Reserve ( READ_BUFFER_SIZE );
+	char sBuffer[READ_BUFFER_SIZE];
+	while ( !feof(stdin) )
 	{
-		fprintf ( stdout,
-			"Usage: indextool <COMMAND> [OPTIONS]\n"
-			"\n"
-			"Commands are:\n"
-			"--dumpheader <FILENAME.sph>\tdump index header by file name\n"
-			"--dumpconfig <FILENAME.sph>\tdump index header in config format by file name\n"
-			"--dumpheader <INDEXNAME>\tdump index header by index name\n"
-			"--dumpdocids <INDEXNAME>\tdump docids by index name\n"
-			"--dumphitlist <INDEXNAME> <KEYWORD>\n"
-			"--dumphitlist <INDEXNAME> --wordid <ID>\n"
-			"\t\t\t\tdump hits for given keyword\n"
-			"--check <INDEXNAME>\t\tperform index consistency check\n"
-			"--htmlstrip <INDEXNAME>\t\tfilter stdin usng HTML stripper settings\n"
-			"\t\t\t\tfor a given index (taken from sphinx.conf)\n"
-			"--optimize-rt-klists <INDEXNAME>\n"
-			"\t\t\t\toptimize kill list memory use in RT index disk\n"
-			"\t\t\t\tchunks; either for a given index or --all\n"
-			"\n"
-			"Options are:\n"
-			"-c, --config <file>\t\tuse given config file instead of defaults\n"
-			"--strip-path\t\t\tstrip path from filenames referenced by index\n"
-			"\t\t\t\t(eg. stopwords, exceptions, etc)\n"
-		);
-		exit ( 0 );
-	}
-
-	//////////////////////
-	// parse command line
-	//////////////////////
-
-	#define OPT(_a1,_a2)	else if ( !strcmp(argv[i],_a1) || !strcmp(argv[i],_a2) )
-	#define OPT1(_a1)		else if ( !strcmp(argv[i],_a1) )
-
-	const char * sOptConfig = NULL;
-	CSphString sDumpHeader, sIndex, sKeyword;
-	bool bWordid = false;
-	bool bStripPath = false;
-
-	enum
-	{
-		CMD_NOTHING,
-		CMD_DUMPHEADER,
-		CMD_DUMPCONFIG,
-		CMD_DUMPDOCIDS,
-		CMD_DUMPHITLIST,
-		CMD_CHECK,
-		CMD_STRIP,
-		CMD_OPTIMIZE
-	} eCommand = CMD_NOTHING;
-
-	int i;
-	for ( i=1; i<argc; i++ )
-	{
-		if ( argv[i][0]!='-' )
+		int iLen = fread ( sBuffer, 1, sizeof(sBuffer), stdin );
+		if ( !iLen )
 			break;
 
-		// this is an option
-		if ( (i+1)>=argc )			break;
-		OPT ( "-c", "--config" )	sOptConfig = argv[++i];
-		OPT1 ( "--dumpheader" )		{ eCommand = CMD_DUMPHEADER; sDumpHeader = argv[++i]; }
-		OPT1 ( "--dumpconfig" )		{ eCommand = CMD_DUMPCONFIG; sDumpHeader = argv[++i]; }
-		OPT1 ( "--dumpdocids" )		{ eCommand = CMD_DUMPDOCIDS; sIndex = argv[++i]; }
-		OPT1 ( "--check" )			{ eCommand = CMD_CHECK; sIndex = argv[++i]; sphSetDebugCheck(); }
-		OPT1 ( "--htmlstrip" )		{ eCommand = CMD_STRIP; sIndex = argv[++i]; }
-		OPT1 ( "--strip-path" )		{ bStripPath = true; }
-		OPT1 ( "--optimize-rt-klists" )
+		int iPos = dInBuffer.GetLength();
+		dInBuffer.Resize ( iPos+iLen );
+		memcpy ( &dInBuffer[iPos], sBuffer, iLen );
+	}
+	dInBuffer.Add(0);
+	dOutBuffer.Reserve ( dInBuffer.GetLength() );
+
+	CSphScopedPtr<ISphTokenizer> pTokenizer ( pIndex->GetTokenizer()->Clone ( SPH_CLONE_INDEX ) );
+	CSphDict * pDict = pIndex->GetDictionary();
+	BYTE * sBufferToDump = &dInBuffer[0];
+	if ( pTokenizer.Ptr() )
+	{
+		pTokenizer->SetBuffer ( &dInBuffer[0], dInBuffer.GetLength() );
+		while ( BYTE * sToken = pTokenizer->GetToken() )
 		{
-			eCommand = CMD_OPTIMIZE;
-			sIndex = argv[++i];
-			if ( sIndex=="--all" )
-				sIndex = "";
+			if ( pDict )
+				pDict->ApplyStemmers ( sToken );
+
+			int iPos = dOutBuffer.GetLength();
+			int iLen = strlen ( (char *)sToken );
+			sToken[iLen] = ' ';
+			dOutBuffer.Resize ( iPos+iLen+1 );
+			memcpy ( &dOutBuffer[iPos], sToken, iLen+1 );
 		}
 
-		// options with 2 args
-		else if ( (i+2)>=argc ) // NOLINT
-		{
-			// not enough args
-			break;
+		if ( dOutBuffer.GetLength() )
+			dOutBuffer[dOutBuffer.GetLength()-1] = 0;
+		else
+			dOutBuffer.Add(0);
 
-		} else if ( !strcmp ( argv[i], "--dumphitlist" ) )
-		{
-			eCommand = CMD_DUMPHITLIST;
-			sIndex = argv[++i];
-
-			if ( !strcmp ( argv[i+1], "--wordid" ) )
-			{
-				if ( (i+3)<argc )
-					break; // not enough args
-				bWordid = true;
-				i++;
-			}
-
-			sKeyword = argv[++i];
-
-		} else
-		{
-			// unknown option
-			break;
-		}
-	}
-	if ( i!=argc )
-	{
-		fprintf ( stdout, "ERROR: malformed or unknown option near '%s'.\n", argv[i] );
-		return 1;
+		sBufferToDump = &dOutBuffer[0];
 	}
 
-	//////////////////////
-	// load proper config
-	//////////////////////
-
-	CSphConfigParser cp;
-	CSphConfig & hConf = cp.m_tConf;
-	for ( ;; )
-	{
-		if ( ( eCommand==CMD_DUMPHEADER || eCommand==CMD_DUMPCONFIG ) && sDumpHeader.Ends ( ".sph" ) )
-			break;
-
-		sphLoadConfig ( sOptConfig, false, cp );
-		break;
-	}
-
-	///////////
-	// action!
-	///////////
-
-	// common part for several commands, check and preload index
-	CSphIndex * pIndex = NULL;
-	while ( !sIndex.IsEmpty() && eCommand!=CMD_OPTIMIZE )
-	{
-		// check config
-		if ( !hConf["index"](sIndex) )
-			sphDie ( "index '%s': no such index in config\n", sIndex.cstr() );
-
-		if ( eCommand==CMD_STRIP )
-			break;
-
-		if ( !hConf["index"][sIndex]("path") )
-			sphDie ( "index '%s': missing 'path' in config'\n", sIndex.cstr() );
-
-		// preload that index
-		CSphString sError;
-		if ( hConf["index"][sIndex]("type") && hConf["index"][sIndex]["type"]=="rt" )
-		{
-			CSphSchema tSchema;
-			bool bDictKeywords = false;
-			if ( hConf["index"][sIndex].Exists ( "dict" ) )
-				bDictKeywords = ( hConf["index"][sIndex]["dict"]=="keywords" );
-
-			if ( sphRTSchemaConfigure ( hConf["index"][sIndex], &tSchema, &sError ) )
-				pIndex = sphCreateIndexRT ( tSchema, sIndex.cstr(), 32*1024*1024, hConf["index"][sIndex]["path"].cstr(), bDictKeywords );
-		} else
-		{
-			pIndex = sphCreateIndexPhrase ( sIndex.cstr(), hConf["index"][sIndex]["path"].cstr() );
-		}
-
-		if ( !pIndex )
-			sphDie ( "index '%s': failed to create (%s)", sIndex.cstr(), sError.cstr() );
-
-		// don't need any long load operations
-		pIndex->SetWordlistPreload ( false );
-
-		CSphString sWarn;
-		if ( !pIndex->Prealloc ( false, bStripPath, sWarn ) )
-			sphDie ( "index '%s': prealloc failed: %s\n", sIndex.cstr(), pIndex->GetLastError().cstr() );
-
-		if ( !pIndex->Preread() )
-			sphDie ( "index '%s': preread failed: %s\n", sIndex.cstr(), pIndex->GetLastError().cstr() );
-
-		if ( hConf["index"][sIndex]("hitless_words") )
-		{
-			CSphIndexSettings tSettings = pIndex->GetSettings();
-
-			const CSphString & sValue = hConf["index"][sIndex]["hitless_words"];
-			if ( sValue=="all" )
-			{
-				tSettings.m_eHitless = SPH_HITLESS_ALL;
-			} else
-			{
-				tSettings.m_eHitless = SPH_HITLESS_SOME;
-				tSettings.m_sHitlessFiles = sValue;
-			}
-
-			pIndex->Setup ( tSettings );
-		}
-
-
-		break;
-	}
-
-	// do the dew
-	switch ( eCommand )
-	{
-		case CMD_NOTHING:
-			sphDie ( "nothing to do; specify a command (run indextool w/o switches for help)" );
-
-		case CMD_DUMPHEADER:
-		case CMD_DUMPCONFIG:
-		{
-			if ( hConf("index") && hConf["index"](sDumpHeader) )
-			{
-				fprintf ( stdout, "dumping header for index '%s'...\n", sDumpHeader.cstr() );
-
-				if ( !hConf["index"][sDumpHeader]("path") )
-					sphDie ( "missing 'path' for index '%s'\n", sDumpHeader.cstr() );
-
-				sDumpHeader.SetSprintf ( "%s.sph", hConf["index"][sDumpHeader]["path"].cstr() );
-			}
-
-			fprintf ( stdout, "dumping header file '%s'...\n", sDumpHeader.cstr() );
-			CSphIndex * pIndex = sphCreateIndexPhrase ( NULL, "" );
-			pIndex->DebugDumpHeader ( stdout, sDumpHeader.cstr(), eCommand==CMD_DUMPCONFIG );
-			break;
-		}
-
-		case CMD_DUMPDOCIDS:
-			fprintf ( stdout, "dumping docids for index '%s'...\n", sIndex.cstr() );
-			pIndex->DebugDumpDocids ( stdout );
-			break;
-
-		case CMD_DUMPHITLIST:
-			fprintf ( stdout, "dumping hitlist for index '%s' keyword '%s'...\n", sIndex.cstr(), sKeyword.cstr() );
-			pIndex->DebugDumpHitlist ( stdout, sKeyword.cstr(), bWordid );
-			break;
-
-		case CMD_CHECK:
-			fprintf ( stdout, "checking index '%s'...\n", sIndex.cstr() );
-			return pIndex->DebugCheck ( stdout );
-
-		case CMD_STRIP:
-			{
-				const CSphConfigSection & hIndex = hConf["index"][sIndex];
-				if ( hIndex.GetInt ( "html_strip" )==0 )
-					sphDie ( "HTML stripping is not enabled in index '%s'", sIndex.cstr() );
-				StripStdin ( hIndex.GetStr ( "html_index_attrs" ), hIndex.GetStr ( "html_remove_elements" ) );
-			}
-			break;
-
-		case CMD_OPTIMIZE:
-			DoOptimization ( sIndex, hConf );
-			break;
-
-		default:
-			sphDie ( "INTERNAL ERROR: unhandled command (id=%d)", (int)eCommand );
-	}
-
-	return 0;
+	fprintf ( stdout, "dumping stemmed results...\n%s\n", sBufferToDump );
 }
+
+//////////////////////////////////////////////////////////////////////////
 
 #if USE_WINDOWS
 #include <io.h> // for open()
@@ -366,6 +162,7 @@ bool FixupFiles ( const CSphVector<CSphString> & dFiles, CSphString & sError )
 
 	return true;
 }
+
 
 bool DoKlistsOptimization ( int iRowSize, const char * sPath, int iChunkCount, CSphVector<CSphString> & dFiles )
 {
@@ -478,7 +275,314 @@ bool DoKlistsOptimization ( int iRowSize, const char * sPath, int iChunkCount, C
 	return true;
 }
 
-void DoOptimization ( const CSphString & sIndex, const CSphConfig & hConf )
+
+#pragma pack(push,4)
+struct IDFWord_t
+{
+	uint64_t	m_uWordID;
+	DWORD		m_iDocs;
+};
+#pragma pack(pop)
+STATIC_SIZE_ASSERT	( IDFWord_t, 12 );
+
+
+bool BuildIDF ( const CSphString & sFilename, const CSphVector<CSphString> & dFiles, CSphString & sError, bool bSkipUnique )
+{
+	// text dictionaries are ordered alphabetically - we can use that fact while reading
+	// to merge duplicates, calculate total number of occurrences and process bSkipUnique
+	// this method is about 3x faster and consumes ~2x less memory than a hash based one
+
+	typedef char StringBuffer_t [ 3*SPH_MAX_WORD_LEN+16 ];
+
+	int64_t iTotalDocuments = 0;
+	int64_t iTotalWords = 0;
+	int64_t iReadWords = 0;
+	int64_t iMergedWords = 0;
+	int64_t iSkippedWords = 0;
+	int64_t iReadBytes = 0;
+	int64_t iTotalBytes = 0;
+
+	const int64_t tmStart = sphMicroTimer ();
+
+	int iFiles = dFiles.GetLength ();
+
+	CSphVector<CSphAutoreader> dReaders ( iFiles );
+
+	ARRAY_FOREACH ( i, dFiles )
+	{
+		if ( !dReaders[i].Open ( dFiles[i], sError ) )
+			return false;
+		iTotalBytes += dReaders[i].GetFilesize ();
+	}
+
+	// internal state
+	StringBuffer_t * dWords = new StringBuffer_t [ iFiles ];
+	CSphVector<int> dDocs ( iFiles );
+	CSphVector<bool> dFinished ( iFiles );
+	dFinished.Fill ( false );
+	bool bPreread = false;
+
+	// current entry
+	StringBuffer_t sWord = {0};
+	DWORD iDocs = 0;
+
+	// output vector, preallocate 10M
+	CSphTightVector<IDFWord_t> dEntries;
+	dEntries.Reserve ( 1024*1024*10 );
+
+	for ( int i=0;; )
+	{
+		// read next input
+		for ( ;; )
+		{
+			int iLen;
+			char * sBuffer = dWords[i];
+			if ( ( iLen = dReaders[i].GetLine ( sBuffer, sizeof(StringBuffer_t) ) )>=0 )
+			{
+				iReadBytes += iLen;
+
+				// find keyword pattern ( ^<keyword>,<docs>,... )
+				char * p1 = strchr ( sBuffer, ',' );
+				if ( p1 )
+				{
+					char * p2 = strchr ( p1+1, ',' );
+					if ( p2 )
+					{
+						*p1 = *p2 = '\0';
+						int iDocs = atoi ( p1+1 );
+						if ( iDocs )
+						{
+							dDocs[i] = iDocs;
+							iReadWords++;
+							break;
+						}
+					}
+				} else
+				{
+					// keyword pattern not found (rather rare case), try to parse as a header, then
+					char sSearch[] = "total-documents: ";
+					if ( strstr ( sBuffer, sSearch )==sBuffer )
+						iTotalDocuments += atoi ( sBuffer+strlen(sSearch) );
+				}
+			} else
+			{
+				dFinished[i] = true;
+				break;
+			}
+		}
+
+		bool bEnd = !dFinished.Contains ( false );
+
+		i++;
+		if ( !bPreread && i==iFiles )
+			bPreread = true;
+
+		if ( bPreread )
+		{
+			// find the next smallest input
+			i = 0;
+			for ( int j=0; j<iFiles; j++ )
+				if ( !dFinished[j] && ( dFinished[i] || strcmp ( dWords[i], dWords[j] )>0 ) )
+					i = j;
+
+			// merge if we got the same word
+			if ( !strcmp ( sWord, dWords[i] ) && !bEnd )
+			{
+				iDocs += dDocs[i];
+				iMergedWords++;
+			} else
+			{
+				if ( sWord[0]!='\0' )
+				{
+					if ( !bSkipUnique || iDocs>1 )
+					{
+						IDFWord_t & tEntry = dEntries.Add ();
+						tEntry.m_uWordID = sphFNV64 ( (BYTE*)sWord );
+						tEntry.m_iDocs = iDocs;
+						iTotalWords++;
+					} else
+						iSkippedWords++;
+				}
+
+				strcpy ( sWord, dWords[i] ); // NOLINT
+				iDocs = dDocs[i];
+			}
+		}
+
+		if ( ( iReadWords & 0xffff )==0 || bEnd )
+			fprintf ( stderr, "read %.1f of %.1f MB, %.1f%% done%c", ( bEnd ? float(iTotalBytes) : float(iReadBytes) )/1000000.0f,
+			float(iTotalBytes)/1000000.0f, bEnd ? 100.0f : float(iReadBytes)*100.0f/float(iTotalBytes), bEnd ? '\n' : '\r' );
+
+		if ( bEnd )
+			break;
+	}
+
+	SafeDeleteArray ( dWords );
+
+	fprintf ( stdout, INT64_FMT" documents, "INT64_FMT" words ("INT64_FMT" read, "INT64_FMT" merged, "INT64_FMT" skipped)\n",
+		iTotalDocuments, iTotalWords, iReadWords, iMergedWords, iSkippedWords );
+
+	// write to disk
+	fprintf ( stdout, "writing %s (%1.fM)...\n", sFilename.cstr(), float(iTotalWords*sizeof(IDFWord_t))/1000000.0f );
+
+	dEntries.Sort ( bind ( &IDFWord_t::m_uWordID ) );
+
+	CSphWriter tWriter;
+	if ( !tWriter.OpenFile ( sFilename, sError ) )
+		return false;
+
+	// write file header
+	tWriter.PutOffset ( iTotalDocuments );
+
+	// write data
+	tWriter.PutBytes ( dEntries.Begin(), dEntries.GetLength()*sizeof(IDFWord_t) );
+
+	int tmWallMsec = (int)( ( sphMicroTimer() - tmStart )/1000 );
+	fprintf ( stdout, "finished in %d.%d sec\n", tmWallMsec/1000, (tmWallMsec/100)%10 );
+
+	return true;
+}
+
+
+bool MergeIDF ( const CSphString & sFilename, const CSphVector<CSphString> & dFiles, CSphString & sError, bool bSkipUnique )
+{
+	// binary dictionaries are ordered by 64-bit word id, we can use that for merging.
+	// read every file, check repeating word ids, merge if found, write to disk if not
+	// memory requirements are about ~4KB per input file (used for buffered reading)
+
+	int64_t iTotalDocuments = 0;
+	int64_t iTotalWords = 0;
+	int64_t iReadWords = 0;
+	int64_t iMergedWords = 0;
+	int64_t iSkippedWords = 0;
+	int64_t iReadBytes = 0;
+	int64_t iTotalBytes = 0;
+
+	const int64_t tmStart = sphMicroTimer ();
+
+	int iFiles = dFiles.GetLength ();
+
+	// internal state
+	CSphVector<CSphAutoreader> dReaders ( iFiles );
+	CSphVector<IDFWord_t> dWords ( iFiles );
+	CSphVector<int64_t> dRead ( iFiles );
+	CSphVector<int64_t> dSize ( iFiles );
+	CSphVector<BYTE*> dBuffers ( iFiles );
+	CSphVector<bool> dFinished ( iFiles );
+	dFinished.Fill ( false );
+	bool bPreread = false;
+
+	// current entry
+	IDFWord_t tWord;
+	tWord.m_uWordID = 0;
+	tWord.m_iDocs = 0;
+
+	// preread buffer
+	const int iEntrySize = sizeof(int64_t)+sizeof(DWORD);
+	const int iBufferSize = iEntrySize*256;
+
+	// initialize vectors
+	ARRAY_FOREACH ( i, dFiles )
+	{
+		if ( !dReaders[i].Open ( dFiles[i], sError ) )
+			return false;
+		iTotalDocuments += dReaders[i].GetOffset ();
+		dRead[i] = 0;
+		dSize[i] = dReaders[i].GetFilesize() - sizeof( SphOffset_t );
+		dBuffers[i] = new BYTE [ iBufferSize ];
+		iTotalBytes += dSize[i];
+	}
+
+	// open output file
+	CSphWriter tWriter;
+	if ( !tWriter.OpenFile ( sFilename, sError ) )
+		return false;
+
+	// write file header
+	tWriter.PutOffset ( iTotalDocuments );
+
+	for ( int i=0;; )
+	{
+		if ( dRead[i]<dSize[i] )
+		{
+			iReadBytes += iEntrySize;
+
+			// This part basically does the following:
+			// dWords[i].m_uWordID = dReaders[i].GetOffset ();
+			// dWords[i].m_iDocs = dReaders[i].GetDword ();
+			// but reading by 12 bytes seems quite slow (SetBuffers doesn't help)
+			// the only way to speed it up is to buffer up a few entries manually
+
+			int iOffset = (int)( dRead[i] % iBufferSize );
+			if ( iOffset==0 )
+				dReaders[i].GetBytes ( dBuffers[i], ( dSize[i]-dRead[i] )<iBufferSize ? (int)( dSize[i]-dRead[i] ) : iBufferSize );
+
+			dWords[i].m_uWordID = *(uint64_t*)( dBuffers[i]+iOffset );
+			dWords[i].m_iDocs = *(DWORD*)( dBuffers[i]+iOffset+sizeof(uint64_t) );
+
+			dRead[i] += iEntrySize;
+			iReadWords++;
+		} else
+			dFinished[i] = true;
+
+		bool bEnd = !dFinished.Contains ( false );
+
+		i++;
+		if ( !bPreread && i==iFiles )
+			bPreread = true;
+
+		if ( bPreread )
+		{
+			// find the next smallest input
+			i = 0;
+			for ( int j=0; j<iFiles; j++ )
+				if ( !dFinished[j] && ( dFinished[i] || dWords[i].m_uWordID>dWords[j].m_uWordID ) )
+					i = j;
+
+			// merge if we got the same word
+			if ( tWord.m_uWordID==dWords[i].m_uWordID && !bEnd )
+			{
+				tWord.m_iDocs += dWords[i].m_iDocs;
+				iMergedWords++;
+			} else
+			{
+				if ( tWord.m_uWordID )
+				{
+					if ( !bSkipUnique || tWord.m_iDocs>1 )
+					{
+						tWriter.PutOffset ( tWord.m_uWordID );
+						tWriter.PutDword ( tWord.m_iDocs );
+						iTotalWords++;
+					} else
+						iSkippedWords++;
+				}
+
+				tWord = dWords[i];
+			}
+		}
+
+		if ( ( iReadWords & 0xffff )==0 || bEnd )
+			fprintf ( stderr, "read %.1f of %.1f MB, %.1f%% done%c", ( bEnd ? float(iTotalBytes) : float(iReadBytes) )/1000000.0f,
+			float(iTotalBytes)/1000000.0f, bEnd ? 100.0f : float(iReadBytes)*100.0f/float(iTotalBytes), bEnd ? '\n' : '\r' );
+
+		if ( bEnd )
+			break;
+	}
+
+	ARRAY_FOREACH ( i, dFiles )
+		SafeDeleteArray ( dBuffers[i] );
+
+	fprintf ( stdout, INT64_FMT" documents, "INT64_FMT" words ("INT64_FMT" read, "INT64_FMT" merged, "INT64_FMT" skipped)\n",
+		iTotalDocuments, iTotalWords, iReadWords, iMergedWords, iSkippedWords );
+
+	int tmWallMsec = (int)( ( sphMicroTimer() - tmStart )/1000 );
+	fprintf ( stdout, "finished in %d.%d sec\n", tmWallMsec/1000, (tmWallMsec/100)%10 );
+
+	return true;
+}
+
+
+void OptimizeRtKlists ( const CSphString & sIndex, const CSphConfig & hConf )
 {
 	const int64_t tmStart = sphMicroTimer();
 
@@ -570,6 +674,470 @@ void DoOptimization ( const CSphString & sIndex, const CSphConfig & hConf )
 	fprintf ( stdout, "\nfinished in %.3f sec\n", float(tmDone-tmStart )/1000000.0f );
 }
 
+//////////////////////////////////////////////////////////////////////////
+
+extern void sphDictBuildInfixes ( const char * sPath );
+extern void sphDictBuildSkiplists ( const char * sPath );
+
+
+int main ( int argc, char ** argv )
+{
+	fprintf ( stdout, SPHINX_BANNER );
+	if ( argc<=1 )
+	{
+		fprintf ( stdout,
+			"Usage: indextool <COMMAND> [OPTIONS]\n"
+			"\n"
+			"Commands are:\n"
+			"--build-infixes <INDEX>\tbuild infixes for an existing dict=keywords index\n"
+			"\t\t\t(upgrades .sph, .spi in place)\n"
+			"--build-skips <INDEX>\tbuild skiplists for an existing index (builds .spe and\n"
+			"\t\t\tupgrades .sph, .spi in place)\n"
+			"--check <INDEX>\t\tperform index consistency check\n"
+			"--checkconfig\t\tperform config consistency check\n"
+			"--dumpconfig <SPH-FILE>\tdump index header in config format by file name\n"
+			"--dumpdocids <INDEX>\tdump docids by index name\n"
+			"--dumpdict <SPI-FILE>\tdump dictionary by file name\n"
+			"--dumpdict <INDEX>\tdump dictionary\n"
+			"--dumpheader <SPH-FILE>\tdump index header by file name\n"
+			"--dumpheader <INDEX>\tdump index header by index name\n"
+			"--dumphitlist <INDEX> <KEYWORD>\n"
+			"--dumphitlist <INDEX> --wordid <ID>\n"
+			"\t\t\tdump hits for a given keyword\n"
+			"--htmlstrip <INDEX>\tfilter stdin using index HTML stripper settings\n"
+			"--optimize-rt-klists <INDEX>\n"
+			"\t\t\toptimize kill list memory use in RT index disk chunks;\n"
+			"\t\t\teither for a given index or --all\n"
+			"--buildidf <index1.dict> [index2.dict ...] [--skip-uniq] --out <global.idf>\n"
+			"\t\t\tjoin dictionary dumps with statistics (--stats) into an .idf file\n"
+			"--mergeidf <node1.idf> [node2.idf ...] [--skip-uniq] --out <global.idf>\n"
+			"\t\t\tmerge several .idf files into one file\n"
+			"\n"
+			"Options are:\n"
+			"-c, --config <file>\tuse given config file instead of defaults\n"
+			"--strip-path\t\tstrip path from filenames referenced by index\n"
+			"\t\t\t(eg. stopwords, exceptions, etc)\n"
+			"--stats\t\t\tshow total statistics in the dictionary dump\n"
+			"--skip-uniq\t\tskip unique (df=1) words in the .idf files\n"
+		);
+		exit ( 0 );
+	}
+
+	//////////////////////
+	// parse command line
+	//////////////////////
+
+	#define OPT(_a1,_a2)	else if ( !strcmp(argv[i],_a1) || !strcmp(argv[i],_a2) )
+	#define OPT1(_a1)		else if ( !strcmp(argv[i],_a1) )
+
+	const char * sOptConfig = NULL;
+	CSphString sDumpHeader, sIndex, sKeyword;
+	bool bWordid = false;
+	bool bStripPath = false;
+	CSphVector<CSphString> dFiles;
+	CSphString sOut;
+	bool bStats = false;
+	bool bSkipUnique = false;
+	CSphString sDumpDict;
+
+	enum
+	{
+		CMD_NOTHING,
+		CMD_DUMPHEADER,
+		CMD_DUMPCONFIG,
+		CMD_DUMPDOCIDS,
+		CMD_DUMPHITLIST,
+		CMD_DUMPDICT,
+		CMD_CHECK,
+		CMD_STRIP,
+		CMD_OPTIMIZEKLISTS,
+		CMD_BUILDINFIXES,
+		CMD_MORPH,
+		CMD_BUILDSKIPS,
+		CMD_BUILDIDF,
+		CMD_MERGEIDF,
+		CMD_CHECKCONFIG
+	} eCommand = CMD_NOTHING;
+
+	int i;
+	for ( i=1; i<argc; i++ )
+	{
+		if ( argv[i][0]!='-' )
+			break;
+
+		// this is an option
+		if ( (i+1)>=argc )			break;
+		OPT ( "-c", "--config" )	sOptConfig = argv[++i];
+		OPT1 ( "--dumpheader" )		{ eCommand = CMD_DUMPHEADER; sDumpHeader = argv[++i]; }
+		OPT1 ( "--dumpconfig" )		{ eCommand = CMD_DUMPCONFIG; sDumpHeader = argv[++i]; }
+		OPT1 ( "--dumpdocids" )		{ eCommand = CMD_DUMPDOCIDS; sIndex = argv[++i]; }
+		OPT1 ( "--check" )			{ eCommand = CMD_CHECK; sIndex = argv[++i]; }
+		OPT1 ( "--htmlstrip" )		{ eCommand = CMD_STRIP; sIndex = argv[++i]; }
+		OPT1 ( "--build-infixes" )	{ eCommand = CMD_BUILDINFIXES; sIndex = argv[++i]; }
+		OPT1 ( "--build-skips" )	{ eCommand = CMD_BUILDSKIPS; sIndex = argv[++i]; }
+		OPT1 ( "--morph" )			{ eCommand = CMD_MORPH; sIndex = argv[++i]; }
+		OPT1 ( "--strip-path" )		{ bStripPath = true; }
+		OPT1 ( "--checkconfig" )	{ eCommand = CMD_CHECKCONFIG; }
+		OPT1 ( "--optimize-rt-klists" )
+		{
+			eCommand = CMD_OPTIMIZEKLISTS;
+			sIndex = argv[++i];
+			if ( sIndex=="--all" )
+				sIndex = "";
+		}
+		OPT1 ( "--dumpdict" )
+		{
+			eCommand = CMD_DUMPDICT;
+			sDumpDict = argv[++i];
+			if ( (i+1)<argc && !strcmp ( argv[i+1], "--stats" ) )
+			{
+				bStats = true;
+				i++;
+			}
+		}
+
+		// options with 2 args
+		else if ( (i+2)>=argc ) // NOLINT
+		{
+			// not enough args
+			break;
+
+		} else if ( !strcmp ( argv[i], "--dumphitlist" ) )
+		{
+			eCommand = CMD_DUMPHITLIST;
+			sIndex = argv[++i];
+
+			if ( !strcmp ( argv[i+1], "--wordid" ) )
+			{
+				if ( (i+3)<argc )
+					break; // not enough args
+				bWordid = true;
+				i++;
+			}
+
+			sKeyword = argv[++i];
+
+		} else if ( !strcmp ( argv[i], "--buildidf" ) || !strcmp ( argv[i], "--mergeidf" ) )
+		{
+			eCommand = !strcmp ( argv[i], "--buildidf" ) ? CMD_BUILDIDF : CMD_MERGEIDF;
+			while ( ++i<argc )
+			{
+				if ( !strcmp ( argv[i], "--out" ) )
+				{
+					if ( (i+1)>=argc )
+						break; // too few args
+					sOut = argv[++i];
+
+				} else if ( !strcmp ( argv[i], "--skip-uniq" ) )
+				{
+					bSkipUnique = true;
+
+				} else if ( argv[i][0]=='-' )
+				{
+					break; // unknown switch
+
+				} else
+				{
+					dFiles.Add ( argv[i] ); // handle everything else as a file name
+				}
+			}
+			break;
+
+		} else
+		{
+			// unknown option
+			break;
+		}
+	}
+	if ( i!=argc )
+	{
+		fprintf ( stdout, "ERROR: malformed or unknown option near '%s'.\n", argv[i] );
+		return 1;
+	}
+
+	//////////////////////
+	// load proper config
+	//////////////////////
+
+	CSphConfigParser cp;
+	CSphConfig & hConf = cp.m_tConf;
+	for ( ;; )
+	{
+		if ( ( eCommand==CMD_DUMPHEADER || eCommand==CMD_DUMPCONFIG ) && sDumpHeader.Ends ( ".sph" ) )
+			break;
+
+		if ( eCommand==CMD_BUILDIDF || eCommand==CMD_MERGEIDF )
+			break;
+
+		if ( eCommand==CMD_DUMPDICT )
+		{
+			if ( sDumpDict.Ends ( ".spi" ) )
+				break;
+			sIndex = sDumpDict;
+		}
+
+		sphLoadConfig ( sOptConfig, false, cp );
+		break;
+	}
+
+	///////////
+	// action!
+	///////////
+
+	if ( eCommand==CMD_CHECKCONFIG )
+	{
+		fprintf ( stdout, "config valid\nchecking index(es) ... " );
+
+		bool bError = false;
+		// config parser made sure that index(es) present
+		const CSphConfigType & hIndexes = hConf ["index"];
+
+		hIndexes.IterateStart();
+		while ( hIndexes.IterateNext() )
+		{
+			const CSphConfigSection & tIndex = hIndexes.IterateGet();
+			const CSphString * pPath = tIndex ( "path" );
+			if ( !pPath )
+				continue;
+
+			const CSphString * pType = tIndex ( "type" );
+			if ( pType && ( *pType=="rt" || *pType=="distributed" ) )
+				continue;
+
+			// checking index presence by sph file available
+			CSphString sHeader, sError;
+			sHeader.SetSprintf ( "%s.sph", pPath->cstr() );
+			CSphAutoreader rdHeader;
+			if ( !rdHeader.Open ( sHeader, sError ) )
+			{
+				// nice looking output
+				if ( !bError )
+					fprintf ( stdout, "\nmissed index(es): '%s'", hIndexes.IterateGetKey().cstr() );
+				else
+					fprintf ( stdout, ", '%s'", hIndexes.IterateGetKey().cstr() );
+
+				bError = true;
+			}
+		}
+		if ( !bError )
+		{
+			fprintf ( stdout, "ok\n" );
+			exit ( 0 );
+		} else
+		{
+			fprintf ( stdout, "\n" );
+			exit ( 1 );
+		}
+	}
+
+
+	// common part for several commands, check and preload index
+	CSphIndex * pIndex = NULL;
+	while ( !sIndex.IsEmpty() && eCommand!=CMD_OPTIMIZEKLISTS )
+	{
+		// check config
+		if ( !hConf["index"](sIndex) )
+			sphDie ( "index '%s': no such index in config\n", sIndex.cstr() );
+
+		// only need config-level settings for --htmlstrip
+		if ( eCommand==CMD_STRIP )
+			break;
+
+		if ( !hConf["index"][sIndex]("path") )
+			sphDie ( "index '%s': missing 'path' in config'\n", sIndex.cstr() );
+
+		// only need path for --build-infixes, it will access the files directly
+		if ( eCommand==CMD_BUILDINFIXES )
+			break;
+
+		// preload that index
+		CSphString sError;
+		bool bDictKeywords = false;
+		if ( hConf["index"][sIndex].Exists ( "dict" ) )
+			bDictKeywords = ( hConf["index"][sIndex]["dict"]=="keywords" );
+
+		if ( hConf["index"][sIndex]("type") && hConf["index"][sIndex]["type"]=="rt" )
+		{
+			CSphSchema tSchema;
+			if ( sphRTSchemaConfigure ( hConf["index"][sIndex], &tSchema, &sError ) )
+				pIndex = sphCreateIndexRT ( tSchema, sIndex.cstr(), 32*1024*1024, hConf["index"][sIndex]["path"].cstr(), bDictKeywords );
+		} else
+		{
+			pIndex = sphCreateIndexPhrase ( sIndex.cstr(), hConf["index"][sIndex]["path"].cstr() );
+		}
+
+		if ( !pIndex )
+			sphDie ( "index '%s': failed to create (%s)", sIndex.cstr(), sError.cstr() );
+
+		// don't need any long load operations
+		// but not for dict=keywords + infix
+		pIndex->SetWordlistPreload ( bDictKeywords );
+
+		CSphString sWarn;
+		if ( !pIndex->Prealloc ( false, bStripPath, sWarn ) )
+			sphDie ( "index '%s': prealloc failed: %s\n", sIndex.cstr(), pIndex->GetLastError().cstr() );
+
+		if ( eCommand==CMD_MORPH )
+			break;
+
+		if ( !pIndex->Preread() )
+			sphDie ( "index '%s': preread failed: %s\n", sIndex.cstr(), pIndex->GetLastError().cstr() );
+
+		if ( hConf["index"][sIndex]("hitless_words") )
+		{
+			CSphIndexSettings tSettings = pIndex->GetSettings();
+
+			const CSphString & sValue = hConf["index"][sIndex]["hitless_words"];
+			if ( sValue=="all" )
+			{
+				tSettings.m_eHitless = SPH_HITLESS_ALL;
+			} else
+			{
+				tSettings.m_eHitless = SPH_HITLESS_SOME;
+				tSettings.m_sHitlessFiles = sValue;
+			}
+
+			pIndex->Setup ( tSettings );
+		}
+
+		break;
+	}
+
+	// do the dew
+	switch ( eCommand )
+	{
+		case CMD_NOTHING:
+			sphDie ( "nothing to do; specify a command (run indextool w/o switches for help)" );
+
+		case CMD_DUMPHEADER:
+		case CMD_DUMPCONFIG:
+		{
+			CSphString sIndexName = "(none)";
+			if ( hConf("index") && hConf["index"](sDumpHeader) )
+			{
+				fprintf ( stdout, "dumping header for index '%s'...\n", sDumpHeader.cstr() );
+
+				if ( !hConf["index"][sDumpHeader]("path") )
+					sphDie ( "missing 'path' for index '%s'\n", sDumpHeader.cstr() );
+
+				sIndexName = sDumpHeader;
+				sDumpHeader.SetSprintf ( "%s.sph", hConf["index"][sDumpHeader]["path"].cstr() );
+			} else
+				fprintf ( stdout, "dumping header file '%s'...\n", sDumpHeader.cstr() );
+
+			CSphIndex * pIndex = sphCreateIndexPhrase ( sIndexName.cstr(), "" );
+			pIndex->DebugDumpHeader ( stdout, sDumpHeader.cstr(), eCommand==CMD_DUMPCONFIG );
+			break;
+		}
+
+		case CMD_DUMPDOCIDS:
+			fprintf ( stdout, "dumping docids for index '%s'...\n", sIndex.cstr() );
+			pIndex->DebugDumpDocids ( stdout );
+			break;
+
+		case CMD_DUMPHITLIST:
+			fprintf ( stdout, "dumping hitlist for index '%s' keyword '%s'...\n", sIndex.cstr(), sKeyword.cstr() );
+			pIndex->DebugDumpHitlist ( stdout, sKeyword.cstr(), bWordid );
+			break;
+
+		case CMD_DUMPDICT:
+		{
+			if ( sDumpDict.Ends ( ".spi" ) )
+			{
+				fprintf ( stdout, "dumping dictionary file '%s'...\n", sDumpDict.cstr() );
+
+				sIndex = sDumpDict.SubString ( 0, sDumpDict.Length()-4 );
+				pIndex = sphCreateIndexPhrase ( sIndex.cstr(), sIndex.cstr() );
+
+				CSphString sError;
+				if ( !pIndex )
+					sphDie ( "index '%s': failed to create (%s)", sIndex.cstr(), sError.cstr() );
+
+				pIndex->SetWordlistPreload ( true );
+
+				CSphString sWarn;
+				if ( !pIndex->Prealloc ( false, bStripPath, sWarn ) )
+					sphDie ( "index '%s': prealloc failed: %s\n", sIndex.cstr(), pIndex->GetLastError().cstr() );
+
+				if ( !pIndex->Preread() )
+					sphDie ( "index '%s': preread failed: %s\n", sIndex.cstr(), pIndex->GetLastError().cstr() );
+			} else
+				fprintf ( stdout, "dumping dictionary for index '%s'...\n", sIndex.cstr() );
+
+			if ( bStats )
+				fprintf ( stdout, "total-documents: "INT64_FMT"\n", pIndex->GetStats().m_iTotalDocuments );
+			pIndex->DebugDumpDict ( stdout );
+			break;
+		}
+
+		case CMD_CHECK:
+			fprintf ( stdout, "checking index '%s'...\n", sIndex.cstr() );
+			return pIndex->DebugCheck ( stdout );
+
+		case CMD_STRIP:
+			{
+				const CSphConfigSection & hIndex = hConf["index"][sIndex];
+				if ( hIndex.GetInt ( "html_strip" )==0 )
+					sphDie ( "HTML stripping is not enabled in index '%s'", sIndex.cstr() );
+				StripStdin ( hIndex.GetStr ( "html_index_attrs" ), hIndex.GetStr ( "html_remove_elements" ) );
+			}
+			break;
+
+		case CMD_OPTIMIZEKLISTS:
+			OptimizeRtKlists ( sIndex, hConf );
+			break;
+
+		case CMD_BUILDINFIXES:
+			{
+				const CSphConfigSection & hIndex = hConf["index"][sIndex];
+				if ( hIndex("type") && hIndex["type"]=="rt" )
+					sphDie ( "build-infixes requires a disk index" );
+				if ( !hIndex("dict") || hIndex["dict"]!="keywords" )
+					sphDie ( "build-infixes requires dict=keywords" );
+
+				fprintf ( stdout, "building infixes for index %s...\n", sIndex.cstr() );
+				sphDictBuildInfixes ( hIndex["path"].cstr() );
+			}
+			break;
+
+		case CMD_BUILDSKIPS:
+			{
+				const CSphConfigSection & hIndex = hConf["index"][sIndex];
+				if ( hIndex("type") && hIndex["type"]=="rt" )
+					sphDie ( "build-infixes requires a disk index" );
+
+				fprintf ( stdout, "building skiplists for index %s...\n", sIndex.cstr() );
+				sphDictBuildSkiplists ( hIndex["path"].cstr() );
+			}
+			break;
+
+		case CMD_MORPH:
+			ApplyMorphology ( pIndex );
+			break;
+
+		case CMD_BUILDIDF:
+		{
+			CSphString sError;
+			if ( !BuildIDF ( sOut, dFiles, sError, bSkipUnique ) )
+				fprintf ( stdout, "ERROR: %s\n", sError.cstr() );
+			break;
+		}
+
+		case CMD_MERGEIDF:
+		{
+			CSphString sError;
+			if ( !MergeIDF ( sOut, dFiles, sError, bSkipUnique ) )
+				fprintf ( stdout, "ERROR: %s\n", sError.cstr() );
+			break;
+		}
+
+		default:
+			sphDie ( "INTERNAL ERROR: unhandled command (id=%d)", (int)eCommand );
+	}
+
+	return 0;
+}
+
 //
-// $Id: indextool.cpp 3789 2013-04-08 09:21:29Z tomat $
+// $Id: indextool.cpp 3701 2013-02-20 18:10:18Z deogar $
 //

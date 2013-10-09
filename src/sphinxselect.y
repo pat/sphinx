@@ -20,9 +20,10 @@
 %token SEL_COUNT
 %token SEL_WEIGHT
 %token SEL_DISTINCT
+%token SEL_OPTION
+%token SEL_COMMENT_OPEN
+%token SEL_COMMENT_CLOSE
 
-%token TOK_DIV
-%token TOK_MOD
 %token TOK_NEG
 %token TOK_LTE
 %token TOK_GTE
@@ -37,11 +38,17 @@
 %left TOK_EQ TOK_NE
 %left '<' '>' TOK_LTE TOK_GTE
 %left '+' '-'
-%left '*' '/' TOK_DIV '%' TOK_MOD
+%left '*' '/'
 %nonassoc TOK_NEG
 %nonassoc TOK_NOT
 
 %%
+
+select:
+	select_list
+	| select_list comment
+	| comment
+	;
 
 select_list:
 	select_item
@@ -81,11 +88,8 @@ expr:
 	| expr '/' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
 	| expr '<' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
 	| expr '>' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| expr '&' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
 	| expr '|' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| expr '%' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| expr TOK_DIV expr			{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| expr TOK_MOD expr			{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
+	| expr '&' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
 	| expr TOK_LTE expr			{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
 	| expr TOK_GTE expr			{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
 	| expr TOK_EQ expr			{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
@@ -96,9 +100,10 @@ expr:
 	| function
 	;
 
-select_atom :
+select_atom:
 	SEL_ID
 	| SEL_TOKEN
+	;
 
 function:
 	SEL_TOKEN '(' arglist ')'		{ $$ = $1; $$.m_iEnd = $4.m_iEnd; }
@@ -117,6 +122,12 @@ arg:
 	| TOK_CONST_STRING
 	;
 
+comment:
+	SEL_COMMENT_OPEN SEL_OPTION SEL_TOKEN TOK_EQ SEL_TOKEN SEL_COMMENT_CLOSE
+		{
+			pParser->AddOption ( &$3, &$5 );
+		}
+	;
 
 %%
 

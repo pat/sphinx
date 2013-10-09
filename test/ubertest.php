@@ -1,7 +1,7 @@
 <?php
 
 //
-// $Id: ubertest.php 2765 2011-04-08 13:07:32Z klirichek $
+// $Id: ubertest.php 3495 2012-10-31 12:14:51Z shodan $
 //
 
 $sd_managed_searchd	= false;
@@ -37,6 +37,8 @@ if ( !is_array($args) || empty($args) )
 	print ( "--no-drop-db\t\tKeep test db tables after the test (for debugging)\n");
 	print ( "--no-demo\t\tJust skip all tests without models. Else - run them, but never fail (for debugging)\n");
 	print ( "--no-marks\t\tDon't mark the output of every test in the logs.\n");
+	print ( "--ignore-weights\tIgnore differences in weights. (Useful for testing that reference database changes are ok.)\n" );
+	print ( "--cwd\t\t\tchange directory to ubertest.php location (for git bisect)\n" );
 	print ( "\nEnvironment variables are:\n" );
 	print ( "DBUSER\t\t\tuse 'USER' as MySQL user\n" );
 	print ( "DBPASS\t\t\tuse 'PASS' as MySQL password\n" );
@@ -84,6 +86,7 @@ for ( $i=0; $i<count($args); $i++ )
 	else if ( $arg=="--no-drop-db" )				$locals['no_drop_db'] = true;
 	else if ( $arg=="--no-demo" )					$g_skipdemo = true;
 	else if ( $arg=="--no-marks" )					$g_usemarks = false;
+	else if ( $arg=="--cwd" )						chdir ( DIRNAME ( __FILE__ ) );
 	else if ( is_dir($arg) )						$test_dirs[] = $arg;
 	else if ( preg_match ( "/^(\\d+)-(\\d+)$/", $arg, $range ) )
 	{
@@ -107,6 +110,7 @@ if ( !$run )
 
 PublishLocals ( $locals, false );
 GuessIdSize();
+GuessRE2();
 
 if ( $g_locals["malloc-scribble"] )
 {
@@ -282,7 +286,7 @@ if ( $total_tests_failed )
 }
 
 //
-// $Id: ubertest.php 2765 2011-04-08 13:07:32Z klirichek $
+// $Id: ubertest.php 3495 2012-10-31 12:14:51Z shodan $
 //
 
 ?>

@@ -1,10 +1,10 @@
 //
-// $Id: tests.cpp 3824 2013-04-19 19:59:23Z tomat $
+// $Id: tests.cpp 3701 2013-02-20 18:10:18Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -73,8 +73,7 @@ bool CreateSynonymsFile ( const char * sMagic )
 
 
 const DWORD TOK_EXCEPTIONS		= 1;
-const DWORD TOK_ESCAPED			= 2;
-const DWORD TOK_NO_DASH			= 4;
+const DWORD TOK_NO_DASH			= 2;
 
 ISphTokenizer * CreateTestTokenizer ( bool bUTF8, DWORD uMode )
 {
@@ -82,7 +81,8 @@ ISphTokenizer * CreateTestTokenizer ( bool bUTF8, DWORD uMode )
 	CSphTokenizerSettings tSettings;
 	tSettings.m_iType = bUTF8 ? TOKENIZER_UTF8 : TOKENIZER_SBCS;
 	tSettings.m_iMinWordLen = 2;
-	ISphTokenizer * pTokenizer = ISphTokenizer::Create ( tSettings, sError );
+
+	ISphTokenizer * pTokenizer = ISphTokenizer::Create ( tSettings, NULL, sError );
 	if (!( uMode & TOK_NO_DASH ))
 	{
 		assert ( pTokenizer->SetCaseFolding ( "-, 0..9, A..Z->a..z, _, a..z, U+80..U+FF", sError ) );
@@ -92,18 +92,18 @@ ISphTokenizer * CreateTestTokenizer ( bool bUTF8, DWORD uMode )
 		assert ( pTokenizer->SetCaseFolding ( "0..9, A..Z->a..z, _, a..z, U+80..U+FF", sError ) );
 		pTokenizer->AddSpecials ( "!" );
 	}
-	pTokenizer->EnableQueryParserMode ( true );
 	if ( uMode & TOK_EXCEPTIONS )
-		assert ( pTokenizer->LoadSynonyms ( g_sTmpfile, sError ) );
+		assert ( pTokenizer->LoadSynonyms ( g_sTmpfile, NULL, sError ) );
 
-	if ( uMode & TOK_ESCAPED )
-	{
-		ISphTokenizer * pOldTokenizer = pTokenizer;
-		pTokenizer = pTokenizer->Clone ( true );
-		SafeDelete ( pOldTokenizer );
-	}
+	// tricky little shit!
+	// we want to create a query mode tokenizer
+	// the official way is to Clone() an indexing mode one, so we do that
+	// however, Clone() adds backslash as a special
+	// and that must be done *after* SetCaseFolding, otherwise it's not special any more
+	ISphTokenizer * pTokenizer1 = pTokenizer->Clone ( SPH_CLONE_QUERY );
+	SafeDelete ( pTokenizer );
 
-	return pTokenizer;
+	return pTokenizer1;
 }
 
 
@@ -122,8 +122,7 @@ void TestTokenizer ( bool bUTF8 )
 
 		assert ( CreateSynonymsFile ( sMagic ) );
 		bool bExceptions = ( iRun>=2 );
-		bool bEscaped = ( iRun==3 );
-		ISphTokenizer * pTokenizer = CreateTestTokenizer ( bUTF8, bExceptions*TOK_EXCEPTIONS + bEscaped*TOK_ESCAPED );
+		ISphTokenizer * pTokenizer = CreateTestTokenizer ( bUTF8, bExceptions*TOK_EXCEPTIONS );
 
 		const char * dTests[] =
 		{
@@ -242,16 +241,12 @@ void TestTokenizer ( bool bUTF8 )
 
 		// test short word callbacks
 		printf ( "%s for short token handling\n", sPrefix );
-		ISphTokenizer * pShortTokenizer = pTokenizer->Clone ( bEscaped );
-
-		CSphRemapRange tStar ( '*', '*', '*' );
-		pShortTokenizer->AddCaseFolding ( tStar );
+		ISphTokenizer * pShortTokenizer = pTokenizer->Clone ( SPH_CLONE_QUERY );
+		pShortTokenizer->AddPlainChar ( '*' );
 
 		CSphTokenizerSettings tSettings = pShortTokenizer->GetSettings();
 		tSettings.m_iMinWordLen = 5;
 		pShortTokenizer->Setup ( tSettings );
-
-		pShortTokenizer->EnableQueryParserMode ( true );
 
 		const char * dTestsShort[] =
 		{
@@ -347,9 +342,9 @@ void TestTokenizer ( bool bUTF8 )
 	printf ( "%s vs escaping vs blend_chars edge cases\n", sPrefix );
 
 	CSphString sError;
-	ISphTokenizer * pTokenizer = CreateTestTokenizer ( bUTF8, TOK_ESCAPED );
-	pTokenizer->AddSpecials ( "()!-\"" );
-	assert ( pTokenizer->SetBlendChars ( ".", sError ) );
+	ISphTokenizer * pTokenizer = CreateTestTokenizer ( bUTF8, 0 );
+	assert ( pTokenizer->SetBlendChars ( "., @", sError ) );
+	pTokenizer->AddSpecials ( "()!-\"@" );
 
 	char sTest1[] = "(texas.\\\")";
 	pTokenizer->SetBuffer ( (BYTE*)sTest1, strlen(sTest1) );
@@ -388,20 +383,57 @@ void TestTokenizer ( bool bUTF8 )
 	assert ( !pTokenizer->TokenIsBlended() );
 	assert ( !pTokenizer->TokenIsBlendedPart() );
 
-	// blended/special vs query mode vs modifier.. hell, this is complicated
-	CSphRemapRange tModifier ( '=', '=', '=' );
+	char sTest4[] = "3.rd text";
+	printf ( "test %s\n", sTest4 );
+	pTokenizer->SetBuffer ( (BYTE*)sTest4, strlen(sTest4) );
+	assert ( !strcmp ( (const char*)pTokenizer->GetToken(), "3.rd" ) );
+	assert ( pTokenizer->TokenIsBlended() );
+	assert ( pTokenizer->SkipBlended()==1 );
+	assert ( !strcmp ( (const char*)pTokenizer->GetToken(), "text" ) );
+	assert ( !pTokenizer->TokenIsBlended() );
+	assert ( !pTokenizer->GetToken() );
 
+	char sTest5[] = "123\\@rd text";
+	printf ( "test %s\n", sTest5 );
+	pTokenizer->SetBuffer ( (BYTE*)sTest5, strlen(sTest5) );
+	assert ( !strcmp ( (const char*)pTokenizer->GetToken(), "123@rd" ) );
+	assert ( pTokenizer->TokenIsBlended() );
+	assert ( pTokenizer->SkipBlended()==2 );
+	assert ( !strcmp ( (const char*)pTokenizer->GetToken(), "text" ) );
+	assert ( !pTokenizer->TokenIsBlended() );
+	assert ( !pTokenizer->GetToken() );
+
+	char sTest6[] = "at.ta\\.c.da\\.bl.ok yo pest";
+	printf ( "test %s\n", sTest6 );
+	pTokenizer->SetBuffer ( (BYTE*)sTest6, strlen(sTest6) );
+	assert ( !strcmp ( (const char*)pTokenizer->GetToken(), "at.ta.c.da.bl.ok" ) );
+	assert ( pTokenizer->TokenIsBlended() );
+	assert ( pTokenizer->SkipBlended()==5 );
+	assert ( !strcmp ( (const char*)pTokenizer->GetToken(), "yo" ) );
+	assert ( !strcmp ( (const char*)pTokenizer->GetToken(), "pest" ) );
+	assert ( !pTokenizer->GetToken() );
+
+	char sTest7[] = "3\\@rd text";
+	printf ( "test %s\n", sTest7 );
+	pTokenizer->SetBuffer ( (BYTE*)sTest7, strlen(sTest7) );
+	assert ( !strcmp ( (const char*)pTokenizer->GetToken(), "3@rd" ) );
+	assert ( pTokenizer->TokenIsBlended() );
+	assert ( pTokenizer->SkipBlended()==1 ); // because 3 is overshort!
+	assert ( !strcmp ( (const char*)pTokenizer->GetToken(), "text" ) );
+	assert ( !pTokenizer->TokenIsBlended() );
+	assert ( !pTokenizer->GetToken() );
+
+	// blended/special vs query mode vs modifier.. hell, this is complicated
 	SafeDelete ( pTokenizer );
 	pTokenizer = CreateTestTokenizer ( bUTF8, TOK_NO_DASH );
 	assert ( pTokenizer->SetBlendChars ( "., -", sError ) );
 	pTokenizer->AddSpecials ( "-" );
-	pTokenizer->AddCaseFolding ( tModifier );
-	pTokenizer->EnableQueryParserMode ( true );
+	pTokenizer->AddPlainChar ( '=' );
 	assert ( pTokenizer->SetBlendMode ( "trim_none, skip_pure", sError ) );
 
-	char sTest4[] = "hello =- =world";
-	printf ( "test %s\n", sTest4 );
-	pTokenizer->SetBuffer ( (BYTE*)sTest4, strlen(sTest4) );
+	char sTest10[] = "hello =- =world";
+	printf ( "test %s\n", sTest10 );
+	pTokenizer->SetBuffer ( (BYTE*)sTest10, strlen(sTest10) );
 
 	assert ( !strcmp ( (const char*)pTokenizer->GetToken(), "hello" ) );
 	assert ( !strcmp ( (const char*)pTokenizer->GetToken(), "=world" ) );
@@ -413,9 +445,18 @@ void TestTokenizer ( bool bUTF8 )
 
 	printf ( "test utf8 len 2\n" );
 	assert ( sphUTF8Len ( "", 256 )==0 && sphUTF8Len ( NULL, 256 )==0 );
+
+	printf ( "test noascii case\n" );
+	pTokenizer = sphCreateUTF8Tokenizer();
+	assert ( pTokenizer->SetCaseFolding ( "U+410..U+42F->U+430..U+44F, U+430..U+44F, U+401->U+451, U+451", sError ) );
+	char sTest20[] = "abc \xD0\xBE\xD0\xBF\xD0\xB0\x58\xD1\x87\xD0\xB0 def";
+	pTokenizer->SetBuffer ( (BYTE*)sTest20, strlen(sTest20) );
+	assert ( !strcmp ( (const char*)pTokenizer->GetToken(), "\xD0\xBE\xD0\xBF\xD0\xB0" ) );
+	assert ( !strcmp ( (const char*)pTokenizer->GetToken(), "\xD1\x87\xD0\xB0" ) );
+	assert ( !pTokenizer->GetToken() );
+	SafeDelete ( pTokenizer );
 	printf ( "test utf8 4-bytes codepoint\n" );
 	BYTE sTest21[] = "\xF4\x80\x80\x80\x32\x34\x20";
-	BYTE sTest22[] = "\xEC\x97\xB0";
 	BYTE sRes21[SPH_MAX_WORD_LEN];
 
 	memset ( sRes21, 0, sizeof(sRes21) );
@@ -423,17 +464,39 @@ void TestTokenizer ( bool bUTF8 )
 	int iCode21 = sphUTF8Decode ( pTest21 );
 	assert ( sphUTF8Encode ( sRes21, iCode21 )==4 );
 	assert ( sTest21[0]==sRes21[0] && sTest21[1]==sRes21[1] && sTest21[2]==sRes21[2] && sTest21[3]==sRes21[3] );
-
 	memset ( sRes21, 0, sizeof(sRes21) );
-	pTest21 = sTest22;
-	int iCode22 = sphUTF8Decode ( pTest21 );
-	assert ( iCode22==0xC5F0 );
-	assert ( sphUTF8Encode ( sRes21, iCode22 )==3 );
-	assert ( memcmp ( sTest22, sRes21, sizeof(sTest22) )==0 );
+	BYTE * pRes21 = sRes21;
+	SPH_UTF8_ENCODE ( pRes21, iCode21 );
+	assert ( sTest21[0]==sRes21[0] && sTest21[1]==sRes21[1] && sTest21[2]==sRes21[2] && sTest21[3]==sRes21[3] );
 
 	pTokenizer = sphCreateUTF8Tokenizer();
 	pTokenizer->SetBuffer ( (BYTE*)sTest21, sizeof(sTest21) );
 	assert ( !strcmp ( (const char*)pTokenizer->GetToken(), "\xF4\x80\x80\x80\x32\x34" ) );
+}
+
+
+char * LoadFile ( const char * sName, int * pLen, bool bReportErrors )
+{
+	FILE * fp = fopen ( sName, "rb" );
+	if ( !fp )
+	{
+		if ( bReportErrors )
+			printf ( "benchmark failed: error opening %s\n", sName );
+		return NULL;
+	}
+	const int MAX_DATA = 10485760;
+	char * sData = new char [ MAX_DATA ];
+	int iData = fread ( sData, 1, MAX_DATA, fp );
+	fclose ( fp );
+	if ( iData<=0 )
+	{
+		if ( bReportErrors )
+			printf ( "benchmark failed: error reading %s\n", sName );
+		SafeDeleteArray ( sData );
+		return NULL;
+	}
+	*pLen = iData;
+	return sData;
 }
 
 
@@ -446,35 +509,19 @@ void BenchTokenizer ( bool bUTF8 )
 		return;
 	}
 
-
-	const char * sTestfile = "./configure";
+	CSphString sError;
 	for ( int iRun=1; iRun<=2; iRun++ )
 	{
-		FILE * fp = fopen ( sTestfile, "rb" );
-		if ( !fp )
-		{
-			printf ( "benchmark failed: error opening %s\n", sTestfile );
-			return;
-		}
-		const int MAX_DATA = 10485760;
-		char * sData = new char [ MAX_DATA ];
-		int iData = fread ( sData, 1, MAX_DATA, fp );
-		fclose ( fp );
-		if ( iData<=0 )
-		{
-			printf ( "benchmark failed: error reading %s\n", sTestfile );
-			SafeDeleteArray ( sData );
-			return;
-		}
+		int iData;
+		char * sData = LoadFile ( "./configure", &iData, true );
 
-		CSphString sError;
 		ISphTokenizer * pTokenizer = bUTF8 ? sphCreateUTF8Tokenizer () : sphCreateSBCSTokenizer ();
 		pTokenizer->SetCaseFolding ( "-, 0..9, A..Z->a..z, _, a..z", sError );
 		if ( iRun==2 )
-			pTokenizer->LoadSynonyms ( g_sTmpfile, sError );
+			pTokenizer->LoadSynonyms ( g_sTmpfile, NULL, sError );
 		pTokenizer->AddSpecials ( "!-" );
 
-		const int iPasses = 10;
+		const int iPasses = 200;
 		int iTokens = 0;
 
 		int64_t tmTime = -sphMicroTimer();
@@ -488,9 +535,39 @@ void BenchTokenizer ( bool bUTF8 )
 		iTokens /= iPasses;
 		tmTime /= iPasses;
 
-		printf ( "run %d: %d bytes, %d tokens, %d.%03d ms, %.3f MB/sec\n", iRun, iData, iTokens, (int)(tmTime/1000), (int)(tmTime%1000), float(iData)/tmTime );
+		printf ( "run %d: %d bytes, %d tokens, %d.%03d ms, %.3f MB/sec\n", iRun, iData, iTokens,
+			(int)(tmTime/1000), (int)(tmTime%1000), float(iData)/tmTime );
 		SafeDeleteArray ( sData );
 	}
+
+	if ( !bUTF8 )
+		return;
+
+	int iData;
+	char * sData = LoadFile ( "./utf8.txt", &iData, false );
+	if ( sData )
+	{
+		ISphTokenizer * pTokenizer = sphCreateUTF8Tokenizer ();
+
+		const int iPasses = 200;
+		int iTokens = 0;
+
+		int64_t tmTime = -sphMicroTimer();
+		for ( int iPass=0; iPass<iPasses; iPass++ )
+		{
+			pTokenizer->SetBuffer ( (BYTE*)sData, iData );
+			while ( pTokenizer->GetToken() )
+				iTokens++;
+		}
+		tmTime += sphMicroTimer();
+
+		iTokens /= iPasses;
+		tmTime /= iPasses;
+
+		printf ( "run 3: %d bytes, %d tokens, %d.%03d ms, %.3f MB/sec\n", iData, iTokens,
+			(int)(tmTime/1000), (int)(tmTime%1000), float(iData)/tmTime );
+	}
+	SafeDeleteArray ( sData );
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -669,7 +746,7 @@ void TestExpr ()
 		printf ( "testing expression evaluation, test %d/%d... ", 1+iTest, nTests );
 
 		CSphString sError;
-		CSphScopedPtr<ISphExpr> pExpr ( sphExprParse ( dTests[iTest].m_sExpr, tSchema, NULL, NULL, sError ) );
+		CSphScopedPtr<ISphExpr> pExpr ( sphExprParse ( dTests[iTest].m_sExpr, tSchema, NULL, NULL, sError, NULL ) );
 		if ( !pExpr.Ptr() )
 		{
 			printf ( "FAILED; %s\n", sError.cstr() );
@@ -744,7 +821,7 @@ void BenchExpr ()
 
 		ESphAttr uType;
 		CSphString sError;
-		CSphScopedPtr<ISphExpr> pExpr ( sphExprParse ( dBench[iRun].m_sExpr, tSchema, &uType, NULL, sError ) );
+		CSphScopedPtr<ISphExpr> pExpr ( sphExprParse ( dBench[iRun].m_sExpr, tSchema, &uType, NULL, sError, NULL ) );
 		if ( !pExpr.Ptr() )
 		{
 			printf ( "FAILED; %s\n", sError.cstr() );
@@ -783,99 +860,32 @@ void BenchExpr ()
 
 //////////////////////////////////////////////////////////////////////////
 
-CSphString ReconstructNode ( const XQNode_t * pNode, const CSphSchema & tSchema )
-{
-	CSphString sRes ( "" );
-
-	if ( !pNode )
-		return sRes;
-
-	if ( pNode->m_dWords.GetLength() )
-	{
-		// say just words to me
-		const CSphVector<XQKeyword_t> & dWords = pNode->m_dWords;
-		ARRAY_FOREACH ( i, dWords )
-			sRes.SetSprintf ( "%s %s", sRes.cstr(), dWords[i].m_sWord.cstr() );
-		sRes.Chop ();
-
-		switch ( pNode->GetOp() )
-		{
-			case SPH_QUERY_AND:			break;
-			case SPH_QUERY_PHRASE:		sRes.SetSprintf ( "\"%s\"", sRes.cstr() ); break;
-			case SPH_QUERY_PROXIMITY:	sRes.SetSprintf ( "\"%s\"~%d", sRes.cstr(), pNode->m_iOpArg ); break;
-			case SPH_QUERY_QUORUM:		sRes.SetSprintf ( "\"%s\"/%d", sRes.cstr(), pNode->m_iOpArg ); break;
-			case SPH_QUERY_NEAR:		sRes.SetSprintf ( "\"%s\"NEAR/%d", sRes.cstr(), pNode->m_iOpArg ); break;
-			default:					assert ( 0 && "unexpected op in ReconstructNode()" ); break;
-		}
-
-		if ( !pNode->m_dSpec.m_dFieldMask.TestAll(true) )
-		{
-			CSphString sFields ( "" );
-			for ( int i=0; i<CSphSmallBitvec::iTOTALBITS; i++ )
-				if ( pNode->m_dSpec.m_dFieldMask.Test(i) )
-					sFields.SetSprintf ( "%s,%s", sFields.cstr(), tSchema.m_dFields[i].m_sName.cstr() );
-
-			sRes.SetSprintf ( "( @%s: %s )", sFields.cstr()+1, sRes.cstr() );
-		} else
-		{
-			if ( pNode->GetOp()==SPH_QUERY_AND && dWords.GetLength()>1 )
-				sRes.SetSprintf ( "( %s )", sRes.cstr() ); // wrap bag of words
-		}
-
-	} else
-	{
-		ARRAY_FOREACH ( i, pNode->m_dChildren )
-		{
-			if ( !i )
-				sRes = ReconstructNode ( pNode->m_dChildren[i], tSchema );
-			else
-			{
-				const char * sOp = "(unknown-op)";
-				switch ( pNode->GetOp() )
-				{
-					case SPH_QUERY_AND:		sOp = "AND"; break;
-					case SPH_QUERY_OR:		sOp = "OR"; break;
-					case SPH_QUERY_NOT:		sOp = "NOT"; break;
-					case SPH_QUERY_ANDNOT:	sOp = "AND NOT"; break;
-					case SPH_QUERY_BEFORE:	sOp = "BEFORE"; break;
-					case SPH_QUERY_NEAR:	sOp = "NEAR"; break;
-					default:				assert ( 0 && "unexpected op in ReconstructNode()" ); break;
-				}
-				sRes.SetSprintf ( "%s %s %s", sRes.cstr(), sOp, ReconstructNode ( pNode->m_dChildren[i], tSchema ).cstr() );
-			}
-		}
-
-		if ( pNode->m_dChildren.GetLength()>1 )
-			sRes.SetSprintf ( "( %s )", sRes.cstr() );
-	}
-
-	return sRes;
-}
-
 
 void TestQueryParser ()
 {
-	CSphString sTmp;
+	CSphString sError;
 
 	CSphSchema tSchema;
 	CSphColumnInfo tCol;
 	tCol.m_sName = "title"; tSchema.m_dFields.Add ( tCol );
 	tCol.m_sName = "body"; tSchema.m_dFields.Add ( tCol );
 
-	CSphDictSettings tDictSettings;
-	CSphScopedPtr<ISphTokenizer> pTokenizer ( sphCreateSBCSTokenizer () );
-	CSphScopedPtr<CSphDict> pDict ( sphCreateDictionaryCRC ( tDictSettings, pTokenizer.Ptr(), sTmp, "query" ) );
-	assert ( pTokenizer.Ptr() );
-	assert ( pDict.Ptr() );
-
+	CSphScopedPtr<ISphTokenizer> pBase ( sphCreateSBCSTokenizer () );
 	CSphTokenizerSettings tTokenizerSetup;
 	tTokenizerSetup.m_iMinWordLen = 2;
 	tTokenizerSetup.m_sSynonymsFile = g_sTmpfile;
-	pTokenizer->Setup ( tTokenizerSetup );
-
-	CSphString sError;
+	pBase->Setup ( tTokenizerSetup );
 	assert ( CreateSynonymsFile ( NULL ) );
-	assert ( pTokenizer->LoadSynonyms ( g_sTmpfile, sError ) );
+	assert ( pBase->LoadSynonyms ( g_sTmpfile, NULL, sError ) );
+
+	CSphScopedPtr<ISphTokenizer> pTokenizer ( pBase->Clone ( SPH_CLONE_QUERY ) );
+	sphSetupQueryTokenizer ( pTokenizer.Ptr() );
+
+	CSphDictSettings tDictSettings;
+	CSphScopedPtr<CSphDict> pDict ( sphCreateDictionaryCRC ( tDictSettings, NULL, pTokenizer.Ptr(), "query", sError ) );
+
+	assert ( pTokenizer.Ptr() );
+	assert ( pDict.Ptr() );
 
 	struct QueryTest_t
 	{
@@ -884,30 +894,30 @@ void TestQueryParser ()
 	};
 	const QueryTest_t dTest[] =
 	{
-		{ "aaa bbb ccc",					"( aaa AND bbb AND ccc )" },
-		{ "aaa|bbb ccc",					"( ( aaa OR bbb ) AND ccc )" },
-		{ "aaa bbb|ccc",					"( aaa AND ( bbb OR ccc ) )" },
-		{ "aaa (bbb ccc)|ddd",				"( aaa AND ( ( bbb AND ccc ) OR ddd ) )" },
-		{ "aaa bbb|(ccc ddd)",				"( aaa AND ( bbb OR ( ccc AND ddd ) ) )" },
-		{ "aaa bbb|(ccc ddd)|eee|(fff)",	"( aaa AND ( bbb OR ( ccc AND ddd ) OR eee OR fff ) )" },
-		{ "aaa bbb|(ccc ddd) eee|(fff)",	"( aaa AND ( bbb OR ( ccc AND ddd ) ) AND ( eee OR fff ) )" },
-		{ "aaa (ccc ddd)|bbb|eee|(fff)",	"( aaa AND ( ( ccc AND ddd ) OR bbb OR eee OR fff ) )" },
-		{ "aaa (ccc ddd)|bbb eee|(fff)",	"( aaa AND ( ( ccc AND ddd ) OR bbb ) AND ( eee OR fff ) )" },
-		{ "aaa \"bbb ccc\"~5|ddd",			"( aaa AND ( \"bbb ccc\"~5 OR ddd ) )" },
-		{ "aaa bbb|\"ccc ddd\"~5",			"( aaa AND ( bbb OR \"ccc ddd\"~5 ) )" },
-		{ "aaa ( ( \"bbb ccc\"~3|ddd ) eee | ( fff -ggg ) )",	"( aaa AND ( ( \"bbb ccc\"~3 OR ddd ) AND ( eee OR ( fff AND NOT ggg ) ) ) )" },
-		{ "@title aaa @body ccc|(@title ddd eee)|fff ggg",		"( ( @title: aaa ) AND ( ( @body: ccc ) OR ( ( @title: ddd ) AND ( @title: eee ) ) OR ( @body: fff ) ) AND ( @body: ggg ) )" },
-		{ "@title hello world | @body sample program",			"( ( @title: hello ) AND ( ( @title: world ) OR ( @body: sample ) ) AND ( @body: program ) )" },
-		{ "@title one two three four",							"( ( @title: one ) AND ( @title: two ) AND ( @title: three ) AND ( @title: four ) )" },
-		{ "@title one (@body two three) four",					"( ( @title: one ) AND ( ( @body: two ) AND ( @body: three ) ) AND ( @title: four ) )" },
-		{ "windows 7 2000",										"( windows AND 2000 )" },
-		{ "aaa a|bbb",											"( aaa AND bbb )" },
-		{ "aaa bbb|x y z|ccc",									"( aaa AND bbb AND ccc )" },
+		{ "aaa bbb ccc",					"( aaa   bbb   ccc )" },
+		{ "aaa|bbb ccc",					"( ( aaa | bbb )   ccc )" },
+		{ "aaa bbb|ccc",					"( aaa   ( bbb | ccc ) )" },
+		{ "aaa (bbb ccc)|ddd",				"( aaa   ( ( bbb   ccc ) | ddd ) )" },
+		{ "aaa bbb|(ccc ddd)",				"( aaa   ( bbb | ( ccc   ddd ) ) )" },
+		{ "aaa bbb|(ccc ddd)|eee|(fff)",	"( aaa   ( bbb | ( ccc   ddd ) | eee | fff ) )" },
+		{ "aaa bbb|(ccc ddd) eee|(fff)",	"( aaa   ( bbb | ( ccc   ddd ) )   ( eee | fff ) )" },
+		{ "aaa (ccc ddd)|bbb|eee|(fff)",	"( aaa   ( ( ccc   ddd ) | bbb | eee | fff ) )" },
+		{ "aaa (ccc ddd)|bbb eee|(fff)",	"( aaa   ( ( ccc   ddd ) | bbb )   ( eee | fff ) )" },
+		{ "aaa \"bbb ccc\"~5|ddd",			"( aaa   ( \"bbb ccc\"~5 | ddd ) )" },
+		{ "aaa bbb|\"ccc ddd\"~5",			"( aaa   ( bbb | \"ccc ddd\"~5 ) )" },
+		{ "aaa ( ( \"bbb ccc\"~3|ddd ) eee | ( fff -ggg ) )",	"( aaa   ( ( \"bbb ccc\"~3 | ddd )   ( eee | ( fff AND NOT ggg ) ) ) )" },
+		{ "@title aaa @body ccc|(@title ddd eee)|fff ggg",		"( ( @title: aaa )   ( ( @body: ccc ) | ( ( @title: ddd )   ( @title: eee ) ) | ( @body: fff ) )   ( @body: ggg ) )" },
+		{ "@title hello world | @body sample program",			"( ( @title: hello )   ( ( @title: world ) | ( @body: sample ) )   ( @body: program ) )" },
+		{ "@title one two three four",							"( ( @title: one )   ( @title: two )   ( @title: three )   ( @title: four ) )" },
+		{ "@title one (@body two three) four",					"( ( @title: one )   ( ( @body: two )   ( @body: three ) )   ( @title: four ) )" },
+		{ "windows 7 2000",										"( windows   2000 )" },
+		{ "aaa a|bbb",											"( aaa   bbb )" },
+		{ "aaa bbb|x y z|ccc",									"( aaa   bbb   ccc )" },
 		{ "a",													"" },
 		{ "hello -world",										"( hello AND NOT world )" },
 		{ "-hello world",										"( world AND NOT hello )" },
 		{ "\"phrase (query)/3 ~on steroids\"",					"\"phrase query on steroids\"" },
-		{ "hello a world",										"( hello AND world )" },
+		{ "hello a world",										"( hello   world )" },
 		{ "-one",												"" },
 		{ "-one -two",											"" },
 		{ "\"\"",												"" },
@@ -918,23 +928,456 @@ void TestQueryParser ()
 	};
 
 
+	CSphIndexSettings tTmpSettings;
 	int nTests = sizeof(dTest)/sizeof(dTest[0]);
 	for ( int i=0; i<nTests; i++ )
 	{
 		printf ( "testing query parser, test %d/%d... ", i+1, nTests );
 
 		XQQuery_t tQuery;
-		sphParseExtendedQuery ( tQuery, dTest[i].m_sQuery, pTokenizer.Ptr(), &tSchema, pDict.Ptr(), 1 );
+		sphParseExtendedQuery ( tQuery, dTest[i].m_sQuery, pTokenizer.Ptr(), &tSchema, pDict.Ptr(), tTmpSettings );
+		CSphString sReconst = sphReconstructNode ( tQuery.m_pRoot, &tSchema );
+		assert ( sReconst==dTest[i].m_sReconst );
 
-		CSphString sReconst = ReconstructNode ( tQuery.m_pRoot, tSchema );
-		if ( sReconst!=dTest[i].m_sReconst )
-		{
-			printf ( "failed!\n Expected '%s',\n got '%s'", dTest[i].m_sReconst, sReconst.cstr() );
-			assert ( sReconst==dTest[i].m_sReconst );
-		}
 		printf ( "ok\n" );
 	}
 }
+
+static CSphSourceStats g_tTmpDummyStat;
+class CSphDummyIndex : public CSphIndex
+{
+public:
+	CSphDummyIndex () : CSphIndex ( NULL, NULL ) {}
+	virtual SphAttr_t *			GetKillList () const { return NULL; }
+	virtual int					GetKillListSize () const { return 0 ; }
+	virtual bool				HasDocid ( SphDocID_t ) const { return false; }
+	virtual int					Build ( const CSphVector<CSphSource*> & , int , int ) { return 0; }
+	virtual bool				Merge ( CSphIndex * , const CSphVector<CSphFilterSettings> & , bool ) {return false; }
+	virtual bool				Prealloc ( bool , bool , CSphString & ) { return false; }
+	virtual void				Dealloc () {}
+	virtual bool				Preread () { return false; }
+	virtual void				SetBase ( const char * ) {}
+	virtual bool				Rename ( const char * ) { return false; }
+	virtual bool				Lock () { return false; }
+	virtual void				Unlock () {}
+	virtual bool				Mlock () { return false; }
+	virtual void				PostSetup() {}
+	virtual bool				EarlyReject ( CSphQueryContext * , CSphMatch & ) const { return false; }
+	virtual const CSphSourceStats &	GetStats () const { return g_tTmpDummyStat; }
+	virtual CSphIndexStatus			GetStatus () const { CSphIndexStatus tRes; tRes.m_iRamUse = 0; return tRes; }
+	virtual bool				MultiQuery ( const CSphQuery * , CSphQueryResult * , int , ISphMatchSorter ** , const CSphVector<CSphFilterSettings> * , int, bool ) const { return false; }
+	virtual bool				MultiQueryEx ( int , const CSphQuery * , CSphQueryResult ** , ISphMatchSorter ** , const CSphVector<CSphFilterSettings> * , int, bool ) const { return false; }
+	virtual bool				GetKeywords ( CSphVector <CSphKeywordInfo> & , const char * , bool , CSphString & ) const { return false; }
+	virtual bool				FillKeywords ( CSphVector <CSphKeywordInfo> & dKeywords, CSphString & sError ) const;
+	virtual int					UpdateAttributes ( const CSphAttrUpdate & , int , CSphString & ) { return -1; }
+	virtual bool				SaveAttributes ( CSphString & ) const { return false; }
+	virtual DWORD				GetAttributeStatus () const { return 0; }
+	virtual void				DebugDumpHeader ( FILE * , const char * , bool ) {}
+	virtual void				DebugDumpDocids ( FILE * ) {}
+	virtual void				DebugDumpHitlist ( FILE * , const char * , bool ) {}
+	virtual int					DebugCheck ( FILE * ) { return 0; } // NOLINT
+	virtual void				DebugDumpDict ( FILE * ) {}
+	virtual	void				SetProgressCallback ( CSphIndexProgress::IndexingProgress_fn ) {}
+
+	SmallStringHash_T < int > m_hHits;
+};
+
+
+bool CSphDummyIndex::FillKeywords ( CSphVector <CSphKeywordInfo> & dKeywords, CSphString & ) const
+{
+	ARRAY_FOREACH ( i, dKeywords )
+	{
+		int * pDocs = m_hHits ( dKeywords[i].m_sTokenized );
+		dKeywords[i].m_iDocs = pDocs ? *pDocs : 0;
+	}
+
+	return true;
+}
+
+
+void TestQueryTransforms ()
+{
+	CSphSchema tSchema;
+	CSphColumnInfo tCol;
+	tCol.m_sName = "title"; tSchema.m_dFields.Add ( tCol );
+	tCol.m_sName = "body"; tSchema.m_dFields.Add ( tCol );
+
+	CSphString sError;
+	CSphDictSettings tDictSettings;
+	CSphScopedPtr<ISphTokenizer> pBase ( sphCreateSBCSTokenizer () );
+	CSphScopedPtr<CSphDict> pDict ( sphCreateDictionaryCRC ( tDictSettings, NULL, pBase.Ptr(), "query", sError ) );
+	assert ( pBase.Ptr() );
+	assert ( pDict.Ptr() );
+	assert ( sError.IsEmpty() );
+
+	CSphTokenizerSettings tTokenizerSetup;
+	tTokenizerSetup.m_iMinWordLen = 2;
+	tTokenizerSetup.m_sSynonymsFile = g_sTmpfile;
+	pBase->Setup ( tTokenizerSetup );
+
+	assert ( CreateSynonymsFile ( NULL ) );
+	assert ( pBase->LoadSynonyms ( g_sTmpfile, NULL, sError ) );
+
+	CSphScopedPtr<ISphTokenizer> pTokenizer ( pBase->Clone ( SPH_CLONE_QUERY ) );
+	sphSetupQueryTokenizer ( pTokenizer.Ptr() );
+
+	struct CKeywordHits {
+		const char * 	m_sKeyword;
+		int 			m_iHits;
+	};
+
+	struct QueryTest_t
+	{
+		const char *			m_sQuery;
+		const char *			m_sReconst;
+		const char *			m_sReconstTransformed;
+		const CKeywordHits *	m_pKeywordHits;
+	};
+
+	const CKeywordHits dPseudoHits [][10] =
+	{
+		{ { "nnn", 10 }, { "aaa", 1 }, { "bbb", 1 }, { 0, 0 } },
+		{ { "nnn", 10 }, { "aaa", 100 }, { "bbb", 200 }, { 0, 0 } },
+		{ { "nnn", 10 }, { "aaa", 1 }, { "bbb", 2 }, { "qqq", 500 }, { "www", 100 }, { 0, 0 } }
+	};
+
+	const QueryTest_t dTest[] =
+	{
+		// COMMON NOT
+		{
+			"( aaa !ccc ) | ( bbb !ccc )",
+			"( ( aaa AND NOT ccc ) | ( bbb AND NOT ccc ) )",
+			"( ( aaa | bbb ) AND NOT ccc )",
+			NULL
+		},
+		{
+			"( aaa bbb !ccc) | ( ddd eee !ccc ) ",
+			"( ( ( aaa   bbb ) AND NOT ccc ) | ( ( ddd   eee ) AND NOT ccc ) )",
+			"( ( ( aaa   bbb ) | ( ddd   eee ) ) AND NOT ccc )",
+			NULL
+		},
+		{
+			"( aaa bbb !ccc) | ( ddd eee !ccc ) | fff | ( ggg !jjj )",
+			"( ( ( aaa   bbb ) AND NOT ccc ) | ( ( ddd   eee ) AND NOT ccc ) | fff | ( ggg AND NOT jjj ) )",
+			"( ( ( ( aaa   bbb ) | ( ddd   eee ) ) AND NOT ccc ) | fff | ( ggg AND NOT jjj ) )",
+			NULL
+		},
+		{
+			"(aaa !bbb) | (ccc !bbb) | (ccc !eee) | (ddd !eee)",
+			"( ( aaa AND NOT bbb ) | ( ccc AND NOT bbb ) | ( ccc AND NOT eee ) | ( ddd AND NOT eee ) )",
+			"( ( ( aaa | ccc ) AND NOT bbb ) | ( ( ccc | ddd ) AND NOT eee ) )",
+			NULL
+		},
+		{
+			"((( aaa & bbb & ccc ) !eee) | ((kkk | jjj & kkk & (zzz | jjj)) !eee))",
+			"( ( ( aaa   bbb   ccc ) AND NOT eee ) | ( ( ( kkk | jjj )   kkk   ( zzz | jjj ) ) AND NOT eee ) )",
+			"( ( ( aaa   bbb   ccc ) | ( ( kkk | jjj )   kkk   ( zzz | jjj ) ) ) AND NOT eee )",
+			NULL
+		},
+		{
+			"(aaa !(aaa !nnn)) | (bbb !(aaa !nnn))",
+			"( ( aaa AND NOT ( aaa AND NOT nnn ) ) | ( bbb AND NOT ( aaa AND NOT nnn ) ) )",
+			"( ( aaa | bbb ) AND NOT ( aaa AND NOT nnn ) )",
+			NULL
+		},
+
+		// COMMON NOT WITH MIXED PHRASES/PROXIMITY terms
+		{
+			"(aaa !(\"zzz yyy\")) | (bbb !(\"zzz yyy\"~30)) | (ccc !(\"zzz yyy\"~20))",
+			"( ( aaa AND NOT \"zzz yyy\" ) | ( bbb AND NOT \"zzz yyy\"~30 ) | ( ccc AND NOT \"zzz yyy\"~20 ) )",
+			"( ( aaa | bbb | ccc ) AND NOT \"zzz yyy\"~30 )",
+			NULL
+		},
+
+		// COMMON COMPOUND NOT
+		{
+			"(aaa !(nnn ccc)) | (bbb !(nnn ddd))",
+			"( ( aaa AND NOT ( nnn   ccc ) ) | ( bbb AND NOT ( nnn   ddd ) ) )",
+			"( ( aaa AND NOT ccc ) | ( bbb AND NOT ddd ) | ( ( aaa | bbb ) AND NOT nnn ) )",
+			( const CKeywordHits * ) &dPseudoHits[0]
+		},
+		{
+			"(aaa !(ccc nnn)) | (bbb !(nnn ddd)) | (ccc !nnn)",
+			"( ( aaa AND NOT ( ccc   nnn ) ) | ( bbb AND NOT ( nnn   ddd ) ) | ( ccc AND NOT nnn ) )",
+			"( ( aaa AND NOT ccc ) | ( bbb AND NOT ddd ) | ( ( ccc | aaa | bbb ) AND NOT nnn ) )",
+			( const CKeywordHits * ) &dPseudoHits[0]
+		},
+		{
+			"(aaa !(ccc nnn)) | (bbb !(nnn ddd))",
+			"( ( aaa AND NOT ( ccc   nnn ) ) | ( bbb AND NOT ( nnn   ddd ) ) )",
+			"( ( aaa AND NOT ( ccc   nnn ) ) | ( bbb AND NOT ( nnn   ddd ) ) )",
+			( const CKeywordHits * ) &dPseudoHits[1]
+		},
+
+		// COMMON COMPOUND NOT WITH MIXED PHRASES/PROXIMITY terms
+		{
+			"(aaa !(ccc \"nnn zzz\"~20)) | (bbb !(\"nnn zzz\"~10 ddd)) | (ccc !\"nnn zzz\")",
+			"( ( aaa AND NOT ( ccc   \"nnn zzz\"~20 ) ) | ( bbb AND NOT ( \"nnn zzz\"~10   ddd ) ) | ( ccc AND NOT \"nnn zzz\" ) )",
+			"( ( aaa AND NOT ccc ) | ( bbb AND NOT ddd ) | ( ( ccc | aaa | bbb ) AND NOT \"nnn zzz\"~20 ) )",
+			( const CKeywordHits * ) &dPseudoHits[0]
+		},
+
+		// COMMON SUBTERM
+		{
+			"(aaa (nnn | ccc)) | (bbb (nnn | ddd))",
+			"( ( aaa   ( nnn | ccc ) ) | ( bbb   ( nnn | ddd ) ) )",
+			"( ( aaa   ccc ) | ( bbb   ddd ) | ( ( aaa | bbb )   nnn ) )",
+			( const CKeywordHits * ) &dPseudoHits[0]
+		},
+		{
+			"(aaa (ccc | nnn)) | (bbb (nnn | ddd)) | (ccc | nnn)",
+			"( ( aaa   ( ccc | nnn ) ) | ( bbb   ( nnn | ddd ) ) | ( ccc | nnn ) )",
+			"( ( aaa   ccc ) | ( bbb   ddd ) | ccc | nnn | ( ( aaa | bbb )   nnn ) )",
+			( const CKeywordHits * ) &dPseudoHits[0]
+		},
+		{
+			"(aaa (ccc | nnn)) | (bbb (nnn | ddd))",
+			"( ( aaa   ( ccc | nnn ) ) | ( bbb   ( nnn | ddd ) ) )",
+			"( ( aaa   ( ccc | nnn ) ) | ( bbb   ( nnn | ddd ) ) )",
+			( const CKeywordHits * ) &dPseudoHits[1]
+		},
+
+		// COMMON SUBTERM WITH MIXED PHRASES/PROXIMITY terms
+		{
+			"(aaa (ccc | \"qqq www\"~10)) | (bbb (\"qqq www\" | ddd)) | (ccc | \"qqq www\"~20)",
+			"( ( aaa   ( ccc | \"qqq www\"~10 ) ) | ( bbb   ( \"qqq www\" | ddd ) ) | ( ccc | \"qqq www\"~20 ) )",
+			"( ( aaa   ccc ) | ( bbb   ddd ) | ccc | \"qqq www\"~20 | ( ( aaa | bbb )   \"qqq www\"~10 ) )",
+			( const CKeywordHits * ) &dPseudoHits[2]
+		},
+
+		// COMMON KEYWORDS
+		{
+			"\"aaa bbb ccc ddd jjj\" | \"aaa bbb\"",
+			"( \"aaa bbb ccc ddd jjj\" | \"aaa bbb\" )",
+			"\"aaa bbb\"",
+			NULL
+		},
+		{
+			"bbb | \"aaa bbb ccc\"",
+			"( bbb | \"aaa bbb ccc\" )",
+			"bbb",
+			NULL
+		},
+		{
+			"\"aaa bbb ccc ddd jjj\" | \"bbb ccc\"",
+			"( \"aaa bbb ccc ddd jjj\" | \"bbb ccc\" )",
+			"\"bbb ccc\"",
+			NULL
+		},
+		{
+			"\"aaa bbb ccc ddd jjj\" | \"bbb jjj\"",
+			"( \"aaa bbb ccc ddd jjj\" | \"bbb jjj\" )",
+			"( \"aaa bbb ccc ddd jjj\" | \"bbb jjj\" )",
+			NULL
+		},
+		// FIXME!!! add exact phrase elimination
+		{
+			"\"aaa bbb ccc\"~10 | \"aaa bbb ccc ddd\"~20 | \"aaa bbb ccc\"~10 | \"aaa bbb ccc\"~10",
+			"( \"aaa bbb ccc\"~10 | \"aaa bbb ccc ddd\"~20 | \"aaa bbb ccc\"~10 | \"aaa bbb ccc\"~10 )",
+			// "( \"aaa bbb ccc ddd\"~20 | \"aaa bbb ccc\"~10 )",
+			"( \"aaa bbb ccc\"~10 | \"aaa bbb ccc ddd\"~20 | \"aaa bbb ccc\"~10 | \"aaa bbb ccc\"~10 )",
+			NULL
+		},
+		{
+			"\"aaa bbb ccc\"~10 | \"aaa bbb ccc ddd\"~10",
+			"( \"aaa bbb ccc\"~10 | \"aaa bbb ccc ddd\"~10 )",
+			"\"aaa bbb ccc\"~10",
+			NULL
+		},
+		{
+			"\"aaa bbb ccc\"~10 | \"aaa bbb ccc\"~10",
+			"( \"aaa bbb ccc\"~10 | \"aaa bbb ccc\"~10 )",
+			// "\"aaa bbb ccc\"~10",
+			"( \"aaa bbb ccc\"~10 | \"aaa bbb ccc\"~10 )",
+			NULL
+		},
+		{
+			"\"aaa bbb ccc\"~10 | \"aaa bbb ccc\"~9",
+			"( \"aaa bbb ccc\"~10 | \"aaa bbb ccc\"~9 )",
+			// "\"aaa bbb ccc\"~10",
+			"( \"aaa bbb ccc\"~10 | \"aaa bbb ccc\"~9 )",
+			NULL
+		},
+		{
+			"\"aaa bbb ccc ddd eee\" | \"bbb ccc ddd\"~10",
+			"( \"aaa bbb ccc ddd eee\" | \"bbb ccc ddd\"~10 )",
+			"\"bbb ccc ddd\"~10",
+			NULL
+		},
+		{
+			"\"bbb ccc ddd\"~10 | \"ccc ddd\" | \"aaa bbb\"",
+			"( \"bbb ccc ddd\"~10 | \"ccc ddd\" | \"aaa bbb\" )",
+			"( \"bbb ccc ddd\"~10 | \"ccc ddd\" | \"aaa bbb\" )",
+			NULL
+		},
+		{
+			"\"aaa bbb ccc ddd eee\" | \"bbb ccc ddd\"~10 | \"ccc ddd\" | \"aaa bbb\"",
+			"( \"aaa bbb ccc ddd eee\" | \"bbb ccc ddd\"~10 | \"ccc ddd\" | \"aaa bbb\" )",
+			"( \"bbb ccc ddd\"~10 | \"ccc ddd\" | \"aaa bbb\" )",
+			NULL
+		},
+		{
+			"aaa | \"aaa bbb\"~10 | \"aaa ccc\"",
+			"( aaa | \"aaa bbb\"~10 | \"aaa ccc\" )",
+			"aaa",
+			NULL
+		},
+
+		// COMMON PHRASES
+		{
+			"\"aaa bbb ccc ddd\" | \"eee fff ccc ddd\"",
+			"( \"aaa bbb ccc ddd\" | \"eee fff ccc ddd\" )",
+			"( \"( \"aaa bbb\" | \"eee fff\" ) \"ccc ddd\"\" )",
+			NULL
+		},
+		{
+			"\"ccc ddd aaa bbb\" | \"ccc ddd eee fff\"",
+			"( \"ccc ddd aaa bbb\" | \"ccc ddd eee fff\" )",
+			"( \"\"ccc ddd\" ( \"aaa bbb\" | \"eee fff\" )\" )",
+			NULL
+		},
+		{
+			"\"aaa bbb ccc ddd\" | \"eee fff ccc ddd\" | \"jjj lll\"",
+			"( \"aaa bbb ccc ddd\" | \"eee fff ccc ddd\" | \"jjj lll\" )",
+			"( \"jjj lll\" | ( \"( \"aaa bbb\" | \"eee fff\" ) \"ccc ddd\"\" ) )",
+			NULL
+		},
+		{
+			"\"ccc ddd aaa bbb\" | \"ccc ddd eee fff\" | \"jjj lll\"",
+			"( \"ccc ddd aaa bbb\" | \"ccc ddd eee fff\" | \"jjj lll\" )",
+			"( \"jjj lll\" | ( \"\"ccc ddd\" ( \"aaa bbb\" | \"eee fff\" )\" ) )",
+			NULL
+		},
+		{
+			"\"aaa bbb ccc ddd xxx yyy zzz\" | \"eee fff ddd xxx yyy zzz\" | \"jjj lll\"",
+			"( \"aaa bbb ccc ddd xxx yyy zzz\" | \"eee fff ddd xxx yyy zzz\" | \"jjj lll\" )",
+			"( \"jjj lll\" | ( \"( \"aaa bbb ccc\" | \"eee fff\" ) \"ddd xxx yyy zzz\"\" ) )",
+			NULL
+		},
+		{
+			"\"ddd xxx yyy zzz aaa bbb\" | \"ddd xxx yyy zzz ccc eee fff\" | \"jjj lll\"",
+			"( \"ddd xxx yyy zzz aaa bbb\" | \"ddd xxx yyy zzz ccc eee fff\" | \"jjj lll\" )",
+			"( \"jjj lll\" | ( \"\"ddd xxx yyy zzz\" ( \"aaa bbb\" | \"ccc eee fff\" )\" ) )",
+			NULL
+		},
+		{
+			"\"xxx zzz ccc ddd\" | \"xxx zzz yyy jjj kkk\" | \"xxx zzz yyy mmm nnn\"",
+			"( \"xxx zzz ccc ddd\" | \"xxx zzz yyy jjj kkk\" | \"xxx zzz yyy mmm nnn\" )",
+			"( \"\"xxx zzz\" ( \"ccc ddd\" | \"yyy jjj kkk\" | \"yyy mmm nnn\" )\" )",
+			NULL
+		},
+		{
+			"\"aaa bbb ddd www xxx yyy zzz\" | \"aaa bbb eee www xxx yyy zzz\"",
+			"( \"aaa bbb ddd www xxx yyy zzz\" | \"aaa bbb eee www xxx yyy zzz\" )",
+			"( \"( \"aaa bbb ddd\" | \"aaa bbb eee\" ) \"www xxx yyy zzz\"\" )",
+			NULL
+		},
+		{
+			"\"www xxx yyy zzz ddd aaa bbb\" | \"www xxx yyy zzz eee aaa bbb\"",
+			"( \"www xxx yyy zzz ddd aaa bbb\" | \"www xxx yyy zzz eee aaa bbb\" )",
+			"( \"\"www xxx yyy zzz\" ( \"ddd aaa bbb\" | \"eee aaa bbb\" )\" )",
+			NULL
+		},
+		{
+			"\"xxx yyy zzz ddd\" | \"xxx yyy zzz eee\"",
+			"( \"xxx yyy zzz ddd\" | \"xxx yyy zzz eee\" )",
+			"( \"\"xxx yyy zzz\" ( ddd | eee )\" )",
+			NULL
+		},
+		{
+			"\"ddd xxx yyy zzz\" | \"eee xxx yyy zzz\"",
+			"( \"ddd xxx yyy zzz\" | \"eee xxx yyy zzz\" )",
+			"( \"( ddd | eee ) \"xxx yyy zzz\"\" )",
+			NULL
+		},
+
+		// COMMON AND NOT FACTOR
+		{
+			"( aaa !xxx ) | ( aaa !yyy ) | ( aaa !zzz )",
+			"( ( aaa AND NOT xxx ) | ( aaa AND NOT yyy ) | ( aaa AND NOT zzz ) )",
+			"( aaa AND NOT ( xxx   yyy   zzz ) )",
+			NULL
+		},
+
+		{
+			"( aaa !xxx ) | ( aaa !yyy ) | ( aaa !zzz ) | ( bbb !xxx ) | ( bbb !yyy ) | ( bbb !zzz )",
+			"( ( aaa AND NOT xxx ) | ( aaa AND NOT yyy ) | ( aaa AND NOT zzz ) | ( bbb AND NOT xxx ) | ( bbb AND NOT yyy ) | ( bbb AND NOT zzz ) )",
+			"( ( aaa | bbb ) AND NOT ( xxx   yyy   zzz ) )",
+			NULL
+		},
+
+		// COMMON AND NOT FACTOR WITH MIXED PHRASES/PROXIMITY terms
+		{
+			"( \"aaa bbb\"~10 !xxx ) | ( \"aaa bbb\"~20 !yyy ) | ( \"aaa bbb\" !zzz )",
+			"( ( \"aaa bbb\"~10 AND NOT xxx ) | ( \"aaa bbb\"~20 AND NOT yyy ) | ( \"aaa bbb\" AND NOT zzz ) )",
+			"( \"aaa bbb\"~20 AND NOT ( yyy   xxx   zzz ) )",
+			NULL
+		},
+
+		// COMMON | NOT
+		{
+			"( aaa !(nnn | nnn1) ) | ( bbb !(nnn2 | nnn) )",
+			"( ( aaa AND NOT ( nnn | nnn1 ) ) | ( bbb AND NOT ( nnn2 | nnn ) ) )",
+			"( ( ( aaa AND NOT nnn1 ) | ( bbb AND NOT nnn2 ) ) AND NOT nnn )",
+			NULL
+		},
+
+		// ExcessAndNot
+		{
+			"( (aaa ( ( ( (fff (xxx !hhh)) !kkk ) ) bbb !ccc)) !ddd ) ( ( (zzz (xxx !vvv)) !kkk ) )",
+			"( ( aaa   ( ( fff   ( xxx AND NOT hhh )   bbb ) AND NOT ( kkk | ccc ) )   ( ( zzz   ( xxx AND NOT vvv ) ) AND NOT kkk ) ) AND NOT ddd )",
+			"( ( aaa   fff   xxx   bbb   zzz   xxx ) AND NOT ( vvv | hhh | kkk | kkk | ccc | ddd ) )",
+			NULL
+		},
+
+		// COMMON | NOT WITH MIXED PHRASES/PROXIMITY terms
+		{
+			"( aaa !( \"jjj kkk\"~10 | (aaa|nnn) ) ) | ( bbb !( fff | \"jjj kkk\" ) ) | ( ccc !( (hhh kkk) | \"jjj kkk\"~20 ) )",
+			"( ( aaa AND NOT ( \"jjj kkk\"~10 | ( aaa | nnn ) ) ) | ( bbb AND NOT ( fff | \"jjj kkk\" ) ) | ( ccc AND NOT ( ( hhh   kkk ) | \"jjj kkk\"~20 ) ) )",
+			"( ( ( aaa AND NOT ( aaa | nnn ) ) | ( bbb AND NOT fff ) | ( ccc AND NOT ( hhh   kkk ) ) ) AND NOT \"jjj kkk\"~20 )",
+			NULL
+		},
+
+		{
+			NULL, NULL, NULL, NULL
+		}
+	};
+
+	CSphIndexSettings tTmpSettings;
+	const QueryTest_t * pTest = dTest;
+	while ( pTest->m_sQuery )
+	{
+		printf ( "testing query transformations, test %d/%d... ", (int)( pTest-dTest+1 ), (int)( sizeof(dTest)/sizeof(dTest[0])-1 ) );
+
+		XQQuery_t tQuery;
+		sphParseExtendedQuery ( tQuery, pTest->m_sQuery, pTokenizer.Ptr(), &tSchema, pDict.Ptr(), tTmpSettings );
+
+		CSphString sReconst = sphReconstructNode ( tQuery.m_pRoot, &tSchema );
+
+		CSphDummyIndex tIndex;
+		if ( pTest->m_pKeywordHits )
+		{
+			for ( const CKeywordHits * pHits = pTest->m_pKeywordHits; pHits->m_sKeyword; ++pHits )
+				Verify ( tIndex.m_hHits.Add ( pHits->m_iHits, pHits->m_sKeyword ) );
+		}
+
+		sphTransformExtendedQuery ( &tQuery.m_pRoot, tTmpSettings, true, &tIndex );
+
+		CSphString sReconstTransformed = sphReconstructNode ( tQuery.m_pRoot, &tSchema );
+
+		if ( sReconst!=pTest->m_sReconst || sReconstTransformed!=pTest->m_sReconstTransformed )
+			printf ( "\n\"%s\"\n\"%s\"\n\"%s\"\n\"%s\" -\n\"%s\" +\n", pTest->m_sQuery,
+				sReconst.cstr(), pTest->m_sReconst, pTest->m_sReconstTransformed, sReconstTransformed.cstr() );
+
+		assert ( sReconst==pTest->m_sReconst );
+		assert ( sReconstTransformed==pTest->m_sReconstTransformed );
+
+		pTest++;
+
+		printf ( "ok\n" );
+	}
+}
+
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -1720,7 +2163,7 @@ void TestRTInit ()
 {
 	CSphConfigSection tRTConfig;
 
-	sphRTInit ( tRTConfig, true );
+	sphRTInit();
 	sphRTConfigure ( tRTConfig, true );
 
 	SmallStringHash_T<CSphIndex*> hIndexes;
@@ -1740,11 +2183,11 @@ void TestRTWeightBoundary ()
 		printf ( "testing rt indexing, test %d/%d... ", 1+iPass, RT_PASS_COUNT );
 		TestRTInit ();
 
-		CSphString sError;
+		CSphString sError, sWarning;
 		CSphDictSettings tDictSettings;
 
 		ISphTokenizer * pTok = sphCreateUTF8Tokenizer();
-		CSphDict * pDict = sphCreateDictionaryCRC ( tDictSettings, pTok, sError, "weight" );
+		CSphDict * pDict = sphCreateDictionaryCRC ( tDictSettings, NULL, pTok, "weight", sError );
 
 		CSphColumnInfo tCol;
 		CSphSchema tSrcSchema;
@@ -1786,7 +2229,7 @@ void TestRTWeightBoundary ()
 		// in favor of tokenizer/dict loaded from the saved settings in meta
 		// however, source still needs those guys!
 		// so for simplicity i just clone them
-		pIndex->SetTokenizer ( pTok->Clone ( false ) );
+		pIndex->SetTokenizer ( pTok->Clone ( SPH_CLONE_INDEX ) );
 		pIndex->SetDictionary ( pDict->Clone() );
 		Verify ( pIndex->Prealloc ( false, false, sError ) );
 
@@ -1802,19 +2245,19 @@ void TestRTWeightBoundary ()
 			if ( !pHits )
 				break;
 
-			pIndex->AddDocument ( pHits, pSrc->m_tDocInfo, NULL, dMvas, sError );
+			pIndex->AddDocument ( pHits, pSrc->m_tDocInfo, NULL, dMvas, sError, sWarning );
 			pIndex->Commit ();
 		}
 
 		pSrc->Disconnect();
 
-		CheckRT ( pSrc->GetStats().m_iTotalDocuments, 1, "docs committed" );
+		CheckRT ( (int)pSrc->GetStats().m_iTotalDocuments, 1, "docs committed" );
 
 		CSphQuery tQuery;
 		CSphQueryResult tResult;
 		tQuery.m_sQuery = "@title cat";
 
-		ISphMatchSorter * pSorter = sphCreateQueue ( &tQuery, pIndex->GetMatchSchema(), tResult.m_sError, false );
+		ISphMatchSorter * pSorter = sphCreateQueue ( &tQuery, pIndex->GetMatchSchema(), tResult.m_sError, NULL, false );
 		assert ( pSorter );
 		Verify ( pIndex->MultiQuery ( &tQuery, &tResult, 1, &pSorter, NULL ) );
 		sphFlattenQueue ( pSorter, &tResult, 0 );
@@ -1915,11 +2358,11 @@ void TestRTSendVsMerge ()
 
 	TestRTInit ();
 
-	CSphString sError;
+	CSphString sError, sWarning;
 	CSphDictSettings tDictSettings;
 
 	ISphTokenizer * pTok = sphCreateUTF8Tokenizer();
-	CSphDict * pDict = sphCreateDictionaryCRC ( tDictSettings, pTok, sError, "rt" );
+	CSphDict * pDict = sphCreateDictionaryCRC ( tDictSettings, NULL, pTok, "rt", sError );
 
 	CSphColumnInfo tCol;
 	CSphSchema tSrcSchema;
@@ -1967,7 +2410,7 @@ void TestRTSendVsMerge ()
 	CSphQueryResult tResult;
 	tQuery.m_sQuery = "@title cat";
 
-	ISphMatchSorter * pSorter = sphCreateQueue ( &tQuery, pIndex->GetMatchSchema(), tResult.m_sError, false );
+	ISphMatchSorter * pSorter = sphCreateQueue ( &tQuery, pIndex->GetMatchSchema(), tResult.m_sError, NULL, false );
 	assert ( pSorter );
 
 	CSphVector<DWORD> dMvas;
@@ -1981,7 +2424,7 @@ void TestRTSendVsMerge ()
 		if ( !pHits )
 			break;
 
-		pIndex->AddDocument ( pHits, pSrc->m_tDocInfo, NULL, dMvas, sError );
+		pIndex->AddDocument ( pHits, pSrc->m_tDocInfo, NULL, dMvas, sError, sWarning );
 		if ( pSrc->m_tDocInfo.m_iDocID==350 )
 		{
 			pIndex->Commit ();
@@ -2024,7 +2467,7 @@ void TestSentenceTokenizer()
 	tSettings.m_iMinWordLen = 1;
 
 	CSphString sError;
-	ISphTokenizer * pTok = ISphTokenizer::Create ( tSettings, sError );
+	ISphTokenizer * pTok = ISphTokenizer::Create ( tSettings, NULL, sError );
 
 	assert ( pTok->SetCaseFolding ( "-, 0..9, A..Z->a..z, _, a..z, U+80..U+FF", sError ) );
 //	assert ( pTok->SetBlendChars ( "., &", sError ) ); // NOLINT
@@ -2235,6 +2678,218 @@ void BenchStemmer ()
 	SafeDeleteArray ( pRaw );
 }
 
+//////////////////////////////////////////////////////////////////////////
+
+void TestWildcards()
+{
+	printf ( "testing wildcards... " );
+	assert ( sphWildcardMatch ( "abc", "abc" ) );
+	assert ( sphWildcardMatch ( "abc", "?bc" ) );
+	assert ( sphWildcardMatch ( "abc", "a?c" ) );
+	assert ( sphWildcardMatch ( "abc", "ab?" ) );
+	assert ( !sphWildcardMatch ( "abc", "?ab" ) );
+	assert ( sphWildcardMatch ( "abac", "a*c" ) );
+	assert ( sphWildcardMatch ( "abac", "a*?c" ) );
+	assert ( sphWildcardMatch ( "abac", "a*??c" ) );
+	assert ( sphWildcardMatch ( "abac", "a?*?c" ) );
+	assert ( !sphWildcardMatch ( "abac", "a*???c" ) );
+	assert ( sphWildcardMatch ( "abac", "a?a?" ) );
+	assert ( !sphWildcardMatch ( "abac", "a?a??" ) );
+	assert ( !sphWildcardMatch ( "abac", "a??a" ) );
+	assert ( sphWildcardMatch ( "abracadabra", "a*" ) );
+	assert ( sphWildcardMatch ( "abracadabra", "a*a" ) );
+	assert ( !sphWildcardMatch ( "abracadabra", "a*c" ) );
+	assert ( sphWildcardMatch ( "abracadabra", "?b*r?" ) );
+	assert ( sphWildcardMatch ( "abracadabra", "?b*r*" ) );
+	assert ( sphWildcardMatch ( "abracadabra", "?b*r*r*" ) );
+	assert ( sphWildcardMatch ( "abracadabra", "*a*a*a*" ) );
+	assert ( sphWildcardMatch ( "abracadabra", "*a*a*a*a*a*" ) );
+	assert ( !sphWildcardMatch ( "a", "a*a?" ) );
+	assert ( !sphWildcardMatch ( "abracadabra", "*a*a*a*a*a?" ) );
+	assert ( sphWildcardMatch ( "car", "car%" ) );
+	assert ( sphWildcardMatch ( "cars", "car%" ) );
+	assert ( sphWildcardMatch ( "card", "car%" ) );
+	assert ( !sphWildcardMatch ( "carded", "car%" ) );
+	assert ( sphWildcardMatch ( "abc", "abc%" ) );
+	assert ( sphWildcardMatch ( "abcd", "abc%" ) );
+	assert ( !sphWildcardMatch ( "abcde", "abc%" ) );
+	assert ( sphWildcardMatch ( "ab", "a%b" ) );
+	assert ( sphWildcardMatch ( "acb", "a%b" ) );
+	assert ( !sphWildcardMatch ( "acdb", "a%b" ) );
+	assert ( sphWildcardMatch ( "abc", "a%bc" ) );
+	assert ( sphWildcardMatch ( "abbc", "a%bc" ) );
+	assert ( !sphWildcardMatch ( "abbbc", "a%bc" ) );
+	assert ( sphWildcardMatch ( "ab", "a%%b" ) );
+	assert ( sphWildcardMatch ( "axb", "a%%b" ) );
+	assert ( sphWildcardMatch ( "axyb", "a%%b" ) );
+	assert ( !sphWildcardMatch ( "axyzb", "a%%b" ) );
+	assert ( sphWildcardMatch ( "a*b", "a?b" ) );
+	assert ( sphWildcardMatch ( "a*b", "a*b" ) );
+	assert ( sphWildcardMatch ( "a*b", "a\\*b" ) );
+	assert ( !sphWildcardMatch ( "acb", "a\\*b" ) );
+	assert ( !sphWildcardMatch ( "acdeb", "a\\*b" ) );
+	printf ( "ok\n" );
+}
+
+//////////////////////////////////////////////////////////////////////////
+
+void TestLog2()
+{
+	printf ( "testing integer log2 implementation... " );
+	assert ( sphLog2(1)==1 );
+	assert ( sphLog2(2)==2 );
+	assert ( sphLog2(3)==2 );
+	assert ( sphLog2(4)==3 );
+	assert ( sphLog2(5)==3 );
+	assert ( sphLog2(6)==3 );
+	assert ( sphLog2(7)==3 );
+	assert ( sphLog2(8)==4 );
+	assert ( sphLog2(9)==4 );
+	assert ( sphLog2(10)==4 );
+	assert ( sphLog2(65535)==16 );
+	assert ( sphLog2(65536)==17 );
+	assert ( sphLog2 ( 0xffffffffUL )==32 );
+	assert ( sphLog2 ( 0x100000000ULL )==33 );
+	assert ( sphLog2 ( 0x100000001ULL )==33 );
+	assert ( sphLog2 ( 0x1ffffffffULL )==33 );
+	assert ( sphLog2 ( 0x200000000ULL )==34 );
+	assert ( sphLog2 ( 0xffffffffffffffffULL )==64 );
+	assert ( sphLog2 ( 0xfffffffffffffffeULL )==64 );
+	assert ( sphLog2 ( 0xefffffffffffffffULL )==64 );
+	assert ( sphLog2 ( 0x7fffffffffffffffULL )==63 );
+	printf ( "ok\n" );
+}
+
+const int TIMER_THREAD_NRUNS = 10*1000*1000;
+
+void BenchTimerThread ( void * pEndtime )
+{
+	volatile int iRes = 0;
+	for ( int i=0; i<TIMER_THREAD_NRUNS; i++ )
+		iRes += (int)sphMicroTimer();
+	*(int64_t*)pEndtime = sphMicroTimer();
+}
+
+void BenchMisc()
+{
+	printf ( "benchmarking rand... " );
+
+	const int NRUNS = 100*1000*1000;
+	volatile int iRes = 0;
+	int64_t t;
+
+	sphSrand ( 0 );
+	t = sphMicroTimer();
+	for ( int i=0; i<NRUNS; i++ )
+		iRes += sphRand();
+	t = sphMicroTimer() - t;
+	printf ( "%d msec per %dM calls, res %d\n", (int)( t/1000 ), (int)( NRUNS/1000000 ), iRes );
+
+	printf ( "benchmarking rand+log2... " );
+	sphSrand ( 0 );
+	iRes = 0;
+	t = sphMicroTimer();
+	for ( int i=0; i<NRUNS; i++ )
+		iRes += sphLog2 ( sphRand() );
+	t = sphMicroTimer() - t;
+	printf ( "%d msec per %dM calls, res %d\n", (int)( t/1000 ), (int)( NRUNS/1000000 ), iRes );
+
+	printf ( "benchmarking timer... " );
+	t = sphMicroTimer();
+	for ( int i=0; i<NRUNS; i++ )
+		iRes += (int)sphMicroTimer();
+	t = sphMicroTimer() - t;
+	printf ( "%d msec per %dM calls, res %d\n", (int)( t/1000 ), (int)( NRUNS/1000000 ), iRes );
+
+	printf ( "benchmarking threaded timer... " );
+
+	const int THREADS = 10;
+	SphThread_t dThd [ THREADS ];
+
+	int64_t tmStart = sphMicroTimer();
+	int64_t tmEnd [ THREADS ];
+	sphThreadInit ( false );
+
+	for ( int i=0; i<THREADS; i++ )
+		sphThreadCreate ( &dThd[i], BenchTimerThread, &tmEnd[i], false );
+	for ( int i=0; i<THREADS; i++ )
+		if ( !sphThreadJoin ( &dThd[i] ) )
+			sphDie ( "thread_join failed" );
+
+	int64_t iMin = INT64_MAX;
+	int64_t iMax = 0;
+	int64_t iAvg = 0;
+	for ( int i=0; i<THREADS; i++ )
+	{
+		int64_t t = tmEnd[i] - tmStart;
+		iMin = Min ( iMin, t );
+		iMax = Max ( iMax, t );
+		iAvg += t;
+	}
+	iMin /= 1000;
+	iMax /= 1000;
+	iAvg /= 1000*THREADS;
+
+	printf ( "avg %d, min %d, max %d msec (%dM calls, %d threads)\n",
+		int(iAvg), int(iMin), int(iMax),
+		(int)( TIMER_THREAD_NRUNS/1000000 ), THREADS );
+}
+
+//////////////////////////////////////////////////////////////////////////
+
+#ifndef NDEBUG
+void TestArabicStemmer()
+{
+	printf ( "testing arabic stemmer... " );
+
+	// a few words, cross-verified using NLTK implementation
+	const char * dTests[] =
+	{
+		"\xd8\xb0\xd9\x87\xd8\xa8\xd8\xaa\0", "\xd8\xb0\xd9\x87\xd8\xa8\0",
+		"\xd8\xa7\xd9\x84\xd8\xb7\xd8\xa7\xd9\x84\xd8\xa8\xd8\xa9\0", "\xd8\xb7\xd9\x84\xd8\xa8\0",
+		"\xd8\xa7\xd9\x84\xd8\xb5\xd8\xba\xd9\x8a\xd8\xb1\xd8\xa9\0", "\xd8\xb5\xd8\xba\xd8\xb1\0",
+		"\xd8\xa7\xd9\x84\xd9\x89\0", "\xd8\xa7\xd9\x84\xd9\x89\0",
+		"\xd8\xa7\xd9\x84\xd9\x85\xd8\xaf\xd8\xb1\xd8\xb3\xd8\xa9\0", "\xd8\xaf\xd8\xb1\xd8\xb3\0",
+		"\xd9\x88\xd8\xaf\xd8\xb1\xd8\xb3\xd8\xaa\0", "\xd8\xaf\xd8\xb1\xd8\xb3\0",
+		"\xd8\xa7\xd9\x84\xd8\xaf\xd8\xb1\xd9\x88\xd8\xb3\0", "\xd8\xaf\xd8\xb1\xd8\xb3\0",
+		"\xd8\xac\xd9\x85\xd9\x8a\xd8\xb9\xd9\x87\xd8\xa7\0", "\xd8\xac\xd9\x85\xd8\xb9\0",
+		"\xd9\x88\xd8\xad\xd9\x8a\xd9\x86\0", "\xd9\x88\xd8\xad\xd9\x86\0",
+		// "\xd8\xac\xd8\xa7\xd8\xa1\0", "\xd8\xac\xd8\xa7\xd8\xa1\0",
+		"\xd9\x88\xd9\x82\xd8\xaa\0", "\xd9\x88\xd9\x82\xd8\xaa\0",
+		// "\xd8\xa7\xd9\x84\xd8\xa7\xd8\xae\xd8\xaa\xd8\xa8\xd8\xa7\xd8\xb1\0", "\xd8\xae\xd8\xa8\xd8\xb1\0",
+		"\xd9\x86\xd8\xac\xd8\xad\xd8\xaa\0", "\xd9\x86\xd8\xac\xd8\xad\0",
+		"\xd8\xb7\xd8\xa7\xd9\x84\xd8\xa8\xd8\xaa\xd9\x86\xd8\xa7\0", "\xd8\xb7\xd9\x84\xd8\xa8\0",
+		"\xd8\xa8\xd8\xa7\xd9\x85\xd8\xaa\xd9\x8a\xd8\xa7\xd8\xb2\0", "\xd9\x85\xd9\x8a\xd8\xb2\0",
+		"\xd8\xa7\xd9\x84\xd9\x85\xd8\xaf\xd8\xa7\xd8\xb1\xd8\xb3\0", "\xd8\xaf\xd8\xb1\xd8\xb3\0",
+		"\xd9\x84\xd9\x87\xd8\xa7\0", "\xd9\x84\xd9\x87\xd8\xa7\0",
+		"\xd8\xaf\xd9\x88\xd8\xb1\0", "\xd8\xaf\xd9\x88\xd8\xb1\0",
+		"\xd9\x83\xd8\xa8\xd9\x8a\xd8\xb1\0", "\xd9\x83\xd8\xa8\xd8\xb1\0",
+		"\xd9\x81\xd9\x8a\0", "\xd9\x81\xd9\x8a\0",
+		"\xd8\xaa\xd8\xb9\xd9\x84\xd9\x8a\xd9\x85\0", "\xd8\xb9\xd9\x84\xd9\x85\0",
+		"\xd8\xa7\xd8\xa8\xd9\x86\xd8\xa7\xd9\x8a\xd9\x86\xd8\xa7\0", "\xd8\xa8\xd9\x86\xd9\x8a\0",
+		// "\xd8\xa7\xd9\x84\xd8\xa7\xd8\xad\xd8\xa8\xd8\xa7\xd8\xa1\0", "\xd8\xad\xd8\xa8\xd8\xa1\0",
+	};
+
+	for ( int i=0; i<int(sizeof(dTests)/sizeof(dTests[0])); i+=2 )
+	{
+		char sBuf[64];
+		snprintf ( sBuf, sizeof(sBuf), "%s", dTests[i] );
+		stem_ar_utf8 ( (BYTE*)sBuf );
+		assert ( strcmp ( sBuf, dTests[i+1] )==0 );
+	}
+
+	char sTest1[16] = "\xD9\x80\xD9\x80\xD9\x80\xD9\x80\0abcdef";
+	char sRef1[16] = "\0\0\0\0\0\0\0\0\0abcdef";
+
+	stem_ar_utf8 ( (BYTE*)sTest1 );
+	assert ( memcmp ( sTest1, sRef1, sizeof(sTest1) )==0 );
+
+	printf ( "ok\n" );
+}
+#endif // !NDEBUG
+
+//////////////////////////////////////////////////////////////////////////
+
 int main ()
 {
 	// threads should be initialized before memory allocations
@@ -2249,6 +2904,7 @@ int main ()
 #endif
 
 #ifdef NDEBUG
+	BenchMisc();
 	BenchStripper ();
 	BenchTokenizer ( false );
 	BenchTokenizer ( true );
@@ -2257,6 +2913,7 @@ int main ()
 	BenchThreads ();
 #else
 	TestQueryParser ();
+	TestQueryTransforms ();
 	TestStripper ();
 	TestTokenizer ( false );
 	TestTokenizer ( true );
@@ -2270,6 +2927,9 @@ int main ()
 	TestRTSendVsMerge ();
 	TestSentenceTokenizer ();
 	TestSpanSearch ();
+	TestWildcards();
+	TestLog2();
+	TestArabicStemmer();
 #endif
 
 	unlink ( g_sTmpfile );
@@ -2278,5 +2938,5 @@ int main ()
 }
 
 //
-// $Id: tests.cpp 3824 2013-04-19 19:59:23Z tomat $
+// $Id: tests.cpp 3701 2013-02-20 18:10:18Z deogar $
 //

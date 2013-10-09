@@ -1,10 +1,10 @@
 //
-// $Id: sphinxstemen.cpp 3087 2012-01-30 23:07:35Z shodan $
+// $Id: sphinxstemen.cpp 3701 2013-02-20 18:10:18Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -230,7 +230,7 @@ void stem_en ( unsigned char * word, int len )
 #define SUFF7A(c7,c6,c5,c4,c3,c2) ( len>=6 && W(2,c2) && W(3,c3) && W(4,c4) && W(5,c5) && W(6,c6) && W(7,c7) )
 
 	///////////
-	// STEP 1A 
+	// STEP 1A
 	///////////
 
 #ifdef SNOWBALL2011
@@ -546,5 +546,5 @@ void stem_en ( unsigned char * word, int len )
 }
 
 //
-// $Id: sphinxstemen.cpp 3087 2012-01-30 23:07:35Z shodan $
+// $Id: sphinxstemen.cpp 3701 2013-02-20 18:10:18Z deogar $
 //

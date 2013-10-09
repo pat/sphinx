@@ -1,10 +1,10 @@
 //
-// $Id: sphinxstemcz.cpp 3087 2012-01-30 23:07:35Z shodan $
+// $Id: sphinxstemcz.cpp 3701 2013-02-20 18:10:18Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -127,7 +127,8 @@ static void Palatalize ( BYTE * word )
 	for ( int i = 0; i < nRules; ++i )
 	{
 		const ReplaceRule_t & Rule = g_dPalatalizeRules[i];
-		if ( iWordLength>=Rule.m_iRemoveLength && !strncmp ( (char*)word + iWordLength - Rule.m_iRemoveLength, (char*)Rule.m_szSuffix, Rule.m_iRemoveLength ) )
+		if ( iWordLength>=Rule.m_iRemoveLength &&
+!strncmp ( (char*)word + iWordLength - Rule.m_iRemoveLength, (char*)Rule.m_szSuffix, Rule.m_iRemoveLength ) )
 		{
 			word [iWordLength - Rule.m_iRemoveLength] = '\0';
 			strcat ( (char*)word, (char*)Rule.m_szAppend ); // NOLINT strcat
@@ -150,7 +151,8 @@ static void ApplyRules ( BYTE * word, const ClampRule_t * pRules, int nRules )
 	for ( int i = 0; i < nRules; ++i )
 	{
 		const ClampRule_t & Rule = pRules[i];
-		if ( iWordLength > Rule.m_iMinLength && !strncmp ( (char*)word + iWordLength - Rule.m_iCheckLength, (char*)Rule.m_szSuffix, Rule.m_iCheckLength ))
+		if ( iWordLength > Rule.m_iMinLength &&
+			!strncmp ( (char*)word + iWordLength - Rule.m_iCheckLength, (char*)Rule.m_szSuffix, Rule.m_iCheckLength ) )
 		{
 			word [iWordLength - Rule.m_nRemove] = '\0';
 			Palatalize ( word );
@@ -205,5 +207,5 @@ void stem_cz ( BYTE * word )
 
 
 //
-// $Id: sphinxstemcz.cpp 3087 2012-01-30 23:07:35Z shodan $
+// $Id: sphinxstemcz.cpp 3701 2013-02-20 18:10:18Z deogar $
 //

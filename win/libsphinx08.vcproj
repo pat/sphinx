@@ -305,6 +305,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\src\sphinxaot.cpp"
+				>
+			</File>
+			<File
 				RelativePath="..\src\sphinxexcerpt.cpp"
 				>
 			</File>
@@ -314,6 +318,10 @@
 			</File>
 			<File
 				RelativePath="..\src\sphinxfilter.cpp"
+				>
+			</File>
+			<File
+				RelativePath="..\src\sphinxjson.cpp"
 				>
 			</File>
 			<File
@@ -345,6 +353,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\src\sphinxstemar.cpp"
+				>
+			</File>
+			<File
 				RelativePath="..\src\sphinxstemcz.cpp"
 				>
 			</File>
@@ -354,6 +366,10 @@
 			</File>
 			<File
 				RelativePath="..\src\sphinxstemru.cpp"
+				>
+			</File>
+			<File
+				RelativePath="..\src\sphinxudf.c"
 				>
 			</File>
 			<File
@@ -420,6 +436,10 @@
 			</File>
 			<File
 				RelativePath="..\src\sphinxint.h"
+				>
+			</File>
+			<File
+				RelativePath="..\src\sphinxjson.h"
 				>
 			</File>
 			<File

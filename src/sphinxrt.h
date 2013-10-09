@@ -1,10 +1,10 @@
 //
-// $Id: sphinxrt.h 3734 2013-03-13 11:28:35Z joric $
+// $Id: sphinxrt.h 3701 2013-02-20 18:10:18Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -18,6 +18,7 @@
 
 #include "sphinx.h"
 #include "sphinxutils.h"
+#include "sphinxstem.h"
 
 /// RAM based updateable backend interface
 class ISphRtIndex : public CSphIndex
@@ -30,18 +31,18 @@ public:
 
 	/// insert/update document in current txn
 	/// fails in case of two open txns to different indexes
-	virtual bool AddDocument ( int iFields, const char ** ppFields, const CSphMatch & tDoc, bool bReplace, const char ** ppStr, const CSphVector<DWORD> & dMvas, CSphString & sError ) = 0;
+	virtual bool AddDocument ( int iFields, const char ** ppFields, const CSphMatch & tDoc, bool bReplace, const char ** ppStr, const CSphVector<DWORD> & dMvas, CSphString & sError, CSphString & sWarning ) = 0;
 
 	/// insert/update document in current txn
 	/// fails in case of two open txns to different indexes
-	virtual bool AddDocument ( ISphHits * pHits, const CSphMatch & tDoc, const char ** ppStr, const CSphVector<DWORD> & dMvas, CSphString & sError ) = 0;
+	virtual bool AddDocument ( ISphHits * pHits, const CSphMatch & tDoc, const char ** ppStr, const CSphVector<DWORD> & dMvas, CSphString & sError, CSphString & sWarning ) = 0;
 
 	/// delete document in current txn
 	/// fails in case of two open txns to different indexes
 	virtual bool DeleteDocument ( const SphDocID_t * pDocs, int iDocs, CSphString & sError ) = 0;
 
 	/// commit pending changes
-	virtual void Commit () = 0;
+	virtual void Commit ( int * pDeleted=NULL ) = 0;
 
 	/// undo pending changes
 	virtual void RollBack () = 0;
@@ -57,11 +58,16 @@ public:
 
 	/// attach a disk chunk to current index
 	virtual bool AttachDiskIndex ( CSphIndex * pIndex, CSphString & sError ) = 0;
+
+	/// truncate index (that is, kill all data)
+	virtual bool Truncate ( CSphString & sError ) = 0;
+
+	virtual void Optimize ( volatile bool * pForceTerminate, ThrottleState_t * pThrottle ) = 0;
 };
 
 /// initialize subsystem
 class CSphConfigSection;
-void sphRTInit ( const CSphConfigSection & hSearchd, bool bTestMode );
+void sphRTInit ();
 void sphRTConfigure ( const CSphConfigSection & hSearchd, bool bTestMode );
 bool sphRTSchemaConfigure ( const CSphConfigSection & hIndex, CSphSchema * pSchema, CSphString * pError );
 
@@ -69,7 +75,7 @@ bool sphRTSchemaConfigure ( const CSphConfigSection & hIndex, CSphSchema * pSche
 void sphRTDone ();
 
 /// RT index factory
-ISphRtIndex * sphCreateIndexRT ( const CSphSchema & tSchema, const char * sIndexName, DWORD uRamSize, const char * sPath, bool bKeywordDict );
+ISphRtIndex * sphCreateIndexRT ( const CSphSchema & tSchema, const char * sIndexName, int64_t iRamSize, const char * sPath, bool bKeywordDict );
 
 /// Get current txn index
 ISphRtIndex * sphGetCurrentIndexRT();
@@ -89,5 +95,5 @@ void sphReplayBinlog ( const SmallStringHash_T<CSphIndex*> & hIndexes, DWORD uRe
 #endif // _sphinxrt_
 
 //
-// $Id: sphinxrt.h 3734 2013-03-13 11:28:35Z joric $
+// $Id: sphinxrt.h 3701 2013-02-20 18:10:18Z deogar $
 //

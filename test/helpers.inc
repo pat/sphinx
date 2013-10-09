@@ -1,7 +1,7 @@
 <?php
 
 //
-// $Id: helpers.inc 3449 2012-10-15 09:23:32Z kevg $
+// $Id: helpers.inc 3647 2013-02-01 21:17:49Z shodan $
 //
 
 ini_set ( "display_errors", 1 );
@@ -264,7 +264,7 @@ function StartSearchd ( $config_file, $error_file, $pidfile, &$error, $use_watch
 		if ( !$ok )
 		{
 			$tm = ( MyMicrotime() - $start );
-			printf ( "\nWARNING: can't connect to daemon on startup for %.1f sec\t\t\t\n", $tm );
+			printf ( "\nWARNING: can't connect to daemon on startup for %.3f sec\t\t\t\n", $tm );
 		}
 	}
 
@@ -282,7 +282,7 @@ function StopSearchd ( $config, $pidfile )
 	if ( file_exists($pidfile) && count(file($pidfile)) )
 	{
 		$path = $g_locals['searchd'];
-		exec ( "$path --config $config --stop" );
+		exec ( "$path --config $config --stopwait" );
 
 		$i = 0;
 		while ( file_exists ( $pidfile ) && $i < $action_retries )
@@ -662,7 +662,7 @@ class SphinxConfig
 	function Load ( $config_file )
 	{
 		// load the file
-		$doc = new DOMDocument ( "1.0", "utf-8" );
+		$doc = new DOMDocument ( "1.0" );
 		if ( !$doc->load ( $config_file ) )
 			return false;
 
@@ -697,8 +697,7 @@ class SphinxConfig
 			// new and cool
 			foreach ( ChildrenArray ( $qs, "query" ) as $q )
 			{
-				$res = array ( "query" => array ( $q->nodeValue ) );
-
+				$res = array ( "query" => array ( iconv ( 'utf-8', $doc->encoding, $q->nodeValue ) ) );
 				// parse query mode
 				$mode = 0;
 				$mode_s = $q->getAttribute("mode");
@@ -837,8 +836,9 @@ class SphinxConfig
 			$this->_use_sphinxql = true;
 			// new and cool
 			foreach ( ChildrenArray ( $qs, "sphinxql" ) as $q )
-				$this->_sphqueries[] = array ( "query" => $q->nodeValue );
+				$this->_sphqueries[] = array ( "query" => iconv ( 'utf-8', $doc->encoding, $q->nodeValue ) );
 		}
+
 
 
 		// extract my settings
@@ -853,7 +853,7 @@ class SphinxConfig
 			$this->_db_drop []=$node->nodeValue;
 
 		foreach ( ChildrenArray ( $xml, "db_insert" ) as $node )
-			$this->_db_insert []=$node->nodeValue;
+			$this->_db_insert [] = iconv ( 'utf-8', $doc->encoding, $node->nodeValue );
 
 		foreach ( ChildrenArray ( $xml, "custom_insert" ) as $node )
 			$this->_custom_insert []=$node->nodeValue;
@@ -1328,7 +1328,7 @@ class SphinxConfig
 
 		if ( array_key_exists ("sphinxql", $result) )
 		{
-			$str = "sphinxql> $result[sphinxql];\n";
+			$str = "sphinxql-$nquery> $result[sphinxql];\n";
 			if ( array_key_exists ("total_affected", $result) )
 			{
 				$str .= "Query OK, $result[total_affected] rows affected\n";
@@ -1345,7 +1345,11 @@ class SphinxConfig
 				foreach ($result["rows"] as $row)
 				{
 					foreach ($row as $value)
+					{
+						if ( $this->Requires("sphinxql_keep_null") && is_null ( $value ) )
+							$value = 'NULL';
 						$str .= "\t$value";
+					}
 					$str .="\n";
 				}
 				$str .="$result[total_rows] rows in set\n";
@@ -1525,6 +1529,10 @@ class SphinxConfig
 		$nquery = 0;
 		if ( !is_array ( $this->_results_model [ $this->SubtestNo() ] ) )
 			return;
+
+		fwrite ( $fp, "Run settings:\n" );
+		$this->WriteDiff ( $fp );
+		fwrite ( $fp, "\n" );
 
 		foreach ( $this->_results_model [ $this->SubtestNo() ] as $ref )
 		{
@@ -1743,7 +1751,7 @@ class SphinxConfig
 				$idx = "index ".$match[$idxname][0];
 				if ( $match[$parent][0] != "" )
 					$idx .= " : ".$match[$parent][0];
-				$idx .= "\n{\n";
+				$idx .= "\n{\n\tdict = keywords\n";
 
 				$lines = explode("\n", $match[$content][0]);
 				$justcopy = false;
@@ -2068,7 +2076,7 @@ function EraseDirContents ( $path )
 	{
 		while ( ( $file = readdir ( $fp ) ) !== false )
 		{ 
-		if ( $file != "." && $file != ".." && !is_dir ( $file ) )
+		if ( $file!="." && $file!=".." && !is_dir ( $file ) && $file!="stub.txt" )
 				unlink ( "$path/$file" ); 
 		} 
 
@@ -2094,7 +2102,7 @@ function CopyDirContents ( $from, $to )
 
 function CheckConfig ( $config, $path )
 {
-	global $g_id64, $windows;
+	global $g_id64, $g_re2, $windows, $g_locals;
 	
 	if ( $config->Requires("id64") && !$g_id64 )
 	{
@@ -2120,9 +2128,21 @@ function CheckConfig ( $config, $path )
 		return false;
 	}
 
+	if ( $config->Requires("re2") && !$g_re2 )
+	{
+		printf ( "SKIPPING %s, %s - compile with regexp support to run this test\n", $path, $config->Name () );
+		return false;
+	}
+
 	if ( $config->NeedIndexerEx() && $config->IsRt() )
 	{
 		printf ( "SKIPPING %s, %s - non-RT test that uses indexer skipped in RT mode\n", $path, $config->Name () );
+		return false;
+	}
+
+	if ( $config->Requires("lemmatizer_base") && !isset($g_locals["lemmatizer_base"]) )
+	{
+		printf ( "SKIPPING %s, %s - lemmatizer_base required, add it to your ~/.sphinx\n", $path, $config->Name () );
 		return false;
 	}
 
@@ -2139,7 +2159,7 @@ function MarkTest ( $logfile, $test_dir )
 
 function RunTest ( $test_dir, $skipdemo, $usemarks )
 {
-	global	$indexer_data_path, $agents, $sd_pid_file, $sd_managed_searchd,
+	global	$index_data_path, $agents, $sd_pid_file, $sd_managed_searchd,
 			$sd_skip_indexer, $g_id64, $windows, $g_locals, $sd_log, $sd_query_log;
 
 	$model_file = $test_dir."/model.bin";
@@ -2242,7 +2262,9 @@ function RunTest ( $test_dir, $skipdemo, $usemarks )
 		}
 		$config->WriteConfig ( "config.conf", "all", $msg, $config->NumAgents () < 2 );
 
-		EraseDirContents ( $indexer_data_path );
+		if ( !$sd_skip_indexer )
+			EraseDirContents ( $index_data_path );
+
 		if ( $config->Requires( "pre_copy_ref" ) )
 			CopyDirContents ( $test_dir . "/refdata/", "data/" );
 
@@ -2436,5 +2458,5 @@ function RunTest ( $test_dir, $skipdemo, $usemarks )
 }
 
 //
-// $Id: helpers.inc 3449 2012-10-15 09:23:32Z kevg $
+// $Id: helpers.inc 3647 2013-02-01 21:17:49Z shodan $
 //

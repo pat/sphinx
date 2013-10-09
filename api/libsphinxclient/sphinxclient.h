@@ -1,10 +1,10 @@
 //
-// $Id: sphinxclient.h 3132 2012-03-01 11:38:42Z klirichek $
+// $Id: sphinxclient.h 3701 2013-02-20 18:10:18Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -74,7 +74,7 @@ enum
 enum
 {	SPH_FILTER_VALUES		= 0,
 	SPH_FILTER_RANGE		= 1,
-	SPH_FILTER_FLOATRANGE		= 2
+	SPH_FILTER_FLOATRANGE	= 2
 };
 
 /// known attribute types
@@ -87,6 +87,7 @@ enum
 	SPH_ATTR_FLOAT			= 5,
 	SPH_ATTR_BIGINT			= 6,
 	SPH_ATTR_STRING			= 7,
+	SPH_ATTR_FACTORS		= 1001,
 	SPH_ATTR_MULTI			= 0x40000001UL,
 	SPH_ATTR_MULTI64		= 0x40000002UL
 };
@@ -219,6 +220,11 @@ sphinx_bool					sphinx_set_retries				( sphinx_client * client, int count, int d
 sphinx_bool					sphinx_add_override				( sphinx_client * client, const char * attr, const sphinx_uint64_t * docids, int num_values, const unsigned int * values );
 sphinx_bool					sphinx_set_select				( sphinx_client * client, const char * select_list );
 
+sphinx_bool					sphinx_set_query_flags			( sphinx_client * client, const char * flag_name, sphinx_bool enabled, int max_predicted_msec );
+void						sphinx_reset_query_flags		( sphinx_client * client );
+sphinx_bool					sphinx_set_outer_select			( sphinx_client * client, const char * orderby, int offset, int limit );
+void						sphinx_reset_outer_select		( sphinx_client * client );
+
 void						sphinx_reset_filters			( sphinx_client * client );
 void						sphinx_reset_groupby			( sphinx_client * client );
 
@@ -252,5 +258,5 @@ void						sphinx_status_destroy			( char ** status, int num_rows, int num_cols )
 #endif // _sphinxclient_
 
 //
-// $Id: sphinxclient.h 3132 2012-03-01 11:38:42Z klirichek $
+// $Id: sphinxclient.h 3701 2013-02-20 18:10:18Z deogar $
 //

@@ -1,10 +1,10 @@
 //
-// $Id: sphinxexpr.h 3203 2012-04-27 19:02:20Z tomat $
+// $Id: sphinxexpr.h 3701 2013-02-20 18:10:18Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -22,10 +22,14 @@
 class CSphMatch;
 struct CSphSchema;
 struct CSphString;
+struct CSphColumnInfo;
 
 /// known attribute types
 enum ESphAttr
 {
+	// these types are full types
+	// their typecodes are saved in the index schema, and thus,
+	// TYPECODES MUST NOT CHANGE ONCE INTRODUCED
 	SPH_ATTR_NONE		= 0,			///< not an attribute at all
 	SPH_ATTR_INTEGER	= 1,			///< unsigned 32-bit integer
 	SPH_ATTR_TIMESTAMP	= 2,			///< this attr is a timestamp
@@ -34,9 +38,43 @@ enum ESphAttr
 	SPH_ATTR_FLOAT		= 5,			///< floating point number (IEEE 32-bit)
 	SPH_ATTR_BIGINT		= 6,			///< signed 64-bit integer
 	SPH_ATTR_STRING		= 7,			///< string (binary; in-memory)
-	SPH_ATTR_WORDCOUNT	= 8,			///< string word count (integer at search time,tokenized and counted at indexing time)
+	SPH_ATTR_WORDCOUNT	= 8,			///< string word count (only in indexer! integer at search time, but tokenized and counted at indexing time)
+	SPH_ATTR_POLY2D		= 9,			///< vector of floats, 2D polygon (see POLY2D)
+	SPH_ATTR_STRINGPTR	= 10,			///< string (binary, in-memory, stored as pointer to the zero-terminated string)
+	SPH_ATTR_TOKENCOUNT	= 11,			///< field token count (only in indexer! integer at search time)
+	SPH_ATTR_JSON		= 12,			///< JSON subset; converted, packed, and stored as string
+
 	SPH_ATTR_UINT32SET	= 0x40000001UL,	///< MVA, set of unsigned 32-bit integers
-	SPH_ATTR_INT64SET	= 0x40000002UL	///< MVA, set of signed 64-bit integers
+	SPH_ATTR_INT64SET	= 0x40000002UL,	///< MVA, set of signed 64-bit integers
+
+	// these types are runtime only
+	// used as intermediate types in the expression engine
+	SPH_ATTR_CONSTHASH	= 1000,
+	SPH_ATTR_FACTORS	= 1001,			///< packed search factors (binary, in-memory, pooled)
+	SPH_ATTR_JSON_FIELD	= 1002			///< points to particular field in JSON column subset
+};
+
+/// column evaluation stage
+enum ESphEvalStage
+{
+	SPH_EVAL_STATIC = 0,		///< static data, no real evaluation needed
+	SPH_EVAL_OVERRIDE,			///< static but possibly overridden
+	SPH_EVAL_PREFILTER,			///< expression needed for full-text candidate matches filtering
+	SPH_EVAL_PRESORT,			///< expression needed for final matches sorting
+	SPH_EVAL_SORTER,			///< expression evaluated by sorter object
+	SPH_EVAL_FINAL,				///< expression not (!) used in filters/sorting; can be postponed until final result set cooking
+	SPH_EVAL_POSTLIMIT			///< expression needs to be postponed until we apply all the LIMIT clauses (say, too expensive)
+};
+
+/// expression tree wide commands
+/// FIXME? maybe merge with ExtraData_e?
+enum ESphExprCommand
+{
+	SPH_EXPR_SET_MVA_POOL,
+	SPH_EXPR_SET_STRING_POOL,
+	SPH_EXPR_SET_EXTRA_DATA,
+	SPH_EXPR_GET_DEPENDENT_COLS,
+	SPH_EXPR_GET_UDF
 };
 
 /// expression evaluator
@@ -60,17 +98,31 @@ public:
 	/// evaluate MVA attr
 	virtual const DWORD * MvaEval ( const CSphMatch & ) const { assert ( 0 ); return NULL; }
 
+	/// evaluate Packed factors
+	virtual const DWORD * FactorEval ( const CSphMatch & ) const { assert ( 0 ); return NULL; }
+
 	/// check for arglist subtype
+	/// FIXME? replace with a single GetType() call?
 	virtual bool IsArglist () const { return false; }
 
-	/// setup MVA pool
-	virtual void SetMVAPool ( const DWORD * ) {}
+	/// check for stringptr subtype
+	/// FIXME? replace with a single GetType() call?
+	virtual bool IsStringPtr () const { return false; }
 
-	/// setup sting pool
-	virtual void SetStringPool ( const BYTE * ) {}
+	/// get Nth arg of an arglist
+	virtual ISphExpr * GetArg ( int ) const { return NULL; }
 
-	/// get schema columns index which affect expression
-	virtual void GetDependencyColumns ( CSphVector<int> & ) const {}
+	/// run a tree wide action
+	virtual void Command ( ESphExprCommand, void * ) {}
+};
+
+/// string expression traits
+/// can never be evaluated in floats or integers, only StringEval() is allowed
+struct ISphStringExpr : public ISphExpr
+{
+	virtual float Eval ( const CSphMatch & ) const { assert ( 0 && "one just does not simply evaluate a string as float" ); return 0; }
+	virtual int IntEval ( const CSphMatch & ) const { assert ( 0 && "one just does not simply evaluate a string as int" ); return 0; }
+	virtual int64_t Int64Eval ( const CSphMatch & ) const { assert ( 0 && "one just does not simply evaluate a string as bigint" ); return 0; }
 };
 
 /// hook to extend expressions
@@ -87,7 +139,9 @@ struct ISphExprHook
 	virtual int IsKnownFunc ( const char * sFunc ) = 0;
 
 	/// create node by OID
-	virtual ISphExpr * CreateNode ( int iID, ISphExpr * pLeft ) = 0;
+	/// pEvalStage is an optional out-parameter
+	/// hook may fill it, but that is *not* required
+	virtual ISphExpr * CreateNode ( int iID, ISphExpr * pLeft, ESphEvalStage * pEvalStage ) = 0;
 
 	/// get identifier return type by OID
 	virtual ESphAttr GetIdentType ( int iID ) = 0;
@@ -103,17 +157,41 @@ struct ISphExprHook
 	virtual void CheckExit ( int iID ) = 0;
 };
 
+/// a container used to pass hashes of constants around the evaluation tree
+struct Expr_ConstHash_c : public ISphExpr
+{
+	CSphVector<CSphNamedInt> m_dValues;
+
+	explicit Expr_ConstHash_c ( CSphVector<CSphNamedInt> & dValues )
+	{
+		m_dValues.SwapData ( dValues );
+	}
+
+	virtual float Eval ( const CSphMatch & ) const
+	{
+		assert ( 0 && "one just does not simply evaluate a const hash" );
+		return 0.0f;
+	}
+};
+
 /// parses given expression, builds evaluator
 /// returns NULL and fills sError on failure
 /// returns pointer to evaluator on success
 /// fills pAttrType with result type (for now, can be SPH_ATTR_SINT or SPH_ATTR_FLOAT)
 /// fills pUsesWeight with a flag whether match relevance is referenced in expression AST
-ISphExpr * sphExprParse ( const char * sExpr, const CSphSchema & tSchema, ESphAttr * pAttrType, bool * pUsesWeight, CSphString & sError, CSphSchema * pExtra=NULL, ISphExprHook * pHook=NULL );
+/// fills pEvalStage with a required (!) evaluation stage
+class CSphQueryProfile;
+ISphExpr * sphExprParse ( const char * sExpr, const CSphSchema & tSchema, ESphAttr * pAttrType, bool * pUsesWeight,
+	CSphString & sError, CSphQueryProfile * pProfiler, CSphSchema * pExtra=NULL, ISphExprHook * pHook=NULL,
+	bool * pZonespanlist=NULL, bool * pPackedFactors=NULL, ESphEvalStage * pEvalStage=NULL );
 
 //////////////////////////////////////////////////////////////////////////
 
 /// initialize UDF manager
 void sphUDFInit ( const char * sUdfDir );
+
+/// enable/disable dynamic CREATE/DROP
+void sphUDFLock ( bool bLocked );
 
 /// load UDF function
 bool sphUDFCreate ( const char * szLib, const char * szFunc, ESphAttr eRetType, CSphString & sError );
@@ -121,8 +199,15 @@ bool sphUDFCreate ( const char * szLib, const char * szFunc, ESphAttr eRetType, 
 /// unload UDF function
 bool sphUDFDrop ( const char * szFunc, CSphString & sError );
 
+/// save SphinxQL state (ie. all active functions)
+class CSphWriter;
+void sphUDFSaveState ( CSphWriter & tWriter );
+
+/// JSON expression wrapper
+ISphExpr * sphExprJsonField ( const CSphColumnInfo & tCol, int iAttr, const char * sField );
+
 #endif // _sphinxexpr_
 
 //
-// $Id: sphinxexpr.h 3203 2012-04-27 19:02:20Z tomat $
+// $Id: sphinxexpr.h 3701 2013-02-20 18:10:18Z deogar $
 //

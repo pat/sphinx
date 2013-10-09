@@ -55,12 +55,14 @@ do
 
 		if test [ $? -eq 0 ]
 		then
+			MYSQL_PKGLIBDIR=`echo $MYSQL_LIBS | sed -e 's/-[[^L]][[^ ]]*//g;s/\s*-L//g;'`
 			AC_MSG_RESULT([$mysqlconfig])
 			mysqlconfig=
 			break
 		else
 			MYSQL_CFLAGS=
 			MYSQL_LIBS=
+			MYSQL_PKGLIBDIR=
 		fi
 	fi
 done
@@ -101,6 +103,7 @@ then
 		if test [ -n "$CANDIDATE" -a -d "$CANDIDATE" ]
 		then
 			MYSQL_LIBS="-L$CANDIDATE -lmysqlclient -lz"
+			MYSQL_PKGLIBDIR="$CANDIDATE"
 			break
 		fi
 	done
@@ -127,6 +130,7 @@ then
 	ac_cv_mysql_libs=`echo ${ac_cv_mysql_libs} | sed -e 's/.libs$//' \
 		-e 's+.libs/$++'`
 	MYSQL_LIBS="-L$ac_cv_mysql_libs -lmysqlclient -lz"
+	MYSQL_PKGLIBDIR="$ac_cv_mysql_libs"
 fi
 
 # if we got options from mysqlconfig try to actually use them
@@ -158,6 +162,7 @@ then
 			# clear flags, the code below will complain
 			MYSQL_CFLAGS=
 			MYSQL_LIBS=
+			MYSQL_PKGLIBDIR=
 		])
 	])
 	CFLAGS=$_CFLAGS
@@ -252,7 +257,8 @@ fi
 if test [ -n "$ac_cv_pgsql_libs" ]
 then
 	AC_CACHE_CHECK([PostgreSQL libraries], [ac_cv_pgsql_libs], [ac_cv_pgsql_libs=""])
-	PGSQL_LIBS="-L$ac_cv_pgsql_libs -lpq"
+	PGSQL_PKGLIBDIR="$ac_cv_pgsql_libs"
+	PGSQL_LIBS="-L$PGSQL_PKGLIBDIR -lpq"
 fi
 
 # If some path is missing, try to autodetermine with pgsql_config
@@ -283,7 +289,8 @@ ERROR: cannot find PostgreSQL libraries. If you want to compile with PosgregSQL 
         if test [ -z "$ac_cv_pgsql_libs" ]
         then
             AC_MSG_CHECKING(PostgreSQL linker flags)
-            PGSQL_LIBS="-L`${pgconfig} --libdir` -lpq"
+			PGSQL_PKGLIBDIR=`${pgconfig} --libdir`
+            PGSQL_LIBS="-L$PGSQL_PKGLIBDIR -lpq"
             AC_MSG_RESULT($PGSQL_LIBS)
         fi
     fi
@@ -368,10 +375,9 @@ if test [ -z "$LIBSTEMMER_LIBS" ]; then
 
 Please download the C version of libstemmer library from
 http://snowball.tartarus.org/ and extract its sources over libstemmer_c/
-subdirectory in order to build Sphinx with libstemmer support. The direct url might be
-http://snowball.tartarus.org/dist/libstemmer_c.tgz
-Or, install the package named like 'libstemmer-dev' using your favorite
-package manager. This case sphinx will be linked dynamically with your system package.
+subdirectory in order to build Sphinx with libstemmer support. Or
+install the package named like 'libstemmer-dev' using your favorite
+package manager.
 ])
 fi
 

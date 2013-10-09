@@ -1,10 +1,10 @@
 //
-// $Id: sphinxsearch.h 3087 2012-01-30 23:07:35Z shodan $
+// $Id: sphinxsearch.h 3701 2013-02-20 18:10:18Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -20,10 +20,6 @@
 #include "sphinxquery.h"
 
 //////////////////////////////////////////////////////////////////////////
-// PACKED HIT MACROS
-//////////////////////////////////////////////////////////////////////////
-
-//////////////////////////////////////////////////////////////////////////
 
 /// term modifiers
 enum TermPosFilter_e
@@ -32,7 +28,18 @@ enum TermPosFilter_e
 	TERM_POS_FIELD_START,
 	TERM_POS_FIELD_END,
 	TERM_POS_FIELD_STARTEND,
-	TERM_POS_ZONES
+	TERM_POS_ZONES,
+	TERM_POS_ZONESPAN,
+	TERM_POS_NONE
+};
+
+
+/// decoder state saved at a certain offset
+struct SkiplistEntry_t
+{
+	SphDocID_t		m_iBaseDocid;		///< delta decoder docid base (aka docid infinum)
+	int64_t			m_iOffset;			///< offset in the doclist file (relative to the doclist start)
+	int64_t			m_iBaseHitlistPos;	///< delta decoder hitlist offset base
 };
 
 
@@ -53,6 +60,7 @@ public:
 	int				m_iDocs;		///< document count, from wordlist
 	int				m_iHits;		///< hit count, from wordlist
 	bool			m_bHasHitlist;	///< hitlist presence flag
+	CSphVector<SkiplistEntry_t>		m_dSkiplist;	///< skiplist for quicker document list seeks
 
 	// iterator state
 	CSphSmallBitvec m_dQwordFields;	///< current match fields
@@ -80,6 +88,7 @@ public:
 	}
 	virtual ~ISphQword () {}
 
+	virtual void				HintDocid ( SphDocID_t ) {}
 	virtual const CSphMatch &	GetNextDoc ( DWORD * pInlineDocinfo ) = 0;
 	virtual void				SeekHitlist ( SphOffset_t uOff ) = 0;
 	virtual Hitpos_t			GetNextHit () = 0;
@@ -100,13 +109,15 @@ public:
 /// term setup, searcher view
 class CSphQueryNodeCache;
 class ISphZoneCheck;
+struct CSphQueryStats;
 class ISphQwordSetup : ISphNoncopyable
 {
 public:
 	CSphDict *				m_pDict;
 	const CSphIndex *		m_pIndex;
 	ESphDocinfo				m_eDocinfo;
-	CSphMatch				m_tMin;
+	const CSphRowitem *		m_pMinRow;
+	SphDocID_t				m_iMinDocid;
 	int						m_iInlineRowitems;		///< inline rowitems count
 	int						m_iDynamicRowitems;		///< dynamic rowitems counts (including (!) inline)
 	int64_t					m_iMaxTimer;
@@ -114,11 +125,14 @@ public:
 	CSphQueryContext *		m_pCtx;
 	CSphQueryNodeCache *	m_pNodeCache;
 	mutable ISphZoneCheck *	m_pZoneChecker;
+	CSphQueryStats *		m_pStats;
 
 	ISphQwordSetup ()
 		: m_pDict ( NULL )
 		, m_pIndex ( NULL )
 		, m_eDocinfo ( SPH_DOCINFO_NONE )
+		, m_pMinRow ( NULL )
+		, m_iMinDocid ( 0 )
 		, m_iInlineRowitems ( 0 )
 		, m_iDynamicRowitems ( 0 )
 		, m_iMaxTimer ( 0 )
@@ -126,6 +140,7 @@ public:
 		, m_pCtx ( NULL )
 		, m_pNodeCache ( NULL )
 		, m_pZoneChecker ( NULL )
+		, m_pStats ( NULL )
 	{}
 	virtual ~ISphQwordSetup () {}
 
@@ -133,10 +148,8 @@ public:
 	virtual bool						QwordSetup ( ISphQword * pQword ) const = 0;
 };
 
-//////////////////////////////////////////////////////////////////////////
-
 /// generic ranker interface
-class ISphRanker
+class ISphRanker : public ISphExtra
 {
 public:
 	virtual						~ISphRanker () {}
@@ -198,5 +211,5 @@ public:
 #endif // _sphinxsearch_
 
 //
-// $Id: sphinxsearch.h 3087 2012-01-30 23:07:35Z shodan $
+// $Id: sphinxsearch.h 3701 2013-02-20 18:10:18Z deogar $
 //

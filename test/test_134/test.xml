@@ -4,13 +4,13 @@
 <name>snippets vs SPZ</name>
 
 <requires>
-<non-rt/>
 </requires>
 
 <config>
 searchd
 {
 	<searchd_settings/>
+compat_sphinxql_magics = 1
 	dist_threads	= 2
 }
 
