@@ -1,10 +1,10 @@
 //
-// $Id: indextool.cpp 3789 2013-04-08 09:21:29Z tomat $
+// $Id: indextool.cpp 4113 2013-08-26 07:43:28Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -262,7 +262,7 @@ int main ( int argc, char ** argv )
 			}
 
 			fprintf ( stdout, "dumping header file '%s'...\n", sDumpHeader.cstr() );
-			CSphIndex * pIndex = sphCreateIndexPhrase ( NULL, "" );
+			pIndex = sphCreateIndexPhrase ( NULL, "" );
 			pIndex->DebugDumpHeader ( stdout, sDumpHeader.cstr(), eCommand==CMD_DUMPCONFIG );
 			break;
 		}
@@ -571,5 +571,5 @@ void DoOptimization ( const CSphString & sIndex, const CSphConfig & hConf )
 }
 
 //
-// $Id: indextool.cpp 3789 2013-04-08 09:21:29Z tomat $
+// $Id: indextool.cpp 4113 2013-08-26 07:43:28Z deogar $
 //

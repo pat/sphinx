@@ -1,10 +1,10 @@
 //
-// $Id: sphinxexpr.cpp 3754 2013-03-25 11:47:26Z tomat $
+// $Id: sphinxexpr.cpp 4113 2013-08-26 07:43:28Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -349,7 +349,12 @@ struct Expr_Crc32_c : public Expr_Unary_c
 {
 	explicit Expr_Crc32_c ( ISphExpr * pFirst ) { m_pFirst = pFirst; }
 	virtual float Eval ( const CSphMatch & tMatch ) const { return (float)IntEval ( tMatch ); }
-	virtual int IntEval ( const CSphMatch & tMatch ) const { const BYTE * pStr; return sphCRC32 ( pStr, m_pFirst->StringEval ( tMatch, &pStr ) ); }
+	virtual int IntEval ( const CSphMatch & tMatch ) const
+	{
+		const BYTE * pStr;
+		int iLen = m_pFirst->StringEval ( tMatch, &pStr );
+		return sphCRC32 ( pStr, iLen );
+	}
 	virtual int64_t Int64Eval ( const CSphMatch & tMatch ) const { return IntEval ( tMatch ); }
 };
 
@@ -395,7 +400,7 @@ struct Expr_Fibonacci_c : public Expr_Unary_c
 	struct _classname : public ISphExpr \
 	{ \
 		ISphExpr * m_pFirst; \
-		explicit _classname ( ISphExpr * pFirst ) : m_pFirst ( pFirst ) {}; \
+		explicit _classname ( ISphExpr * pFirst ) : m_pFirst ( pFirst ) {} \
 		~_classname () { SafeRelease ( m_pFirst ); } \
 		virtual void SetMVAPool ( const DWORD * pMvaPool ) { m_pFirst->SetMVAPool ( pMvaPool ); } \
 		virtual void SetStringPool ( const BYTE * pStrings ) { m_pFirst->SetStringPool ( pStrings ); } \
@@ -1102,6 +1107,12 @@ static inline bool IsAddSub ( const ExprNode_t * pNode )
 	return pNode->m_iToken=='+' || pNode->m_iToken=='-';
 }
 
+/// is unary operator?
+static inline bool IsUnary ( const ExprNode_t * pNode )
+{
+	return pNode->m_iToken==TOK_NEG || pNode->m_iToken==TOK_NOT;
+}
+
 /// is arithmetic?
 static inline bool IsAri ( const ExprNode_t * pNode )
 {
@@ -1137,9 +1148,42 @@ void ExprParser_t::Optimize ( int iNode )
 	ExprNode_t * pLeft = ( pRoot->m_iLeft>=0 ) ? &m_dNodes[pRoot->m_iLeft] : NULL;
 	ExprNode_t * pRight = ( pRoot->m_iRight>=0 ) ? &m_dNodes[pRoot->m_iRight] : NULL;
 
+	// unary arithmetic expression with constant
+	if ( IsUnary ( pRoot ) )
+	{
+		assert ( pLeft && !pRight );
+
+		if ( IsConst ( pLeft ) )
+		{
+			if ( pLeft->m_iToken==TOK_CONST_INT )
+			{
+				switch ( pRoot->m_iToken )
+				{
+					case TOK_NEG:	pRoot->m_iConst = -pLeft->m_iConst; break;
+					case TOK_NOT:	pRoot->m_iConst = !pLeft->m_iConst; break;
+					default:		assert ( 0 && "internal error: unhandled arithmetic token during const-int optimization" );
+				}
+
+			} else
+			{
+				switch ( pRoot->m_iToken )
+				{
+					case TOK_NEG:	pRoot->m_fConst = -pLeft->m_fConst; break;
+					case TOK_NOT:	pRoot->m_fConst = !pLeft->m_fConst; break;
+					default:		assert ( 0 && "internal error: unhandled arithmetic token during const-float optimization" );
+				}
+			}
+
+			pRoot->m_iToken = pLeft->m_iToken;
+			pRoot->m_iLeft = -1;
+		}
+	}
+
 	// arithmetic expression with constants
 	if ( IsAri(pRoot) )
 	{
+		assert ( pLeft && pRight );
+
 		// optimize fully-constant expressions
 		if ( IsConst(pLeft) && IsConst(pRight) )
 		{
@@ -1328,24 +1372,29 @@ void ExprParser_t::Optimize ( int iNode )
 	}
 
 	// unary function from a constant
-	if ( pRoot->m_iToken==TOK_FUNC && g_dFuncs[pRoot->m_iFunc].m_iArgs==1 && IsConst(pLeft) )
+	if ( pRoot->m_iToken==TOK_FUNC && g_dFuncs[pRoot->m_iFunc].m_iArgs==1 )
 	{
-		float fArg = pLeft->m_iToken==TOK_CONST_FLOAT ? pLeft->m_fConst : float(pLeft->m_iConst);
-		switch ( g_dFuncs[pRoot->m_iFunc].m_eFunc )
+		assert ( pLeft );
+
+		if ( IsConst ( pLeft ) )
 		{
-			case FUNC_ABS:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = fabs(fArg); break;
-			case FUNC_CEIL:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(ceil(fArg)); break;
-			case FUNC_FLOOR:	pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(floor(fArg)); break;
-			case FUNC_SIN:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(sin(fArg)); break;
-			case FUNC_COS:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(cos(fArg)); break;
-			case FUNC_LN:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(log(fArg)); break;
-			case FUNC_LOG2:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(log(fArg)*M_LOG2E); break;
-			case FUNC_LOG10:	pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(log(fArg)*M_LOG10E); break;
-			case FUNC_EXP:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(exp(fArg)); break;
-			case FUNC_SQRT:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(sqrt(fArg)); break;
-			default:			break;
+			float fArg = pLeft->m_iToken==TOK_CONST_FLOAT ? pLeft->m_fConst : float(pLeft->m_iConst);
+			switch ( g_dFuncs[pRoot->m_iFunc].m_eFunc )
+			{
+				case FUNC_ABS:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = fabs(fArg); break;
+				case FUNC_CEIL:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(ceil(fArg)); break;
+				case FUNC_FLOOR:	pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(floor(fArg)); break;
+				case FUNC_SIN:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(sin(fArg)); break;
+				case FUNC_COS:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(cos(fArg)); break;
+				case FUNC_LN:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(log(fArg)); break;
+				case FUNC_LOG2:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(log(fArg)*M_LOG2E); break;
+				case FUNC_LOG10:	pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(log(fArg)*M_LOG10E); break;
+				case FUNC_EXP:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(exp(fArg)); break;
+				case FUNC_SQRT:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(sqrt(fArg)); break;
+				default:			break;
+			}
+			return;
 		}
-		return;
 	}
 
 	// constant function (such as NOW())
@@ -1357,12 +1406,16 @@ void ExprParser_t::Optimize ( int iNode )
 	}
 
 	// SINT(int-attr)
-	if ( pRoot->m_iToken==TOK_FUNC && pRoot->m_iFunc==FUNC_SINT
-		&& ( pLeft->m_iToken==TOK_ATTR_INT || pLeft->m_iToken==TOK_ATTR_BITS ) )
+	if ( pRoot->m_iToken==TOK_FUNC && pRoot->m_iFunc==FUNC_SINT )
 	{
-		pRoot->m_iToken = TOK_ATTR_SINT;
-		pRoot->m_tLocator = pLeft->m_tLocator;
-		pRoot->m_iLeft = -1;
+		assert ( pLeft );
+
+		if ( pLeft->m_iToken==TOK_ATTR_INT || pLeft->m_iToken==TOK_ATTR_BITS )
+		{
+			pRoot->m_iToken = TOK_ATTR_SINT;
+			pRoot->m_tLocator = pLeft->m_tLocator;
+			pRoot->m_iLeft = -1;
+		}
 	}
 }
 
@@ -1501,7 +1554,7 @@ public:
 			return 0;
 		FillArgs ( tMatch );
 		UdfInt_fn pFn = (UdfInt_fn) m_pCall->m_pUdf->m_fnFunc;
-		return (int) pFn ( &m_pCall->m_tInit, &m_pCall->m_tArgs, &m_bError );
+		return (int64_t) pFn ( &m_pCall->m_tInit, &m_pCall->m_tArgs, &m_bError );
 	}
 
 	virtual int IntEval ( const CSphMatch & tMatch ) const { return (int) Int64Eval ( tMatch ); }
@@ -1939,6 +1992,8 @@ public:
 	}
 
 	int MvaEval ( const DWORD * pMva ) const;
+
+	virtual const DWORD * MvaEval ( const CSphMatch & ) const { assert ( 0 && "not implemented" ); return NULL; }
 
 	/// evaluate arg, check if any values are within set
 	virtual int IntEval ( const CSphMatch & tMatch ) const
@@ -2682,7 +2737,7 @@ int ExprParser_t::AddNodeFunc ( int iFunc, int iLeft, int iRight )
 		ARRAY_FOREACH ( i, dRetTypes )
 		{
 			bGotString |= ( dRetTypes[i]==SPH_ATTR_STRING );
-			bGotMva |= ( dRetTypes[i]==SPH_ATTR_UINT32SET || dRetTypes[i]==SPH_ATTR_UINT32SET );
+			bGotMva |= ( dRetTypes[i]==SPH_ATTR_UINT32SET || dRetTypes[i]==SPH_ATTR_INT64SET );
 		}
 	}
 	if ( bGotString && eFunc!=FUNC_CRC32 )
@@ -3294,5 +3349,5 @@ ISphExpr * sphExprParse ( const char * sExpr, const CSphSchema & tSchema, ESphAt
 }
 
 //
-// $Id: sphinxexpr.cpp 3754 2013-03-25 11:47:26Z tomat $
+// $Id: sphinxexpr.cpp 4113 2013-08-26 07:43:28Z deogar $
 //

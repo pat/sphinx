@@ -1,10 +1,10 @@
 //
-// $Id: sphinx.h 3812M 2013-05-02 17:13:03Z (local) $
+// $Id: sphinx.h 4050 2013-08-01 16:24:26Z kevg $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -196,8 +196,8 @@ inline const	DWORD *	STATIC2DOCINFO ( const DWORD * pAttrs )	{ return STATIC2DOC
 #define SPHINX_TAG "-dev"
 #endif
 
-#define SPHINX_VERSION			"2.0.8" SPHINX_BITS_TAG SPHINX_TAG " (" SPH_SVN_TAGREV ")"
-#define SPHINX_BANNER			"Sphinx " SPHINX_VERSION "\nCopyright (c) 2001-2012, Andrew Aksyonoff\nCopyright (c) 2008-2012, Sphinx Technologies Inc (http://sphinxsearch.com)\n\n"
+#define SPHINX_VERSION			"2.0.9" SPHINX_BITS_TAG SPHINX_TAG " (" SPH_SVN_TAGREV ")"
+#define SPHINX_BANNER			"Sphinx " SPHINX_VERSION "\nCopyright (c) 2001-2013, Andrew Aksyonoff\nCopyright (c) 2008-2013, Sphinx Technologies Inc (http://sphinxsearch.com)\n\n"
 #define SPHINX_SEARCHD_PROTO	1
 
 #define SPH_MAX_WORD_LEN		42		// so that any UTF-8 word fits 127 bytes
@@ -206,11 +206,21 @@ inline const	DWORD *	STATIC2DOCINFO ( const DWORD * pAttrs )	{ return STATIC2DOC
 
 /////////////////////////////////////////////////////////////////////////////
 
+extern int64_t g_iIndexerCurrentDocID;
+extern int64_t g_iIndexerCurrentHits;
+extern int64_t g_iIndexerCurrentRangeMin;
+extern int64_t g_iIndexerCurrentRangeMax;
+extern int64_t g_iIndexerPoolStartDocID;
+extern int64_t g_iIndexerPoolStartHit;
+
+/////////////////////////////////////////////////////////////////////////////
+
 /// microsecond precision timestamp
 /// current UNIX timestamp in seconds multiplied by 1000000, plus microseconds since the beginning of current second
 int64_t			sphMicroTimer ();
 
 /// Sphinx CRC32 implementation
+extern DWORD	g_dSphinxCRC32 [ 256 ];
 DWORD			sphCRC32 ( const BYTE * pString );
 DWORD			sphCRC32 ( const BYTE * pString, int iLen );
 DWORD			sphCRC32 ( const BYTE * pString, int iLen, DWORD uPrevCRC );
@@ -720,7 +730,7 @@ public:
 	virtual void			HitblockBegin () {}
 
 	/// callback to let dictionary do hit block post-processing
-	virtual void			HitblockPatch ( CSphWordHit *, int ) {}
+	virtual void			HitblockPatch ( CSphWordHit *, int ) const {}
 
 	/// resolve temporary hit block wide wordid (!) back to keyword
 	virtual const char *	HitblockGetKeyword ( SphWordID_t ) { return NULL; }
@@ -1080,16 +1090,13 @@ public:
 	float GetAttrFloat ( const CSphAttrLocator & tLoc ) const
 	{
 		return sphDW2F ( (DWORD)sphGetRowAttr ( tLoc.m_bDynamic ? m_pDynamic : m_pStatic, tLoc ) );
-	};
+	}
 
 	/// integer setter
 	void SetAttr ( const CSphAttrLocator & tLoc, SphAttr_t uValue )
 	{
 		if ( tLoc.IsID() )
-		{
-			// m_iDocID = uValue;
 			return;
-		}
 		assert ( tLoc.m_bDynamic );
 		assert ( tLoc.GetMaxRowitem() < (int)m_pDynamic[-1] );
 		sphSetRowAttr ( m_pDynamic, tLoc, uValue );
@@ -1593,6 +1600,7 @@ public:
 	virtual void			SetDumpRows ( FILE * fpDumpRows ) { m_fpDumpRows = fpDumpRows; }
 
 	virtual SphRange_t		IterateFieldMVAStart ( int iAttr );
+	virtual bool			IterateFieldMVAStart ( int, CSphString & ) { assert ( 0 && "not implemented" ); return false; }
 	virtual bool			HasJoinedFields () { return m_iPlainFieldsLength!=m_tSchema.m_dFields.GetLength(); }
 
 protected:
@@ -1970,7 +1978,6 @@ private:
 private:
 	CSphString		m_sCommand;			///< my command
 
-	Tag_e			m_eTag;				///< what's our current tag
 	const char *	m_pTag;				///< tag name
 	int				m_iTagLength;		///< tag name length
 	int				m_iBufferSize;		///< buffer size
@@ -2826,5 +2833,5 @@ void				sphCollationInit ();
 #endif // _sphinx_
 
 //
-// $Id: sphinx.h 3812M 2013-05-02 17:13:03Z (local) $
+// $Id: sphinx.h 4050 2013-08-01 16:24:26Z kevg $
 //

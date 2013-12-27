@@ -57,6 +57,20 @@ index snip
 	exceptions		= test_165/synonyms3.txt
 }
 
+source src_e
+{
+	type			= mysql
+	<sql_settings/>
+
+	sql_query		= SELECT 1, 'life:) on mars'
+}
+
+index e
+{
+	source			= src_e
+	path			= <data_path/>/e
+	exceptions		= test_165/synonyms4.txt
+}
 </config>
 
 <db_create>
@@ -121,6 +135,10 @@ INSERT INTO `star_table` VALUES
 <sphinxql>CALL SNIPPETS('; the test', 'snip', ';doggy the', 1 as force_all_words )</sphinxql>
 <sphinxql>CALL SNIPPETS('; the test', 'snip', 'doggy the', 1 as force_all_words )</sphinxql>
 <sphinxql>CALL SNIPPETS('; the test', 'snip', 'doggy the', 0 as force_all_words )</sphinxql>
+
+<!-- regression special vs synonym -->
+<sphinxql>select * from e where match ('life:\\)')</sphinxql>
+<sphinxql>show meta</sphinxql>
 </sphqueries>
 
 </test>

@@ -1,10 +1,10 @@
 //
-// $Id: sphinxexcerpt.cpp 3793 2013-04-08 15:39:13Z kevg $
+// $Id: sphinxexcerpt.cpp 4113 2013-08-26 07:43:28Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -1222,7 +1222,7 @@ void ExcerptGen_c::CalcPassageWeight ( Passage_t & tPass, const TokenSpan_t & tS
 	tPass.m_iQwordCount = 0;
 
 	DWORD uWords = tPass.m_uQwords;
-	for ( int iWord=0; uWords; uWords >>= 1, iWord++ )
+	for ( iWord=0; uWords; uWords >>= 1, iWord++ )
 		if ( uWords & 1 )
 	{
 		tPass.m_iQwordsWeight += m_dWords[iWord].m_iWeight;
@@ -2192,7 +2192,7 @@ public:
 		m_pDoc = m_pTokenizer->GetBufferPtr();
 	}
 
-	~TokenFunctorTraits_c () {}
+	virtual ~TokenFunctorTraits_c () {}
 
 	void ResultEmit ( const char * pSrc, int iLen, bool bHasPassageMacro=false, int iPassageId=0, const char * pPost=NULL, int iPostLen=0 )
 	{
@@ -3045,7 +3045,6 @@ char * sphBuildExcerpt ( ExcerptQuery_t & tOptions, const CSphIndex * pIndex, co
 
 	char * pData = const_cast<char*> ( tOptions.m_sSource.cstr() );
 	CSphFixedVector<char> pBuffer ( 0 );
-	int iDataLen = tOptions.m_sSource.Length();
 
 	if ( tOptions.m_iLoadFiles )
 	{
@@ -3073,8 +3072,7 @@ char * sphBuildExcerpt ( ExcerptQuery_t & tOptions, const CSphIndex * pIndex, co
 			return sEmpty;
 		}
 
-		iDataLen = iFileSize+1;
-		pBuffer.Reset ( iDataLen );
+		pBuffer.Reset ( iFileSize+1 );
 		if ( !tFile.Read ( pBuffer.Begin(), iFileSize, sError ) )
 			return NULL;
 
@@ -3090,7 +3088,7 @@ char * sphBuildExcerpt ( ExcerptQuery_t & tOptions, const CSphIndex * pIndex, co
 		pStripper = NULL;
 
 	// FIXME!!! check on real data (~100 Mb) as stripper changes len
-	iDataLen = strlen ( pData );
+	int iDataLen = strlen ( pData );
 
 	bool bCanFastPathed = ( ( tOptions.m_iLimit==0 || tOptions.m_iLimit>=iDataLen ) &&
 		( tOptions.m_iLimitWords==0 || tOptions.m_iLimitWords>iDataLen/2 ) &&
@@ -3142,5 +3140,5 @@ char * sphBuildExcerpt ( ExcerptQuery_t & tOptions, const CSphIndex * pIndex, co
 }
 
 //
-// $Id: sphinxexcerpt.cpp 3793 2013-04-08 15:39:13Z kevg $
+// $Id: sphinxexcerpt.cpp 4113 2013-08-26 07:43:28Z deogar $
 //

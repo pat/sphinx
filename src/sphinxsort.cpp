@@ -1,10 +1,10 @@
 //
-// $Id: sphinxsort.cpp 3412 2012-09-24 10:54:01Z tomat $
+// $Id: sphinxsort.cpp 4113 2013-08-26 07:43:28Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -1339,7 +1339,7 @@ public:
 	}
 
 	/// check if this sorter does groupby
-	virtual bool IsGroupby ()
+	virtual bool IsGroupby () const
 	{
 		return true;
 	}
@@ -1420,7 +1420,7 @@ struct MatchRelevanceLt_fn : public ISphMatchComparator
 			return a.m_iWeight < b.m_iWeight;
 
 		return a.m_iDocID > b.m_iDocID;
-	};
+	}
 };
 
 
@@ -1451,7 +1451,7 @@ struct MatchAttrLt_fn : public ISphMatchComparator
 			return a.m_iWeight < b.m_iWeight;
 
 		return a.m_iDocID > b.m_iDocID;
-	};
+	}
 };
 
 
@@ -1482,7 +1482,7 @@ struct MatchAttrGt_fn : public ISphMatchComparator
 			return a.m_iWeight < b.m_iWeight;
 
 		return a.m_iDocID > b.m_iDocID;
-	};
+	}
 };
 
 
@@ -1510,7 +1510,7 @@ struct MatchTimeSegments_fn : public ISphMatchComparator
 			return aa<bb;
 
 		return a.m_iDocID > b.m_iDocID;
-	};
+	}
 
 protected:
 	static inline int GetSegment ( SphAttr_t iStamp, SphAttr_t iNow )
@@ -1591,7 +1591,7 @@ struct MatchGeneric2_fn : public ISphMatchComparator
 		SPH_TEST_KEYPART(0);
 		SPH_TEST_KEYPART(1);
 		return false;
-	};
+	}
 };
 
 
@@ -1608,7 +1608,7 @@ struct MatchGeneric3_fn : public ISphMatchComparator
 		SPH_TEST_KEYPART(1);
 		SPH_TEST_KEYPART(2);
 		return false;
-	};
+	}
 };
 
 
@@ -1626,7 +1626,7 @@ struct MatchGeneric4_fn : public ISphMatchComparator
 		SPH_TEST_KEYPART(2);
 		SPH_TEST_KEYPART(3);
 		return false;
-	};
+	}
 };
 
 
@@ -1645,7 +1645,7 @@ struct MatchGeneric5_fn : public ISphMatchComparator
 		SPH_TEST_KEYPART(3);
 		SPH_TEST_KEYPART(4);
 		return false;
-	};
+	}
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -2229,12 +2229,11 @@ bool sphIsSortStringInternal ( const char * sColumnName )
 }
 
 
-static bool SetupSortStringRemap ( CSphSchema & tSorterSchema, CSphMatchComparatorState & tState, const int * dAttr )
+static void SetupSortStringRemap ( CSphSchema & tSorterSchema, CSphMatchComparatorState & tState, const int * dAttr )
 {
 #ifndef NDEBUG
 	int iColWasCount = tSorterSchema.GetAttrsCount();
 #endif
-	bool bUsesAtrrs = false;
 	for ( int i=0; i<CSphMatchComparatorState::MAX_ATTRS; i++ )
 	{
 		if ( tState.m_eKeypart[i]!=SPH_KEYPART_STRING )
@@ -2256,8 +2255,6 @@ static bool SetupSortStringRemap ( CSphSchema & tSorterSchema, CSphMatchComparat
 		}
 		tState.m_tLocator[i] = tSorterSchema.GetAttr ( iRemap ).m_tLocator;
 	}
-
-	return bUsesAtrrs;
 }
 
 
@@ -2570,7 +2567,7 @@ int CollateUtf8GeneralCI ( const BYTE * pArg1, const BYTE * pArg2 )
 
 	if ( pStr1>=pMax1 && pStr2>=pMax2 )
 		return 0;
-	return ( pStr1==pMax1 ) ? 1 : -1;
+	return ( pStr1<pMax1 ) ? 1 : -1;
 }
 
 
@@ -2764,20 +2761,23 @@ ISphMatchSorter * sphCreateQueue ( const CSphQuery * pQuery, const CSphSchema & 
 		int iAttrIdx = tSchema.GetAttrIndex ( sExpr.cstr() );
 		bool bPlainAttr = ( ( sExpr=="*" || ( iAttrIdx>=0 && tItem.m_eAggrFunc==SPH_AGGR_NONE ) ) &&
 							( tItem.m_sAlias.IsEmpty() || tItem.m_sAlias==tItem.m_sExpr ) );
-		// handling cases like SELECT 1+2 AS strattr, strattr FROM idx;
-		// we should see 3 in second column, not an attribute value
-		if ( !bPlainAttr && iAttrIdx>=0 &&
-			( tSchema.GetAttr ( iAttrIdx ).m_eAttrType==SPH_ATTR_STRING
-			|| tSchema.GetAttr ( iAttrIdx ).m_eAttrType==SPH_ATTR_UINT32SET
-			|| tSchema.GetAttr ( iAttrIdx ).m_eAttrType==SPH_ATTR_INT64SET ) )
+		if ( iAttrIdx>=0 )
 		{
-			bPlainAttr = true;
-			for ( int i=0; i<iItem; i++ )
+			ESphAttr eAttr = tSchema.GetAttr ( iAttrIdx ).m_eAttrType;
+			if ( eAttr==SPH_ATTR_STRING || eAttr==SPH_ATTR_UINT32SET || eAttr==SPH_ATTR_INT64SET )
 			{
-				if ( sExpr==pQuery->m_dItems[i].m_sAlias )
+				if ( tItem.m_eAggrFunc!=SPH_AGGR_NONE )
 				{
-					bPlainAttr = false;
-					break;
+					sError.SetSprintf ( "can not aggregate non-scalar attribute '%s'", tItem.m_sExpr.cstr() );
+					return NULL;
+				}
+
+				if ( !bPlainAttr )
+				{
+					bPlainAttr = true;
+					for ( int i=0; i<iItem && bPlainAttr; i++ )
+						if ( sExpr==pQuery->m_dItems[i].m_sAlias )
+							bPlainAttr = false;
 				}
 			}
 		}
@@ -2867,9 +2867,9 @@ ISphMatchSorter * sphCreateQueue ( const CSphQuery * pQuery, const CSphSchema & 
 
 				// usual filter
 				tExprCol.m_eStage = SPH_EVAL_PREFILTER;
-				ARRAY_FOREACH ( i, dCur )
+				ARRAY_FOREACH ( j, dCur )
 				{
-					const CSphColumnInfo & tCol = tSorterSchema.GetAttr ( dCur[i] );
+					const CSphColumnInfo & tCol = tSorterSchema.GetAttr ( dCur[j] );
 					if ( tCol.m_bWeight )
 					{
 						tExprCol.m_eStage = SPH_EVAL_PRESORT;
@@ -2882,9 +2882,9 @@ ISphMatchSorter * sphCreateQueue ( const CSphQuery * pQuery, const CSphSchema & 
 				}
 				dCur.Uniq();
 
-				ARRAY_FOREACH ( i, dCur )
+				ARRAY_FOREACH ( j, dCur )
 				{
-					CSphColumnInfo & tDep = const_cast < CSphColumnInfo & > ( tSorterSchema.GetAttr ( dCur[i] ) );
+					CSphColumnInfo & tDep = const_cast < CSphColumnInfo & > ( tSorterSchema.GetAttr ( dCur[j] ) );
 					if ( tDep.m_eStage>tExprCol.m_eStage )
 						tDep.m_eStage = tExprCol.m_eStage;
 				}
@@ -2951,7 +2951,7 @@ ISphMatchSorter * sphCreateQueue ( const CSphQuery * pQuery, const CSphSchema & 
 		}
 	}
 
-#define LOC_CHECK(_cond,_msg) if (!(_cond)) { sError = "invalid schema: " _msg; return false; }
+#define LOC_CHECK(_cond,_msg) if (!(_cond)) { sError = "invalid schema: " _msg; return NULL; }
 
 	int iGroupby = tSorterSchema.GetAttrIndex ( "@groupby" );
 	if ( iGroupby>=0 )
@@ -3016,7 +3016,7 @@ ISphMatchSorter * sphCreateQueue ( const CSphQuery * pQuery, const CSphSchema & 
 					bUsesAttrs = true;
 			}
 		}
-		bUsesAttrs |= SetupSortStringRemap ( tSorterSchema, tStateMatch, dAttrs );
+		SetupSortStringRemap ( tSorterSchema, tStateMatch, dAttrs );
 
 	} else if ( pQuery->m_eSort==SPH_SORT_EXPR )
 	{
@@ -3044,7 +3044,7 @@ ISphMatchSorter * sphCreateQueue ( const CSphQuery * pQuery, const CSphSchema & 
 
 			int dAttrs [ CSphMatchComparatorState::MAX_ATTRS ];
 			dAttrs[0] = iSortAttr;
-			bUsesAttrs |= SetupSortStringRemap ( tSorterSchema, tStateMatch, dAttrs );
+			SetupSortStringRemap ( tSorterSchema, tStateMatch, dAttrs );
 		}
 
 		// find out what function to use and whether it needs attributes
@@ -3092,7 +3092,7 @@ ISphMatchSorter * sphCreateQueue ( const CSphQuery * pQuery, const CSphSchema & 
 		FixupDependency ( tSorterSchema, dAttrs, CSphMatchComparatorState::MAX_ATTRS );
 
 		// GroupSortBy str attributes setup
-		bUsesAttrs |= SetupSortStringRemap ( tSorterSchema, tStateGroup, dAttrs );
+		SetupSortStringRemap ( tSorterSchema, tStateGroup, dAttrs );
 	}
 
 	///////////////////
@@ -3179,10 +3179,11 @@ bool sphHasExpressions ( const CSphQuery & tQuery, const CSphSchema & tSchema )
 {
 	ARRAY_FOREACH ( i, tQuery.m_dItems )
 	{
-		const CSphString & sExpr = tQuery.m_dItems[i].m_sExpr;
+		const CSphQueryItem & tItem = tQuery.m_dItems[i];
+		const CSphString & sExpr = tItem.m_sExpr;
 
 		if ( !( sExpr=="*"
-			|| ( tSchema.GetAttrIndex ( sExpr.cstr() )>=0 && tQuery.m_dItems[i].m_eAggrFunc==SPH_AGGR_NONE && tQuery.m_dItems[i].m_sAlias.IsEmpty() )
+			|| ( tSchema.GetAttrIndex ( sExpr.cstr() )>=0 && tItem.m_eAggrFunc==SPH_AGGR_NONE && ( tItem.m_sAlias.IsEmpty() || tItem.m_sAlias==sExpr ) )
 			|| IsGroupbyMagic(sExpr) ) )
 			return true;
 	}
@@ -3192,5 +3193,5 @@ bool sphHasExpressions ( const CSphQuery & tQuery, const CSphSchema & tSchema )
 
 
 //
-// $Id: sphinxsort.cpp 3412 2012-09-24 10:54:01Z tomat $
+// $Id: sphinxsort.cpp 4113 2013-08-26 07:43:28Z deogar $
 //

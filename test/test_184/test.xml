@@ -95,6 +95,8 @@ INSERT INTO test_table VALUES
 <sphinxql>select id, gid, weight(), title from test where match('mary') option ranker=expr('crc32(title)')</sphinxql>
 <sphinxql>select id, gid, weight(), title from test where match('mary') option ranker=expr('in(mva32,1)')</sphinxql>
 <sphinxql>select id, gid, weight(), title from test where match('mary') option ranker=expr('in(mva64,1)')</sphinxql>
+
+<sphinxql>select title gid from test limit 1</sphinxql>
 </sphqueries>
 
 </test>

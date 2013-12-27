@@ -1,7 +1,7 @@
 dnl Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.59)
-AC_INIT([sphinx], [2.0.8], [shodan(at)sphinxsearch.com])
+AC_INIT([sphinx], [2.0.9], [shodan(at)sphinxsearch.com])
 
 dnl --------------------------------------------------------------------------
 
@@ -310,6 +310,7 @@ fi
 
 # get rid of possible garbage (like on mac os x)
 MYSQL_CFLAGS=`echo $MYSQL_CFLAGS | sed -e 's/-O[[0123sz]]//g'`
+MYSQL_CFLAGS=`echo $MYSQL_CFLAGS | sed -e 's/\-DNDEBUG//g'`
 
 dnl ---
 

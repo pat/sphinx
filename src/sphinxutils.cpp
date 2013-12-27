@@ -1,10 +1,10 @@
 //
-// $Id: sphinxutils.cpp 3788 2013-04-08 08:57:12Z kevg $
+// $Id: sphinxutils.cpp 4113 2013-08-26 07:43:28Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -442,7 +442,7 @@ bool CSphConfigParser::ValidateKey ( const char * sKey )
 
 #if !USE_WINDOWS
 
-bool TryToExec ( char * pBuffer, char * pEnd, const char * szFilename, CSphVector<char> & dResult, char * sError, int iErrorLen )
+bool TryToExec ( char * pBuffer, const char * szFilename, CSphVector<char> & dResult, char * sError, int iErrorLen )
 {
 	int dPipe[2] = { -1, -1 };
 
@@ -486,12 +486,11 @@ bool TryToExec ( char * pBuffer, char * pEnd, const char * szFilename, CSphVecto
 
 		exit ( 1 );
 
-	} else
-		if ( iChild==-1 )
-		{
-			snprintf ( sError, iErrorLen, "fork failed: [%d] %s", errno, strerror(errno) );
-			return false;
-		}
+	} else if ( iChild==-1 )
+	{
+		snprintf ( sError, iErrorLen, "fork failed: [%d] %s", errno, strerror(errno) );
+		return false;
+	}
 
 	close ( iWrite );
 
@@ -513,6 +512,7 @@ bool TryToExec ( char * pBuffer, char * pEnd, const char * szFilename, CSphVecto
 		iTotalRead += iBytesRead;
 	}
 	while ( iBytesRead > 0 );
+	close ( iRead );
 
 	int iStatus, iResult;
 	do
@@ -561,9 +561,9 @@ bool TryToExec ( char * pBuffer, char * pEnd, const char * szFilename, CSphVecto
 	return true;
 }
 
-bool CSphConfigParser::TryToExec ( char * pBuffer, char * pEnd, const char * szFilename, CSphVector<char> & dResult )
+bool CSphConfigParser::TryToExec ( char * pBuffer, const char * szFilename, CSphVector<char> & dResult )
 {
-	return ::TryToExec ( pBuffer, pEnd, szFilename, dResult, m_sError, sizeof(m_sError) );
+	return ::TryToExec ( pBuffer, szFilename, dResult, m_sError, sizeof(m_sError) );
 }
 #endif
 
@@ -620,9 +620,9 @@ bool CSphConfigParser::Parse ( const char * sFileName, const char * pBuffer )
 	char * p = NULL;
 	char * pEnd = NULL;
 
-	char sBuf [ L_BUFFER ];
+	char sBuf [ L_BUFFER ] = { 0 };
 
-	char sToken [ L_TOKEN ];
+	char sToken [ L_TOKEN ] = { 0 };
 	int iToken = 0;
 	int iCh = -1;
 
@@ -677,7 +677,7 @@ bool CSphConfigParser::Parse ( const char * sFileName, const char * pBuffer )
 				if ( !pBuffer && m_iLine==1 && p==sBuf && p[1]=='!' )
 				{
 					CSphVector<char> dResult;
-					if ( TryToExec ( p+2, pEnd, sFileName, dResult ) )
+					if ( TryToExec ( p+2, sFileName, dResult ) )
 						Parse ( sFileName, &dResult[0] );
 					break;
 				} else
@@ -1479,7 +1479,7 @@ void sphBacktrace ( int iFD, bool bSafe )
 
 		sphSafeInfo ( iFD, "Stack looks OK, attempting backtrace." );
 
-		BYTE** pNewFP;
+		BYTE** pNewFP = NULL;
 		while ( pFramePointer < (BYTE**) pMyStack )
 		{
 			pNewFP = (BYTE**) *pFramePointer;
@@ -1580,5 +1580,5 @@ void sphUnlinkIndex ( const char * sName, bool bForce )
 
 
 //
-// $Id: sphinxutils.cpp 3788 2013-04-08 08:57:12Z kevg $
+// $Id: sphinxutils.cpp 4113 2013-08-26 07:43:28Z deogar $
 //

@@ -1,10 +1,10 @@
 //
-// $Id: sphinxstd.cpp 3650 2013-02-05 11:20:36Z tomat $
+// $Id: sphinxstd.cpp 4113 2013-08-26 07:43:28Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -913,8 +913,8 @@ struct ThreadCall_t
 	void *			m_pArg;
 	ThreadCall_t *	m_pNext;
 };
-SphThreadKey_t g_tThreadCleanupKey;
-SphThreadKey_t g_tMyThreadStack;
+static SphThreadKey_t g_tThreadCleanupKey;
+static SphThreadKey_t g_tMyThreadStack;
 
 
 #if USE_WINDOWS
@@ -1403,5 +1403,5 @@ bool CSphRwlock::Unlock ()
 #endif
 
 //
-// $Id: sphinxstd.cpp 3650 2013-02-05 11:20:36Z tomat $
+// $Id: sphinxstd.cpp 4113 2013-08-26 07:43:28Z deogar $
 //

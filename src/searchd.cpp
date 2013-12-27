@@ -1,10 +1,10 @@
 //
-// $Id: searchd.cpp 3821 2013-04-18 15:15:44Z joric $
+// $Id: searchd.cpp 4113 2013-08-26 07:43:28Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -145,7 +145,7 @@ enum ProtocolType_e
 };
 
 
-const char * g_dProtoNames[PROTO_TOTAL] =
+static const char * g_dProtoNames[PROTO_TOTAL] =
 {
 	"sphinxapi", "sphinxql"
 };
@@ -270,7 +270,6 @@ static Mpm_e			g_eWorkers			= USE_WINDOWS ? MPM_THREADS : MPM_FORK;
 
 static int				g_iPreforkChildren	= 10;		// how much workers to keep
 static CSphVector<int>	g_dChildren;
-static volatile bool	g_bAcceptUnlocked	= true;		// whether this preforked child is guaranteed to be *not* holding a lock around accept
 static int				g_iClientFD			= -1;
 static int				g_iDistThreads		= 0;
 
@@ -284,7 +283,7 @@ enum ThdState_e
 	THD_STATE_TOTAL
 };
 
-const char * g_dThdStates[THD_STATE_TOTAL] = {
+static const char * g_dThdStates[THD_STATE_TOTAL] = {
 	"handshake", "net_read", "net_write", "query"
 };
 
@@ -307,7 +306,19 @@ struct ThdDesc_t
 	{}
 };
 
-static CSphStaticMutex			g_tThdMutex;
+struct StaticThreadsOnlyMutex_t
+{
+	StaticThreadsOnlyMutex_t ();
+	~StaticThreadsOnlyMutex_t ();
+	void Lock ();
+	void Unlock ();
+
+private:
+	CSphMutex m_tLock;
+};
+
+
+static StaticThreadsOnlyMutex_t	g_tThdMutex;
 static CSphVector<ThdDesc_t*>	g_dThd;				///< existing threads table
 
 static int						g_iConnID = 0;		///< global conn-id in none/fork/threads; current conn-id in prefork
@@ -409,38 +420,15 @@ private:
 	IndexHash_c::HashEntry_t *	m_pIterator;
 };
 
-struct ThreadsOnlyMutex_t
-{
-	bool Init ();
-	void Done ();
-	void Lock ();
-	void Unlock ();
-
-private:
-	CSphMutex m_tLock;
-};
-
-struct StaticThreadsOnlyMutex_t
-{
-	StaticThreadsOnlyMutex_t ();
-	~StaticThreadsOnlyMutex_t ();
-	void Lock ();
-	void Unlock ();
-
-private:
-	CSphMutex m_tLock;
-};
-
-
 
 static IndexHash_c *						g_pIndexes = NULL;		// served indexes hash
 static CSphVector<const char *>				g_dRotating;			// names of indexes to be rotated this time
 static const char *							g_sPrereading	= NULL;	// name of index currently being preread
 static CSphIndex *							g_pPrereading	= NULL;	// rotation "buffer"
 
-static ThreadsOnlyMutex_t					g_tRotateQueueMutex;
+static StaticThreadsOnlyMutex_t				g_tRotateQueueMutex;
 static CSphVector<CSphString>				g_dRotateQueue;		// FIXME? maybe replace it with lockless ring buffer
-static ThreadsOnlyMutex_t					g_tRotateConfigMutex;
+static StaticThreadsOnlyMutex_t				g_tRotateConfigMutex;
 static SphThread_t							g_tRotateThread;
 static volatile bool						g_bRotateShutdown = false;
 
@@ -524,7 +512,7 @@ enum
 
 
 /// command names
-const char * g_dApiCommands[SEARCHD_COMMAND_TOTAL] =
+static const char * g_dApiCommands[SEARCHD_COMMAND_TOTAL] =
 {
 	"search", "excerpt", "update", "keywords", "persist", "status", "query", "flushattrs"
 };
@@ -588,7 +576,6 @@ struct FlushState_t
 
 static volatile FlushState_t *	g_pFlush		= NULL;
 static CSphSharedBuffer<FlushState_t>	g_tFlushBuffer;
-static CSphMutex g_tFlushMutex;
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -610,7 +597,7 @@ struct Uservar_t
 	{}
 };
 
-static CSphStaticMutex				g_tUservarsMutex;
+static StaticThreadsOnlyMutex_t		g_tUservarsMutex;
 static SmallStringHash_T<Uservar_t>	g_hUservars;
 
 /////////////////////////////////////////////////////////////////////////////
@@ -641,9 +628,9 @@ static SmallStringHash_T<Uservar_t>	g_hUservars;
 
 const int EXT_COUNT = 8;
 const int EXT_MVP = 8;
-const char * g_dNewExts[EXT_COUNT] = { ".new.sph", ".new.spa", ".new.spi", ".new.spd", ".new.spp", ".new.spm", ".new.spk", ".new.sps" };
-const char * g_dOldExts[] = { ".old.sph", ".old.spa", ".old.spi", ".old.spd", ".old.spp", ".old.spm", ".old.spk", ".old.sps", ".old.mvp" };
-const char * g_dCurExts[] = { ".sph", ".spa", ".spi", ".spd", ".spp", ".spm", ".spk", ".sps", ".mvp" };
+static const char * g_dNewExts[EXT_COUNT] = { ".new.sph", ".new.spa", ".new.spi", ".new.spd", ".new.spp", ".new.spm", ".new.spk", ".new.sps" };
+static const char * g_dOldExts[] = { ".old.sph", ".old.spa", ".old.spi", ".old.spd", ".old.spp", ".old.spm", ".old.spk", ".old.sps", ".old.mvp" };
+static const char * g_dCurExts[] = { ".sph", ".spa", ".spi", ".spd", ".spp", ".spm", ".spk", ".sps", ".mvp" };
 
 /////////////////////////////////////////////////////////////////////////////
 // MISC
@@ -860,7 +847,10 @@ ServedIndex_t * IndexHash_c::GetWlockedEntry ( const CSphString & tKey ) const
 
 ServedIndex_t & IndexHash_c::GetUnlockedEntry ( const CSphString & tKey ) const
 {
-	return BASE::operator[] ( tKey );
+	Rlock();
+	ServedIndex_t & tRes = BASE::operator[] ( tKey );
+	Unlock();
+	return tRes;
 }
 
 
@@ -874,36 +864,10 @@ bool IndexHash_c::Exists ( const CSphString & tKey ) const
 
 //////////////////////////////////////////////////////////////////////////
 
-
-bool ThreadsOnlyMutex_t::Init ()
-{
-	if ( g_eWorkers==MPM_THREADS )
-		return m_tLock.Init();
-	else
-		return true;
-}
-
-void ThreadsOnlyMutex_t::Done ()
-{
-	if ( g_eWorkers==MPM_THREADS )
-		m_tLock.Done();
-}
-
-void ThreadsOnlyMutex_t::Lock ()
-{
-	if ( g_eWorkers==MPM_THREADS )
-		m_tLock.Lock();
-}
-
-void ThreadsOnlyMutex_t::Unlock()
-{
-	if ( g_eWorkers==MPM_THREADS )
-		m_tLock.Unlock();
-}
-
 StaticThreadsOnlyMutex_t::StaticThreadsOnlyMutex_t ()
 {
-	m_tLock.Init();
+	if ( !m_tLock.Init() )
+		sphDie ( "failed to create static mutex" );
 }
 
 StaticThreadsOnlyMutex_t::~StaticThreadsOnlyMutex_t ()
@@ -958,7 +922,11 @@ int sphFormatCurrentTime ( char * sTimeBuf, int iBufLen )
 
 /// physically emit log entry
 /// buffer must have 1 extra byte for linefeed
+#if USE_WINDOWS
 void sphLogEntry ( ESphLogLevel eLevel, char * sBuf, char * sTtyBuf )
+#else
+void sphLogEntry ( ESphLogLevel , char * sBuf, char * sTtyBuf )
+#endif
 {
 #if USE_WINDOWS
 	if ( g_bService && g_iLogFile==STDOUT_FILENO )
@@ -1310,6 +1278,7 @@ void Shutdown ()
 			DWORD uHandshakeOk = 0;
 			int iDummy; // to avoid gcc unused result warning
 			iDummy = ::write ( fdStopwait, &uHandshakeOk, sizeof(DWORD) );
+			iDummy++; // to avoid gcc set but not used variable warning
 		}
 #endif
 
@@ -1336,10 +1305,7 @@ void Shutdown ()
 			g_tThdMutex.Lock();
 			g_dThd.Reset();
 			g_tThdMutex.Unlock();
-			g_tFlushMutex.Done();
 		}
-		g_tRotateQueueMutex.Done();
-		g_tRotateConfigMutex.Done();
 
 
 #if !USE_WINDOWS
@@ -1402,6 +1368,7 @@ void Shutdown ()
 		DWORD uStatus = bAttrsSaveOk;
 		int iDummy; // to avoid gcc unused result warning
 		iDummy = ::write ( fdStopwait, &uStatus, sizeof(DWORD) );
+		iDummy++; // to avoid gcc set but not used variable warning
 		::close ( fdStopwait );
 	}
 #endif
@@ -1804,19 +1771,22 @@ void sphFDSet ( int fd, fd_set * set )
 #endif // USE_WINDOWS
 
 
+#if USE_WINDOWS
 const char * sphSockError ( int iErr=0 )
 {
-	#if USE_WINDOWS
-		if ( iErr==0 )
-			iErr = WSAGetLastError ();
+	if ( iErr==0 )
+		iErr = WSAGetLastError ();
 
-		static char sBuf [ 256 ];
-		_snprintf ( sBuf, sizeof(sBuf), "WSA error %d", iErr );
-		return sBuf;
-	#else
-		return strerror ( errno );
-	#endif
+	static char sBuf [ 256 ];
+	_snprintf ( sBuf, sizeof(sBuf), "WSA error %d", iErr );
+	return sBuf;
 }
+#else
+const char * sphSockError ( int =0 )
+{
+	return strerror ( errno );
+}
+#endif
 
 
 int sphSockGetErrno ()
@@ -4123,6 +4093,8 @@ void CheckQuery ( const CSphQuery & tQuery, CSphString & sError )
 
 void PrepareQueryEmulation ( CSphQuery * pQuery )
 {
+	assert ( pQuery && pQuery->m_sRawQuery.cstr() );
+
 	// sort filters
 	ARRAY_FOREACH ( i, pQuery->m_dFilters )
 		pQuery->m_dFilters[i].m_dValues.Sort();
@@ -4144,7 +4116,7 @@ void PrepareQueryEmulation ( CSphQuery * pQuery )
 		return;
 
 	const char * szQuery = pQuery->m_sRawQuery.cstr ();
-	int iQueryLen = szQuery ? strlen(szQuery) : 0;
+	int iQueryLen = strlen(szQuery);
 
 	pQuery->m_sQuery.Reserve ( iQueryLen*2+8 );
 	char * szRes = (char*) pQuery->m_sQuery.cstr ();
@@ -5612,15 +5584,23 @@ bool MinimizeAggrResult ( AggrResult_t & tRes, const CSphQuery & tQuery, bool bH
 				if ( *tCol.m_sName.cstr()=='@' )
 				{
 					ARRAY_FOREACH ( j, (*pSelectItems) )
-						if ( tFrontendSchema.GetAttr(j).m_iIndex<0
-							&& ( (*pSelectItems)[j].m_sExpr.cstr() && (*pSelectItems)[j].m_sExpr==tCol.m_sName ) )
+					{
+						const CSphQueryItem & tQueryItem = (*pSelectItems)[j];
+						const char * sExpr = tQueryItem.m_sExpr.cstr();
+						if ( tQueryItem.m_sExpr=="count(*)" )
+							sExpr = sCount;
+						else if ( tQueryItem.m_sExpr=="weight()" )
+							sExpr = sWeight;
+
+						if ( tFrontendSchema.GetAttr(j).m_iIndex<0 && sExpr && tCol.m_sName==sExpr )
 						{
 							CSphColumnInfo & tItem = tFrontendSchema.GetWAttr(j);
 							tItem.m_iIndex = tInternalSchema.GetAttrsCount();
-							tItem.m_sName = (*pSelectItems)[j].m_sAlias;
+							tItem.m_sName = tQueryItem.m_sAlias;
 							dKnownItems.Add(j);
 							++iKnownItems;
 						}
+					}
 					if ( tFrontendSchema.GetAttr ( tCol.m_sName.cstr() )==NULL )
 					{
 						CSphColumnInfo & tItem = tFrontendSchema.GetWAttrs().Add();
@@ -5650,9 +5630,17 @@ bool MinimizeAggrResult ( AggrResult_t & tRes, const CSphQuery & tQuery, bool bH
 					else if ( tQueryItem.m_sExpr=="weight()" )
 						sExpr = sWeight;
 
-					if ( tFrontendSchema.GetAttr(j).m_iIndex<0
-						&& ( ( sExpr && tCol.m_sName==sExpr && tQueryItem.m_eAggrFunc==SPH_AGGR_NONE )
-						|| ( tQueryItem.m_sAlias.cstr() && tQueryItem.m_sAlias==tCol.m_sName ) ) )
+					if ( tFrontendSchema.GetAttr(j).m_iIndex>=0 )
+						continue;
+
+					if ( ( sExpr && tCol.m_sName==sExpr && tQueryItem.m_eAggrFunc==SPH_AGGR_NONE )
+						|| ( tQueryItem.m_sAlias.cstr() && tQueryItem.m_sAlias==tCol.m_sName
+								// do not add attr2 to frontend schema in cases like this
+								// attr1 AS attr2
+								&& ( tRes.m_tSchema.GetAttrIndex ( sExpr )==-1
+								// but add attr2, not attr1 in cases like this
+								// MIN(attr1) AS attr2
+								|| tQueryItem.m_eAggrFunc!=SPH_AGGR_NONE ) ) )
 					{
 						bAdd = true;
 						dKnownItems.Add(j);
@@ -5665,7 +5653,7 @@ bool MinimizeAggrResult ( AggrResult_t & tRes, const CSphQuery & tQuery, bool bH
 								tItem.m_sName = tQueryItem.m_sAlias;
 							else
 								tItem.m_sName = tQueryItem.m_sExpr;
-						};
+						}
 					}
 				}
 				if ( !bAdd && pExtraSchema!=NULL )
@@ -5859,9 +5847,9 @@ bool MinimizeAggrResultCompat ( AggrResult_t & tRes, const CSphQuery & tQuery, b
 			{
 				bool bAdd = false;
 
-				ARRAY_FOREACH ( i, tQuery.m_dItems )
+				ARRAY_FOREACH ( j, tQuery.m_dItems )
 				{
-					const CSphQueryItem & tQueryItem = tQuery.m_dItems[i];
+					const CSphQueryItem & tQueryItem = tQuery.m_dItems[j];
 					if ( ( tQueryItem.m_sExpr.cstr() && tQueryItem.m_sExpr==tCol.m_sName )
 						|| ( tQueryItem.m_sAlias.cstr() && tQueryItem.m_sAlias==tCol.m_sName ) )
 					{
@@ -6360,6 +6348,7 @@ static void MergeWordStats ( CSphQueryResultMeta & tDstResult, const SmallString
 	}
 
 	hSrc.IterateStart();
+	CSphStringBuilder tDifferWords;
 	while ( hSrc.IterateNext() )
 	{
 		const CSphQueryResultMeta::WordStat_t * pDstStat = tDstResult.m_hWordStats ( hSrc.IterateGetKey() );
@@ -6368,11 +6357,17 @@ static void MergeWordStats ( CSphQueryResultMeta & tDstResult, const SmallString
 		// all indexes should produce same words from the query
 		if ( !pDstStat && !tSrcStat.m_bExpanded )
 		{
-			pLog->SubmitEx ( sIndex, "query words mismatch '%s'", hSrc.IterateGetKey().cstr() );
+			if ( !tDifferWords.Length() )
+				tDifferWords += hSrc.IterateGetKey().cstr();
+			else
+				tDifferWords.Appendf ( ", %s", hSrc.IterateGetKey().cstr() );
 		}
 
 		tDstResult.AddStat ( hSrc.IterateGetKey(), tSrcStat.m_iDocs, tSrcStat.m_iHits, tSrcStat.m_bExpanded );
 	}
+
+	if ( tDifferWords.Length() )
+		pLog->SubmitEx ( sIndex, "query word(s) mismatch: %s", tDifferWords.cstr() );
 }
 
 
@@ -6697,14 +6692,14 @@ void SearchHandler_c::RunLocalSearches ( ISphMatchSorter * pLocalSorter, const c
 		int iNumFilters = pQuery->m_dFilters.GetLength ();
 		for ( int i=iLocal+1; i<m_dLocal.GetLength (); i++ )
 		{
-			const ServedIndex_t * pServed = UseIndex ( i );
-			if ( !pServed )
+			const ServedIndex_t * pLocServed = UseIndex ( i );
+			if ( !pLocServed )
 				continue;
 
-			if ( pServed->m_pIndex->GetKillListSize () )
+			if ( pLocServed->m_pIndex->GetKillListSize () )
 			{
 				CSphFilterSettings tKillListFilter;
-				SetupKillListFilter ( tKillListFilter, pServed->m_pIndex->GetKillList (), pServed->m_pIndex->GetKillListSize () );
+				SetupKillListFilter ( tKillListFilter, pLocServed->m_pIndex->GetKillList (), pLocServed->m_pIndex->GetKillListSize () );
 				pQuery->m_dFilters.Add ( tKillListFilter );
 				dLocked.Add ( i );
 			} else
@@ -7450,7 +7445,7 @@ enum SqlStmt_e
 };
 
 
-const char * g_dSqlStmts[STMT_TOTAL] =
+static const char * g_dSqlStmts[STMT_TOTAL] =
 {
 	"parse_error", "dummy", "select", "insert", "replace", "delete", "show_warnings",
 	"show_status", "show_meta", "set", "begin", "commit", "rollback", "call",
@@ -7565,6 +7560,7 @@ struct SqlStmt_t
 		, m_bSetNull ( false )
 		, m_iListStart ( -1 )
 		, m_iListEnd ( -1 )
+		, m_eUdfType ( SPH_ATTR_NONE )
 	{
 		m_tQuery.m_eMode = SPH_MATCH_EXTENDED2; // only new and shiny matching and sorting
 		m_tQuery.m_eSort = SPH_SORT_EXTENDED;
@@ -8175,7 +8171,7 @@ bool SqlParser_c::AddIntFilterLTE ( const CSphString & sAttr, int64_t iVal )
 
 bool SqlParser_c::AddUservarFilter ( const CSphString & sCol, const CSphString & sVar, bool bExclude )
 {
-	CSphScopedLock<CSphStaticMutex> tLock ( g_tUservarsMutex );
+	CSphScopedLock<StaticThreadsOnlyMutex_t> tLock ( g_tUservarsMutex );
 	Uservar_t * pVar = g_hUservars ( sVar );
 	if ( !pVar )
 	{
@@ -10638,6 +10634,8 @@ void HandleMysqlCallKeywords ( NetOutputBuffer_c & tOut, BYTE uPacketID, SqlStmt
 	const ServedIndex_t * pServed = g_pIndexes->GetRlockedEntry ( tStmt.m_dInsertValues[1].m_sVal );
 	if ( !pServed || !pServed->m_bEnabled || !pServed->m_pIndex )
 	{
+		if ( pServed )
+			pServed->Unlock();
 		sError.SetSprintf ( "no such index %s", tStmt.m_dInsertValues[1].m_sVal.cstr() );
 		SendMysqlErrorPacket ( tOut, uPacketID, tStmt.m_sStmt, sError.cstr() );
 		return;
@@ -10701,6 +10699,8 @@ void HandleMysqlDescribe ( NetOutputBuffer_c & tOut, BYTE uPacketID, SqlStmt_t &
 	if ( !pServed || !pServed->m_bEnabled || !pServed->m_pIndex )
 	{
 		CSphString sError;
+		if ( pServed )
+			pServed->Unlock();
 		sError.SetSprintf ( "no such index '%s'", tStmt.m_sIndex.cstr() );
 		SendMysqlErrorPacket ( tOut, uPacketID, tStmt.m_sStmt, sError.cstr(), MYSQL_ERR_NO_SUCH_TABLE );
 		return;
@@ -10836,36 +10836,27 @@ struct SphinxqlReplyParser_t : public IReplyParser_t
 
 	virtual bool ParseReply ( MemInputBuffer_c & tReq, AgentConn_t &, int ) const
 	{
-		DWORD uSize = ( tReq.GetLSBDword() & 0x00FFFFFF ) - 1;
+		DWORD uSize = ( tReq.GetLSBDword() & 0x00ffffff ) - 1;
 		BYTE uCommand = tReq.GetByte();
-		int iAffected = 0;
-		int iWarns = 0;
-		int iError = 0;
-		int iInsert_id = 0;
-		CSphString sMessage;
-		switch ( uCommand )
+
+		if ( uCommand==0 )
 		{
-		case 0: // ok packet
-			iAffected = MysqlUnpack ( tReq, &uSize );
-			iInsert_id = MysqlUnpack ( tReq, &uSize );
-			iWarns = tReq.GetLSBDword();
+			*m_pUpdated += MysqlUnpack ( tReq, &uSize );
+			MysqlUnpack ( tReq, &uSize ); // insert id
+			*m_pWarns += tReq.GetLSBDword();
 			uSize -= 4;
 			if ( uSize )
-				sMessage = tReq.GetRawString ( uSize );
-			break;
-
-		case 0xff: // error packet
-			iError = tReq.GetByte() + ((int)tReq.GetByte()<<8);
+				tReq.GetRawString ( uSize ); // message
+			return true;
+		}
+		if ( uCommand==0xff )
+		{
+			tReq.GetByte(); tReq.GetByte(); // error
 			uSize -= 2;
 			if ( uSize )
-				sMessage = tReq.GetRawString ( uSize );
-			break;
-		default:
-			break;
+				tReq.GetRawString ( uSize ); // ignoring message
 		}
-
-		*m_pUpdated += iAffected;
-		return true;
+		return false;
 	}
 
 protected:
@@ -11113,6 +11104,8 @@ public:
 
 	void PutString ( const char * sMsg )
 	{
+		assert ( sMsg );
+
 		int iLen = sMsg ? strlen ( sMsg ) : 0;
 		Reserve ( 1+iLen );
 		char * pBegin = Get();
@@ -13680,7 +13673,7 @@ bool CheckConfigChanges ()
 
 		CSphVector<char> dContent;
 		char sError [ 1024 ];
-		if ( !TryToExec ( p, p+strlen(p), g_sConfigFile.cstr(), dContent, sError, sizeof(sError) ) )
+		if ( !TryToExec ( p, g_sConfigFile.cstr(), dContent, sError, sizeof(sError) ) )
 			return true;
 
 		uCRC32 = sphCRC32 ( (const BYTE*)dContent.Begin(), dContent.GetLength() );
@@ -13989,9 +13982,7 @@ static void ThdSaveIndexes ( void * )
 	SaveIndexes ();
 
 	// we're no more flushing
-	g_tFlushMutex.Lock();
 	g_pFlush->m_bFlushing = false;
-	g_tFlushMutex.Unlock();
 }
 
 #if !USE_WINDOWS
@@ -14497,9 +14488,9 @@ bool SetWatchDog ( int iDevNull )
 			if ( WIFEXITED ( iStatus ) )
 			{
 				int iExit = WEXITSTATUS ( iStatus );
-				if ( iExit==2 ) // really crash
+				if ( iExit==2 || iExit==6 ) // really crash
 				{
-					sphInfo ( "Child process %d has been finished by CRASH_EXIT (exit code 2), %s", iPid, sWillRestart );
+					sphInfo ( "Child process %d has been finished by CRASH_EXIT (exit code %d), %s", iPid, iExit, sWillRestart );
 					iReincarnate = -1;
 				} else
 				{
@@ -16031,9 +16022,6 @@ int WINAPI ServiceMain ( int argc, char **argv )
 	}
 #endif
 
-	if ( !g_tRotateQueueMutex.Init() || !g_tRotateConfigMutex.Init() )
-		sphDie ( "failed to init rotations mutexes" );
-
 	// in threaded mode, create a dedicated rotation thread
 	if ( g_eWorkers==MPM_THREADS )
 	{
@@ -16042,8 +16030,6 @@ int WINAPI ServiceMain ( int argc, char **argv )
 
 		// reserving max to keep memory consumption constant between frames
 		g_dThd.Reserve ( g_iMaxChildren*2 );
-
-		g_tFlushMutex.Init();
 	}
 
 	// replay last binlog
@@ -16067,8 +16053,8 @@ int WINAPI ServiceMain ( int argc, char **argv )
 
 	// almost ready, time to start listening
 	int iBacklog = hSearchd.GetInt ( "listen_backlog", SEARCHD_BACKLOG );
-	ARRAY_FOREACH ( i, g_dListeners )
-		if ( listen ( g_dListeners[i].m_iSock, iBacklog )==-1 )
+	ARRAY_FOREACH ( j, g_dListeners )
+		if ( listen ( g_dListeners[j].m_iSock, iBacklog )==-1 )
 			sphFatal ( "listen() failed: %s", sphSockError() );
 
 	sphInfo ( "accepting connections" );
@@ -16096,7 +16082,7 @@ extern UservarIntSet_c * ( *g_pUservarsHook )( const CSphString & sUservar );
 
 UservarIntSet_c * UservarsHook ( const CSphString & sUservar )
 {
-	CSphScopedLock<CSphStaticMutex> tLock ( g_tUservarsMutex );
+	CSphScopedLock<StaticThreadsOnlyMutex_t> tLock ( g_tUservarsMutex );
 
 	Uservar_t * pVar = g_hUservars ( sUservar );
 	if ( !pVar )
@@ -16156,5 +16142,5 @@ int main ( int argc, char **argv )
 }
 
 //
-// $Id: searchd.cpp 3821 2013-04-18 15:15:44Z joric $
+// $Id: searchd.cpp 4113 2013-08-26 07:43:28Z deogar $
 //

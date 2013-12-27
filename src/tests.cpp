@@ -1,10 +1,10 @@
 //
-// $Id: tests.cpp 3824 2013-04-19 19:59:23Z tomat $
+// $Id: tests.cpp 4113 2013-08-26 07:43:28Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -39,7 +39,7 @@
 
 //////////////////////////////////////////////////////////////////////////
 
-const char * g_sTmpfile = "__libsphinxtest.tmp";
+static const char * g_sTmpfile = "__libsphinxtest.tmp";
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -1007,8 +1007,8 @@ void BenchLocators ()
 //////////////////////////////////////////////////////////////////////////
 
 #ifndef NDEBUG
-int g_iRwlock;
-CSphRwlock g_tRwlock;
+static int g_iRwlock;
+static CSphRwlock g_tRwlock;
 
 void RwlockReader ( void * pArg )
 {
@@ -1099,7 +1099,7 @@ void TestCleanup ()
 
 //////////////////////////////////////////////////////////////////////////
 
-volatile int g_iMutexBench = 0;
+static volatile int g_iMutexBench = 0;
 
 void DummyThread ( void * )
 {}
@@ -1317,7 +1317,7 @@ struct SortDataGenDesc_t
 	const char *		m_sName;
 };
 
-SortDataGenDesc_t g_dSortDataGens[] =
+static SortDataGenDesc_t g_dSortDataGens[] =
 {
 	{ SortDataRepeat1245,	"repeat1245" },
 	{ SortDataEnd0,			"end0" },
@@ -1635,7 +1635,7 @@ void TestStridedSort ()
 
 //////////////////////////////////////////////////////////////////////////
 
-const char * g_sFieldsData[] = { "33", "1033", "If I were a cat...", "We are the greatest cat" };
+static const char * g_sFieldsData[] = { "33", "1033", "If I were a cat...", "We are the greatest cat" };
 
 class SphTestDoc_c : public CSphSource_Document
 {
@@ -2099,7 +2099,7 @@ void TestSpanSearch()
 
 //////////////////////////////////////////////////////////////////////////
 
-const char * CORPUS = "corpus.txt";
+static const char * CORPUS = "corpus.txt";
 const int POOLSIZE = 80*1048576;
 const int GAP = 4;
 
@@ -2278,5 +2278,5 @@ int main ()
 }
 
 //
-// $Id: tests.cpp 3824 2013-04-19 19:59:23Z tomat $
+// $Id: tests.cpp 4113 2013-08-26 07:43:28Z deogar $
 //

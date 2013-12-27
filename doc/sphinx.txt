@@ -1,4 +1,4 @@
-Sphinx 2.0.8-release reference manual
+Sphinx 2.0.9-release reference manual
 =====================================
 
 Free open-source SQL full-text search engine
@@ -340,25 +340,26 @@ Table of Contents
       11.4.42. prefork_rotation_throttle
 
 A. Sphinx revision history
-   A.1. Version 2.0.8-release, 26 apr 2013
-   A.2. Version 2.0.7-release, 26 mar 2013
-   A.3. Version 2.0.6-release, 22 oct 2012
-   A.4. Version 2.0.5-release, 28 jul 2012
-   A.5. Version 2.0.4-release, 02 mar 2012
-   A.6. Version 2.0.3-release, 23 dec 2011
-   A.7. Version 2.0.2-beta, 15 nov 2011
-   A.8. Version 2.0.1-beta, 22 apr 2011
-   A.9. Version 1.10-beta, 19 jul 2010
-   A.10. Version 0.9.9-release, 02 dec 2009
-   A.11. Version 0.9.9-rc2, 08 apr 2009
-   A.12. Version 0.9.9-rc1, 17 nov 2008
-   A.13. Version 0.9.8.1, 30 oct 2008
-   A.14. Version 0.9.8, 14 jul 2008
-   A.15. Version 0.9.7, 02 apr 2007
-   A.16. Version 0.9.7-rc2, 15 dec 2006
-   A.17. Version 0.9.7-rc1, 26 oct 2006
-   A.18. Version 0.9.6, 24 jul 2006
-   A.19. Version 0.9.6-rc1, 26 jun 2006
+   A.1. Version 2.0.9-release, 26 aug 2013
+   A.2. Version 2.0.8-release, 26 apr 2013
+   A.3. Version 2.0.7-release, 26 mar 2013
+   A.4. Version 2.0.6-release, 22 oct 2012
+   A.5. Version 2.0.5-release, 28 jul 2012
+   A.6. Version 2.0.4-release, 02 mar 2012
+   A.7. Version 2.0.3-release, 23 dec 2011
+   A.8. Version 2.0.2-beta, 15 nov 2011
+   A.9. Version 2.0.1-beta, 22 apr 2011
+   A.10. Version 1.10-beta, 19 jul 2010
+   A.11. Version 0.9.9-release, 02 dec 2009
+   A.12. Version 0.9.9-rc2, 08 apr 2009
+   A.13. Version 0.9.9-rc1, 17 nov 2008
+   A.14. Version 0.9.8.1, 30 oct 2008
+   A.15. Version 0.9.8, 14 jul 2008
+   A.16. Version 0.9.7, 02 apr 2007
+   A.17. Version 0.9.7-rc2, 15 dec 2006
+   A.18. Version 0.9.7-rc1, 26 oct 2006
+   A.19. Version 0.9.6, 24 jul 2006
+   A.20. Version 0.9.6-rc1, 26 jun 2006
 
 List of Examples
 
@@ -3388,9 +3389,6 @@ performed. These options are:
      --sighup-each, indexer will send a SIGHUP signal to searchd after
      succesfully completing the work on each index. (The default behavior
      is to send a single SIGHUP after all the indexes were built.)
-   * --print-queries prints out SQL queries that indexer sends to the
-     database, along with SQL connection and disconnection events. That is
-     useful to diagnose and fix problems with SQL sources.
    * --print-queries prints out SQL queries that indexer sends to the
      database, along with SQL connection and disconnection events. That is
      useful to diagnose and fix problems with SQL sources.
@@ -10066,27 +10064,68 @@ Appendix A. Sphinx revision history
 
 Table of Contents
 
-A.1. Version 2.0.8-release, 26 apr 2013
-A.2. Version 2.0.7-release, 26 mar 2013
-A.3. Version 2.0.6-release, 22 oct 2012
-A.4. Version 2.0.5-release, 28 jul 2012
-A.5. Version 2.0.4-release, 02 mar 2012
-A.6. Version 2.0.3-release, 23 dec 2011
-A.7. Version 2.0.2-beta, 15 nov 2011
-A.8. Version 2.0.1-beta, 22 apr 2011
-A.9. Version 1.10-beta, 19 jul 2010
-A.10. Version 0.9.9-release, 02 dec 2009
-A.11. Version 0.9.9-rc2, 08 apr 2009
-A.12. Version 0.9.9-rc1, 17 nov 2008
-A.13. Version 0.9.8.1, 30 oct 2008
-A.14. Version 0.9.8, 14 jul 2008
-A.15. Version 0.9.7, 02 apr 2007
-A.16. Version 0.9.7-rc2, 15 dec 2006
-A.17. Version 0.9.7-rc1, 26 oct 2006
-A.18. Version 0.9.6, 24 jul 2006
-A.19. Version 0.9.6-rc1, 26 jun 2006
+A.1. Version 2.0.9-release, 26 aug 2013
+A.2. Version 2.0.8-release, 26 apr 2013
+A.3. Version 2.0.7-release, 26 mar 2013
+A.4. Version 2.0.6-release, 22 oct 2012
+A.5. Version 2.0.5-release, 28 jul 2012
+A.6. Version 2.0.4-release, 02 mar 2012
+A.7. Version 2.0.3-release, 23 dec 2011
+A.8. Version 2.0.2-beta, 15 nov 2011
+A.9. Version 2.0.1-beta, 22 apr 2011
+A.10. Version 1.10-beta, 19 jul 2010
+A.11. Version 0.9.9-release, 02 dec 2009
+A.12. Version 0.9.9-rc2, 08 apr 2009
+A.13. Version 0.9.9-rc1, 17 nov 2008
+A.14. Version 0.9.8.1, 30 oct 2008
+A.15. Version 0.9.8, 14 jul 2008
+A.16. Version 0.9.7, 02 apr 2007
+A.17. Version 0.9.7-rc2, 15 dec 2006
+A.18. Version 0.9.7-rc1, 26 oct 2006
+A.19. Version 0.9.6, 24 jul 2006
+A.20. Version 0.9.6-rc1, 26 jun 2006
 
-A.1. Version 2.0.8-release, 26 apr 2013
+A.1. Version 2.0.9-release, 26 aug 2013
+=======================================
+
+Bug fixes
+---------
+
+   * fixed #1655, special characters like ()?* were not processed correctly
+     by exceptions
+   * fixed #1651, CREATE FUNCTION can now be used with BIGINT return type
+   * fixed #1649, incorrect warning message (about statistics mismatch) was
+     returned when mixing wildcards and regular keywords
+   * fixed #1603, passing MVA64 arguments to non-MVA functions caused
+     unpredicted behaviour and crashes (now explicitly forbidden)
+   * fixed #1601, negative numbers in IN() clause caused a syntax error
+   * fixed #1581, dict=keywords and sql_joined_field occasionally caused
+     indexer to build corrupted indexes
+   * fixed #1546, file descriptor leaked on index rotation (that eventually
+     prevented searchd to reload indexes)
+   * fixed #1537, COUNT(*) and compat_sphinxql_magics=0 via SphinxAPI
+     caused an incorrect error message
+   * fixed #1531, #1589, several matching and highlighting issues when
+     using both blend_chars and multi-wordforms
+   * fixed #1521, indextool --check did not handle empty RT MVA and gave an
+     incorrect warning
+   * fixed #1392, SphinxSE builds with MySQL 5.6 now
+   * fixed #1346, NEAR handles duplicated keywords properly now
+   * fixed #757, wordforms shared between multiple indexes with different
+     tokenizer settings failed to load (they now load with a warning)
+   * fixed that batch queries did not batch in some cases (because of
+     internal expression alias issues)
+   * fixed that CALL KEYWORDS occasionally gave incorrect error messages
+   * fixed searchd crashes on ATTACHing plain indexes with MVAs
+   * fixed several deadlocks and other threading issues
+   * fixed incorrect sorting order with utf8_general_ci
+   * fixed that in some cases incorrect attribute values were returned when
+     using expression aliases
+   * optimized xmlpipe2 indexing
+   * added a warning for missed stopwords, exception, wordforms files on
+     index load and in indextool --check
+
+A.2. Version 2.0.8-release, 26 apr 2013
 =======================================
 
 Bug fixes
@@ -10117,7 +10156,7 @@ Bug fixes
    * fixed #1427, #1506, utf8 3 and 4-bytes codepoints
    * fixed #1405, between with mixed int float values
 
-A.2. Version 2.0.7-release, 26 mar 2013
+A.3. Version 2.0.7-release, 26 mar 2013
 =======================================
 
 Bug fixes
@@ -10202,7 +10241,7 @@ Bug fixes
    * added a console message about crashes during index loading at startup
    * added more debug info about failed index loading
 
-A.3. Version 2.0.6-release, 22 oct 2012
+A.4. Version 2.0.6-release, 22 oct 2012
 =======================================
 
 Bug fixes
@@ -10273,7 +10312,7 @@ Bug fixes
    * fixed sample config file
    * fixed x64 configurations for libstemmer
 
-A.4. Version 2.0.5-release, 28 jul 2012
+A.5. Version 2.0.5-release, 28 jul 2012
 =======================================
 
 Bug fixes
@@ -10380,7 +10419,7 @@ Bug fixes
      parser
    * fixed missing command-line switches documentation
 
-A.5. Version 2.0.4-release, 02 mar 2012
+A.6. Version 2.0.4-release, 02 mar 2012
 =======================================
 
 Bug fixes
@@ -10435,7 +10474,7 @@ Bug fixes
    * fixed #1120, negative total_found, docs and hits counter on huge
      indexes
 
-A.6. Version 2.0.3-release, 23 dec 2011
+A.7. Version 2.0.3-release, 23 dec 2011
 =======================================
 
 Bug fixes
@@ -10465,7 +10504,7 @@ Bug fixes
    * fixed build of SphinxSE with MySQL 5.1
    * fixed crash log for 'fork' and 'prefork' workers
 
-A.7. Version 2.0.2-beta, 15 nov 2011
+A.8. Version 2.0.2-beta, 15 nov 2011
 ====================================
 
 Major new features
@@ -10636,7 +10675,7 @@ Bug fixes
    * fixed that field/zone conditions were not propagated to expanded
      keywords with dict=keywords
 
-A.8. Version 2.0.1-beta, 22 apr 2011
+A.9. Version 2.0.1-beta, 22 apr 2011
 ====================================
 
 New general features
@@ -10813,8 +10852,8 @@ Bug fixes
    * fixed libsphinxclient SIGPIPE handling
    * fixed libsphinxclient vs VS2003 compiler bug
 
-A.9. Version 1.10-beta, 19 jul 2010
-===================================
+A.10. Version 1.10-beta, 19 jul 2010
+====================================
 
    * added RT indexes support (Chapter 4, Real-time indexes)
    * added prefork and threads support (workers directives)
@@ -10902,7 +10941,7 @@ A.9. Version 1.10-beta, 19 jul 2010
      etc)
    * fixed #509, indexing ranged results from stored procedures
 
-A.10. Version 0.9.9-release, 02 dec 2009
+A.11. Version 0.9.9-release, 02 dec 2009
 ========================================
 
    * added Open, Close, Status calls to libsphinxclient (C API)
@@ -10965,7 +11004,7 @@ A.10. Version 0.9.9-release, 02 dec 2009
    * fixed #344 (invalid checkpoints after merge)
    * fixed #326 (missing CLOCK_xxx on FreeBSD)
 
-A.11. Version 0.9.9-rc2, 08 apr 2009
+A.12. Version 0.9.9-rc2, 08 apr 2009
 ====================================
 
    * added IsConnectError(), Open(), Close() calls to Java API (bug #240)
@@ -11064,7 +11103,7 @@ A.11. Version 0.9.9-rc2, 08 apr 2009
      static
    * fixed parser vs @field -keyword, foo|@field bar, "" queries (bug #310)
 
-A.12. Version 0.9.9-rc1, 17 nov 2008
+A.13. Version 0.9.9-rc1, 17 nov 2008
 ====================================
 
    * added min_stemming_len directive
@@ -11127,7 +11166,7 @@ A.12. Version 0.9.9-rc1, 17 nov 2008
    * fixed backslash escaping, added backslash to EscapeString()
    * fixed handling of over-2GB dictionary files (.spi)
 
-A.13. Version 0.9.8.1, 30 oct 2008
+A.14. Version 0.9.8.1, 30 oct 2008
 ==================================
 
    * added configure script to libsphinxclient
@@ -11164,7 +11203,7 @@ A.13. Version 0.9.8.1, 30 oct 2008
    * fixed default ID range (that filtered out all 64-bit values) in Java
      and Python APIs
 
-A.14. Version 0.9.8, 14 jul 2008
+A.15. Version 0.9.8, 14 jul 2008
 ================================
 
 Indexing
@@ -11344,7 +11383,7 @@ Changes and fixes since 0.9.8-rc2
      reusable sorter issue
    * fixed sorting of negative floats in SPH_SORT_EXTENDED mode
 
-A.15. Version 0.9.7, 02 apr 2007
+A.16. Version 0.9.7, 02 apr 2007
 ================================
 
    * added support for sql_str2ordinal_column
@@ -11394,7 +11433,7 @@ A.15. Version 0.9.7, 02 apr 2007
    * fixed wrong assertion in SBCS encoder
    * fixed crashes with no-attribute indexes after rotate
 
-A.16. Version 0.9.7-rc2, 15 dec 2006
+A.17. Version 0.9.7-rc2, 15 dec 2006
 ====================================
 
    * added support for extended matching mode (query language)
@@ -11416,7 +11455,7 @@ A.16. Version 0.9.7-rc2, 15 dec 2006
      paths)
    * fixes for 64-bit platforms
 
-A.17. Version 0.9.7-rc1, 26 oct 2006
+A.18. Version 0.9.7-rc1, 26 oct 2006
 ====================================
 
    * added alpha index merging code
@@ -11445,7 +11484,7 @@ A.17. Version 0.9.7-rc1, 26 oct 2006
    * fixed line numbering in config parser
    * fixed some issues with index rotation
 
-A.18. Version 0.9.6, 24 jul 2006
+A.19. Version 0.9.6, 24 jul 2006
 ================================
 
    * added support for empty indexes
@@ -11454,7 +11493,7 @@ A.18. Version 0.9.6, 24 jul 2006
    * fixed configure issues with --without-mysql and --with-pgsql options
    * fixed building on Solaris 9
 
-A.19. Version 0.9.6-rc1, 26 jun 2006
+A.20. Version 0.9.6-rc1, 26 jun 2006
 ====================================
 
    * added boolean queries support (experimental, beta version)

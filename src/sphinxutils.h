@@ -1,10 +1,10 @@
 //
-// $Id: sphinxutils.h 3788 2013-04-08 08:57:12Z kevg $
+// $Id: sphinxutils.h 4113 2013-08-26 07:43:28Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -137,13 +137,13 @@ protected:
 	bool			ValidateKey ( const char * sKey );
 
 #if !USE_WINDOWS
-	bool			TryToExec ( char * pBuffer, char * pEnd, const char * szFilename, CSphVector<char> & dResult );
+	bool			TryToExec ( char * pBuffer, const char * szFilename, CSphVector<char> & dResult );
 #endif
 	char *			GetBufferString ( char * szDest, int iMax, const char * & szSource );
 };
 
 #if !USE_WINDOWS
-bool TryToExec ( char * pBuffer, char * pEnd, const char * szFilename, CSphVector<char> & dResult, char * sError, int iErrorLen );
+bool TryToExec ( char * pBuffer, const char * szFilename, CSphVector<char> & dResult, char * sError, int iErrorLen );
 #endif
 
 /////////////////////////////////////////////////////////////////////////////
@@ -229,5 +229,5 @@ void sphBacktrace ( EXCEPTION_POINTERS * pExc, const char * sFile );
 #endif // _sphinxutils_
 
 //
-// $Id: sphinxutils.h 3788 2013-04-08 08:57:12Z kevg $
+// $Id: sphinxutils.h 4113 2013-08-26 07:43:28Z deogar $
 //

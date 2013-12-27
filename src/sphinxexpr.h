@@ -1,10 +1,10 @@
 //
-// $Id: sphinxexpr.h 3203 2012-04-27 19:02:20Z tomat $
+// $Id: sphinxexpr.h 4113 2013-08-26 07:43:28Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -124,5 +124,5 @@ bool sphUDFDrop ( const char * szFunc, CSphString & sError );
 #endif // _sphinxexpr_
 
 //
-// $Id: sphinxexpr.h 3203 2012-04-27 19:02:20Z tomat $
+// $Id: sphinxexpr.h 4113 2013-08-26 07:43:28Z deogar $
 //

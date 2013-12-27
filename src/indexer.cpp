@@ -1,10 +1,10 @@
 //
-// $Id: indexer.cpp 3795 2013-04-09 04:23:34Z kevg $
+// $Id: indexer.cpp 4113 2013-08-26 07:43:28Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -33,27 +33,29 @@
 
 /////////////////////////////////////////////////////////////////////////////
 
-bool			g_bQuiet		= false;
-bool			g_bProgress		= true;
-bool			g_bPrintQueries	= false;
+static bool			g_bQuiet		= false;
+static bool			g_bProgress		= true;
+static bool			g_bPrintQueries	= false;
 
-const char *	g_sBuildStops	= NULL;
-int				g_iTopStops		= 100;
-bool			g_bRotate		= false;
-bool			g_bRotateEach	= false;
-bool			g_bBuildFreqs	= false;
+static const char *	g_sBuildStops	= NULL;
+static int				g_iTopStops		= 100;
+static bool			g_bRotate		= false;
+static bool			g_bRotateEach	= false;
+static bool			g_bBuildFreqs	= false;
 
-int				g_iMemLimit				= 32*1024*1024;
-int				g_iMaxXmlpipe2Field		= 0;
-int				g_iWriteBuffer			= 0;
-int				g_iMaxFileFieldBuffer	= 1024*1024;
+static int				g_iMemLimit				= 32*1024*1024;
+static int				g_iMaxXmlpipe2Field		= 0;
+static int				g_iWriteBuffer			= 0;
+static int				g_iMaxFileFieldBuffer	= 1024*1024;
 
-ESphOnFileFieldError	g_eOnFileFieldError = FFE_IGNORE_FIELD;
+static ESphOnFileFieldError	g_eOnFileFieldError = FFE_IGNORE_FIELD;
 
-const int		EXT_COUNT = 8;
-const char *	g_dExt[EXT_COUNT] = { "sph", "spa", "spi", "spd", "spp", "spm", "spk", "sps" };
+static const int		EXT_COUNT = 8;
+static const char *	g_dExt[EXT_COUNT] = { "sph", "spa", "spi", "spd", "spp", "spm", "spk", "sps" };
 
-char			g_sMinidump[256];
+#if USE_WINDOWS
+static char			g_sMinidump[256];
+#endif
 
 #define			ROTATE_MIN_INTERVAL 100000 // rotate interval 100 ms
 
@@ -447,7 +449,7 @@ void SqlAttrsConfigure ( CSphSourceParams_SQL & tParams, const CSphVariant * pHe
 
 
 #if USE_ZLIB
-bool ConfigureUnpack ( CSphVariant * pHead, ESphUnpackFormat eFormat, CSphSourceParams_SQL & tParams, const char * sSourceName )
+bool ConfigureUnpack ( CSphVariant * pHead, ESphUnpackFormat eFormat, CSphSourceParams_SQL & tParams, const char * )
 {
 	for ( CSphVariant * pVal = pHead; pVal; pVal = pVal->m_pNext )
 	{
@@ -756,7 +758,11 @@ CSphSource * SpawnSourceXMLPipe ( const CSphConfigSection & hSource, const char 
 {
 	assert ( hSource["type"]=="xmlpipe" || hSource["type"]=="xmlpipe2" );
 
-	LOC_CHECK ( hSource, "xmlpipe_command", "in source '%s'.", sSourceName );
+	if (! ( hSource.Exists ( "xmlpipe_command" ) ))
+	{
+		fprintf ( stdout, "ERROR: key 'xmlpipe_command' not found in source '%s'\n", sSourceName );
+		return NULL;
+	}
 
 	CSphSource * pSrcXML = NULL;
 
@@ -1033,7 +1039,6 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 			bGotAttrs = true;
 
 		// strip_html, index_html_attrs
-		CSphString sError;
 		if ( bStripOverride )
 		{
 			// apply per-index overrides
@@ -1095,7 +1100,6 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 		CSphStopwordBuilderDict tDict;
 		ARRAY_FOREACH ( i, dSources )
 		{
-			CSphString sError;
 			dSources[i]->SetDict ( &tDict );
 			if ( !dSources[i]->Connect ( sError ) || !dSources[i]->IterateStart ( sError ) )
 			{
@@ -1133,7 +1137,6 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName, const 
 			exit ( 1 );
 		}
 
-		CSphString sError;
 		CSphIndexSettings tSettings;
 		if ( !sphConfIndex ( hIndex, tSettings, sError ) )
 			sphDie ( "index '%s': %s.", sIndexName, sError.cstr() );
@@ -1769,13 +1772,13 @@ int main ( int argc, char ** argv )
 	} else
 	{
 		uint64_t tmRotated = sphMicroTimer();
-		ARRAY_FOREACH ( i, dIndexes )
+		ARRAY_FOREACH ( j, dIndexes )
 		{
-			if ( !hConf["index"](dIndexes[i]) )
-				fprintf ( stdout, "WARNING: no such index '%s', skipping.\n", dIndexes[i] );
+			if ( !hConf["index"](dIndexes[j]) )
+				fprintf ( stdout, "WARNING: no such index '%s', skipping.\n", dIndexes[j] );
 			else
 			{
-				bool bLastOk = DoIndex ( hConf["index"][dIndexes[i]], dIndexes[i], hConf["source"], bVerbose, fpDumpRows );
+				bool bLastOk = DoIndex ( hConf["index"][dIndexes[j]], dIndexes[j], hConf["source"], bVerbose, fpDumpRows );
 				bIndexedOk |= bLastOk;
 				if ( bLastOk && ( sphMicroTimer() - tmRotated > ROTATE_MIN_INTERVAL ) && SendRotate ( hConf, false ) )
 					tmRotated = sphMicroTimer();
@@ -1812,5 +1815,5 @@ int main ( int argc, char ** argv )
 }
 
 //
-// $Id: indexer.cpp 3795 2013-04-09 04:23:34Z kevg $
+// $Id: indexer.cpp 4113 2013-08-26 07:43:28Z deogar $
 //

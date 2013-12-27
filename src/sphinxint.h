@@ -1,10 +1,10 @@
 //
-// $Id: sphinxint.h 3824 2013-04-19 19:59:23Z tomat $
+// $Id: sphinxint.h 4113 2013-08-26 07:43:28Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -1158,6 +1158,7 @@ public:
 	virtual bool		SetMorphology ( const char * szMorph, bool bUseUTF8, CSphString & sError ) { return m_pDict->SetMorphology ( szMorph, bUseUTF8, sError ); }
 
 	virtual SphWordID_t	GetWordID ( const BYTE * pWord, int iLen, bool bFilterStops ) { return m_pDict->GetWordID ( pWord, iLen, bFilterStops ); }
+	virtual SphWordID_t GetWordID ( BYTE * ) { assert ( 0 && "not implemented" ); return 0; }
 
 	virtual void		Setup ( const CSphDictSettings & ) {}
 	virtual const CSphDictSettings & GetSettings () const { return m_pDict->GetSettings (); }
@@ -1245,7 +1246,6 @@ ISphExpr *		sphSortSetupExpr ( const CSphString & sName, const CSphSchema & tInd
 bool			sphSortGetStringRemap ( const CSphSchema & tSorterSchema, const CSphSchema & tIndexSchema, CSphVector<SphStringSorterRemap_t> & dAttrs );
 bool			sphIsSortStringInternal ( const char * sColumnName );
 
-void			sphCheckWordStats ( const SmallStringHash_T<CSphQueryResultMeta::WordStat_t> & hDst, const SmallStringHash_T<CSphQueryResultMeta::WordStat_t> & hSrc, const char * sIndex, CSphString & sWarning );
 bool			sphCheckQueryHeight ( const struct XQNode_t * pRoot, CSphString & sError );
 void			sphTransformExtendedQuery ( XQNode_t ** ppNode );
 
@@ -1261,6 +1261,17 @@ void			SaveTokenizerSettings ( CSphWriter & tWriter, ISphTokenizer * pTokenizer 
 void			LoadTokenizerSettings ( CSphReader & tReader, CSphTokenizerSettings & tSettings, DWORD uVersion, CSphString & sWarning );
 void			SaveDictionarySettings ( CSphWriter & tWriter, CSphDict * pDict, bool bForceWordDict );
 void			LoadDictionarySettings ( CSphReader & tReader, CSphDictSettings & tSettings, DWORD uVersion, CSphString & sWarning );
+
+
+// all indexes should produce same terms for same query
+struct SphWordStatChecker_t
+{
+	SphWordStatChecker_t () {};
+	void Set ( const SmallStringHash_T<CSphQueryResultMeta::WordStat_t> & hStat );
+	void DumpDiffer ( const SmallStringHash_T<CSphQueryResultMeta::WordStat_t> & hStat, const char * sIndex, CSphString & sWarning );
+
+	CSphVector<uint64_t> m_dSrcWords;
+};
 
 
 int sphDictCmp ( const char * pStr1, int iLen1, const char * pStr2, int iLen2 );
@@ -1437,5 +1448,5 @@ void localtime_r ( const time_t * clock, struct tm * res );
 #endif // _sphinxint_
 
 //
-// $Id: sphinxint.h 3824 2013-04-19 19:59:23Z tomat $
+// $Id: sphinxint.h 4113 2013-08-26 07:43:28Z deogar $
 //

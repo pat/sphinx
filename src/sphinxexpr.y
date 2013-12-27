@@ -108,15 +108,19 @@ arg:
 	;
 
 arglist:
-	arg								{ $$ = $1; }
+	arg
 	| arglist ',' arg				{ $$ = pParser->AddNodeOp ( ',', $1, $3 ); }
 	;
 
 constlist:
-	TOK_CONST_INT					{ $$ = pParser->AddNodeConstlist ( $1 ); }
-	| TOK_CONST_FLOAT				{ $$ = pParser->AddNodeConstlist ( $1 ); }
-	| constlist ',' TOK_CONST_INT	{ pParser->AppendToConstlist ( $$, $3 ); }
-	| constlist ',' TOK_CONST_FLOAT	{ pParser->AppendToConstlist ( $$, $3 ); }
+	TOK_CONST_INT						{ $$ = pParser->AddNodeConstlist ( $1 ); }
+	| '-' TOK_CONST_INT					{ $$ = pParser->AddNodeConstlist ( -$2 );}
+	| TOK_CONST_FLOAT					{ $$ = pParser->AddNodeConstlist ( $1 ); }
+	| '-' TOK_CONST_FLOAT				{ $$ = pParser->AddNodeConstlist ( -$2 );}
+	| constlist ',' TOK_CONST_INT		{ pParser->AppendToConstlist ( $$, $3 ); }
+	| constlist ',' '-' TOK_CONST_INT	{ pParser->AppendToConstlist ( $$, -$4 );}
+	| constlist ',' TOK_CONST_FLOAT		{ pParser->AppendToConstlist ( $$, $3 ); }
+	| constlist ',' '-' TOK_CONST_FLOAT	{ pParser->AppendToConstlist ( $$, -$4 );}
 	;
 
 constlist_or_uservar:

@@ -1,10 +1,10 @@
 //
-// $Id: sphinxsearch.cpp 3703 2013-02-25 06:40:19Z kevg $
+// $Id: sphinxsearch.cpp 4113 2013-08-26 07:43:28Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -2864,6 +2864,7 @@ inline bool FSMmultinear::HitFSM ( const ExtHit_t* pHit, ExtHit_t* dTarget )
 			{
 				p = const_cast<WORD *>( m_dNpos.BinarySearch ( m_dRing [ RingTail() ].m_uNodepos ) );
 				*p = uNpos;
+				m_dNpos.Sort();
 				m_dRing [ RingTail() ].m_uNodepos = uNpos;
 				m_dRing [ RingTail() ].m_uQuerypos = uQpos;
 			}
@@ -5870,11 +5871,13 @@ ExtNode_i * NodeCacheContainer_t::CreateCachedWrapper ( ExtNode_i * pChild, cons
 
 bool NodeCacheContainer_t::WarmupCache ( ExtNode_i * pChild, int iQwords )
 {
+	assert ( pChild );
+	assert ( m_pSetup );
+
 	SphDocID_t pMaxID = 0;
 	m_iAtomPos = pChild->m_iAtomPos;
 	const ExtDoc_t * pChunk = pChild->GetDocsChunk ( &pMaxID );
 	int iStride = 0;
-	assert ( m_pSetup );
 
 	if ( pChunk && pChunk->m_pDocinfo )
 		iStride = pChild->m_iStride;
@@ -6132,5 +6135,5 @@ ExtNode_i * CSphQueryNodeCache::CreateProxy ( ExtNode_i * pChild, const XQNode_t
 }
 
 //
-// $Id: sphinxsearch.cpp 3703 2013-02-25 06:40:19Z kevg $
+// $Id: sphinxsearch.cpp 4113 2013-08-26 07:43:28Z deogar $
 //

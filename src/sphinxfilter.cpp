@@ -1,10 +1,10 @@
 //
-// $Id: sphinxfilter.cpp 3435 2012-10-08 08:49:47Z kevg $
+// $Id: sphinxfilter.cpp 4113 2013-08-26 07:43:28Z deogar $
 //
 
 //
-// Copyright (c) 2001-2012, Andrew Aksyonoff
-// Copyright (c) 2008-2012, Sphinx Technologies Inc
+// Copyright (c) 2001-2013, Andrew Aksyonoff
+// Copyright (c) 2008-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -55,7 +55,7 @@ struct IFilter_Values: virtual ISphFilter
 		m_iValueCount = iCount;
 	}
 
-	inline const SphAttr_t GetValue ( int iIndex ) const
+	inline SphAttr_t GetValue ( int iIndex ) const
 	{
 		assert ( iIndex>=0 && iIndex<m_iValueCount );
 		return m_pValues[iIndex];
@@ -711,5 +711,5 @@ ISphFilter * sphJoinFilters ( ISphFilter * pA, ISphFilter * pB )
 }
 
 //
-// $Id: sphinxfilter.cpp 3435 2012-10-08 08:49:47Z kevg $
+// $Id: sphinxfilter.cpp 4113 2013-08-26 07:43:28Z deogar $
 //
