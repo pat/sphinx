@@ -1,7 +1,7 @@
 <?php
 
 //
-// $Id: sphinxapi.php 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxapi.php 4362 2013-11-25 07:12:52Z tomat $
 //
 
 //
@@ -382,7 +382,7 @@ function sphFixUint ( $value )
 	}
 }
 
-function SetBit ( $flag, $bit, $on )
+function sphSetBit ( $flag, $bit, $on )
 {
 	if ( $on )
 	{
@@ -538,11 +538,10 @@ class SphinxClient
 		}
 				
 		$this->_host = $host;
-		if ( is_int($port) )
-			if ( $port )
-				$this->_port = $port;
+		$port = intval($port);
+		assert ( 0<=$port && $port<65536 );
+		$this->_port = ( $port==0 ) ? 9312 : $port;
 		$this->_path = '';
-
 	}
 
 	/// set server connection timeout (0 to remove)
@@ -965,15 +964,15 @@ class SphinxClient
 		assert ( isset ( $flag_name, $known_names ) );
 		assert ( in_array( $flag_value, $flags[$flag_name], true ) || ( $flag_name=="max_predicted_time" && is_int ( $flag_value ) && $flag_value>=0 ) );
 		
-		if ( $flag_name=="reverse_scan" )	$this->_query_flags = SetBit ( $this->_query_flags, 0, $flag_value==1 );
-		if ( $flag_name=="sort_method" )	$this->_query_flags = SetBit ( $this->_query_flags, 1, $flag_value=="kbuffer" );
+		if ( $flag_name=="reverse_scan" )	$this->_query_flags = sphSetBit ( $this->_query_flags, 0, $flag_value==1 );
+		if ( $flag_name=="sort_method" )	$this->_query_flags = sphSetBit ( $this->_query_flags, 1, $flag_value=="kbuffer" );
 		if ( $flag_name=="max_predicted_time" )
 		{
-			$this->_query_flags = SetBit ( $this->_query_flags, 2, $flag_value>0 );
+			$this->_query_flags = sphSetBit ( $this->_query_flags, 2, $flag_value>0 );
 			$this->_predictedtime = (int)$flag_value;
 		}
-		if ( $flag_name=="boolean_simplify" )	$this->_query_flags = SetBit ( $this->_query_flags, 3, $flag_value );
-		if ( $flag_name=="idf" )	$this->_query_flags = SetBit ( $this->_query_flags, 4, $flag_value=="plain" );
+		if ( $flag_name=="boolean_simplify" )	$this->_query_flags = sphSetBit ( $this->_query_flags, 3, $flag_value );
+		if ( $flag_name=="idf" )	$this->_query_flags = sphSetBit ( $this->_query_flags, 4, $flag_value=="plain" );
 	}
 	
 	/// set outer order by parameters
@@ -1607,8 +1606,8 @@ class SphinxClient
 
 	function EscapeString ( $string )
 	{
-		$from = array ( '\\', '(',')','|','-','!','@','~','"','&', '/', '^', '$', '=' );
-		$to   = array ( '\\\\', '\(','\)','\|','\-','\!','\@','\~','\"', '\&', '\/', '\^', '\$', '\=' );
+		$from = array ( '\\', '(',')','|','-','!','@','~','"','&', '/', '^', '$', '=', '<' );
+		$to   = array ( '\\\\', '\(','\)','\|','\-','\!','\@','\~','\"', '\&', '\/', '\^', '\$', '\=', '\<' );
 
 		return str_replace ( $from, $to, $string );
 	}
@@ -1807,5 +1806,5 @@ class SphinxClient
 }
 
 //
-// $Id: sphinxapi.php 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxapi.php 4362 2013-11-25 07:12:52Z tomat $
 //

@@ -33,6 +33,23 @@ index test
 	expand_keywords	= 1
 }
 
+source src_prefix
+{
+	type			= mysql
+	<sql_settings/>
+
+	sql_query		= SELECT 1, 'force all' UNION SELECT 2, 'forcing me' UNION SELECT 3, 'foam stuff'
+}
+index prefix
+{
+	source			= src_prefix
+	path			= <data_path/>/prefix
+	charset_type 	= utf-8
+	expand_keywords	= 1
+	min_prefix_len = 2
+	enable_star = 1
+}
+
 index expanded_plain
 {
 	source			= srctest
@@ -104,6 +121,14 @@ index plain_inline
 <query mode="phrase" index="test">dog run</query>
 <query mode="phrase" index="test">=dog =run</query>
 <query mode="phrase" index="test">dog* run</query>
+<!-- regression expand_keywords vs prefix -->
+<query mode="extended2" index="prefix">for</query>
+<query mode="extended2" index="prefix">fo</query>
+<query mode="extended2" index="test">dog run</query>
+<query mode="extended2" index="test">=dog =run</query>
+<query mode="phrase" index="test">dog run</query>
+<query mode="phrase" index="test">=dog =run</query>
+<query mode="phrase" index="test">dog* run</query>
 <!-- regression wrong word expansion -->
 <query mode="extended2" index="expanded_plain">run</query>
 <!-- regression crash of daemon with empty dict=keywords and infixes enabled -->
@@ -115,6 +140,8 @@ index plain_inline
 <sphqueries>
 <sphinxql>insert into expanded_rt values ( 1,  'dog runs', 11 ), ( 2,  'dogs run', 22 ), ( 3,  'dogs running', 33 ), ( 4,  'dog run', 44 )</sphinxql>
 <sphinxql>select * from expanded_rt where match ( 'run' )</sphinxql>
+<sphinxql>show meta</sphinxql>
+<sphinxql>select * from expanded_plain where match ( 'run' )</sphinxql>
 <sphinxql>show meta</sphinxql>
 </sphqueries>
 

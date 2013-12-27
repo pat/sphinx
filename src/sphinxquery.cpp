@@ -1,5 +1,5 @@
 //
-// $Id: sphinxquery.cpp 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxquery.cpp 4043 2013-07-31 07:00:01Z kevg $
 //
 
 //
@@ -115,6 +115,9 @@ public:
 	bool					m_bQuoted;
 	bool					m_bEmptyStopword;
 	int						m_iOvershortStep;
+
+	int						m_iQuorumQuote;
+	int						m_iQuorumFSlash;
 
 	CSphVector<CSphString>	m_dIntTokens;
 
@@ -382,6 +385,8 @@ XQParser_t::XQParser_t ()
 	, m_bWasBlended ( false )
 	, m_bQuoted ( false )
 	, m_bEmptyStopword ( false )
+	, m_iQuorumQuote ( -1 )
+	, m_iQuorumFSlash ( -1 )
 {
 	m_dSpecPool.Add ( new XQLimitSpec_t() );
 	m_dStateSpec.Add ( m_dSpecPool.Last() );
@@ -737,15 +742,22 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 		// must be float number but got many dots or only dot
 		if ( iDots && ( iDots>1 || p-sToken==iDots ) )
 			p = sToken;
+		// float as number allowed only as quorum argument and regular keywords stream otherwise
+		if ( iDots==1 && ( m_iQuorumQuote!=m_iQuorumFSlash || m_iQuorumQuote!=m_iAtomPos ) )
+			p = sToken;
 
 		static const int NUMBER_BUF_LEN = 10; // max strlen of int32
 		if ( p>sToken && p-sToken<NUMBER_BUF_LEN
 			&& !( *p=='-' && !( p-sToken==1 && sphIsModifier ( p[-1] ) ) ) // !bDashInside copied over from arbitration
 			&& ( *p=='\0' || sphIsSpace(*p) || IsSpecial(*p) ) )
 		{
-			if ( m_pTokenizer->GetToken() && m_pTokenizer->TokenIsBlended() ) // number with blended should be tokenized as usual
+			bool bTok = ( m_pTokenizer->GetToken()!=NULL );
+			if ( bTok && m_pTokenizer->TokenIsBlended() ) // number with blended should be tokenized as usual
 			{
 				m_pTokenizer->SkipBlended();
+				m_pTokenizer->SetBufferPtr ( m_pLastTokenStart );
+			} else if ( bTok && m_pTokenizer->WasTokenSynonym() )
+			{
 				m_pTokenizer->SetBufferPtr ( m_pLastTokenStart );
 			} else
 			{
@@ -903,10 +915,17 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 				} else
 				{
 					// got stray '<', ignore
+					if ( m_iPendingNulls>0 )
+					{
+						m_iPendingNulls = 0;
+						lvalp->pNode = AddKeyword ( NULL );
+						return TOK_KEYWORD;
+					}
 					continue;
 				}
 			} else
 			{
+				bool bWasQuoted = m_bQuoted;
 				// all the other specials are passed to parser verbatim
 				if ( sToken[0]=='"' )
 					m_bQuoted = !m_bQuoted;
@@ -922,6 +941,11 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 				{
 					m_dStateSpec.Pop();
 				}
+
+				if ( bWasQuoted && !m_bQuoted )
+					m_iQuorumQuote = m_iAtomPos;
+				else if ( sToken[0]=='/' )
+					m_iQuorumFSlash = m_iAtomPos;
 
 				break;
 			}
@@ -2039,16 +2063,6 @@ int sphMarkCommonSubtrees ( int iXQ, const XQQuery_t * pXQ )
 }
 
 
-// reset hash of tree nodes starting from pBottom node up to the root or node that has already reset hash
-static void ResetHashUpTheTree ( XQNode_t * pBottom )
-{
-	if ( !pBottom || !pBottom->ResetHash() )
-		return;
-
-	ResetHashUpTheTree ( pBottom->m_pParent );
-}
-
-
 class CSphTransformation : public ISphNoncopyable
 {
 public:
@@ -2267,14 +2281,14 @@ void CSphTransformation::SetCosts ( XQNode_t * pNode, const CSphVector<XQNode_t 
 	// propagate cost bottom-up (from children to parents)
 	for ( int i=dChildren.GetLength()-1; i>=0; i-- )
 	{
-		XQNode_t * pNode = dChildren[i];
+		XQNode_t * pChild = dChildren[i];
 		int iCost = 0;
-		ARRAY_FOREACH ( j, pNode->m_dWords )
-			iCost += hCosts [ pNode->m_dWords[j].m_sWord ];
+		ARRAY_FOREACH ( j, pChild->m_dWords )
+			iCost += hCosts [ pChild->m_dWords[j].m_sWord ];
 
-		pNode->m_iUser += iCost;
-		if ( pNode->m_pParent )
-			pNode->m_pParent->m_iUser += pNode->m_iUser;
+		pChild->m_iUser += iCost;
+		if ( pChild->m_pParent )
+			pChild->m_pParent->m_iUser += pChild->m_iUser;
 	}
 }
 
@@ -2733,9 +2747,8 @@ void CSphTransformation::MakeTransformCommonSubTerm ( CSphVector<XQNode_t *> & d
 	// Factor out and delete/unlink similar nodes ( except weakest )
 	ARRAY_FOREACH ( i, dX )
 	{
-		XQNode_t * pX = dX[i];
-		XQNode_t * pParent = pX->m_pParent;
-		Verify ( pParent->m_dChildren.RemoveValue ( pX ) );
+		XQNode_t * pParent = dX[i]->m_pParent;
+		Verify ( pParent->m_dChildren.RemoveValue ( dX[i] ) );
 		if ( i!=iWeakestIndex )
 			SafeDelete ( dX[i] );
 
@@ -3242,10 +3255,10 @@ void CSphTransformation::MakeTransformCommonPhrase ( CSphVector<XQNode_t *> & dC
 		if ( bHeadIsCommon )
 		{
 			int iEndCommonAtom = pCommonPhrase->m_dWords.Last().m_iAtomPos+1;
-			for ( int i=iCommonLen; i<pPhrase->m_dWords.GetLength(); i++ )
+			for ( int j=iCommonLen; j<pPhrase->m_dWords.GetLength(); j++ )
 			{
-				int iTo = i-iCommonLen;
-				pPhrase->m_dWords[iTo] = pPhrase->m_dWords[i];
+				int iTo = j-iCommonLen;
+				pPhrase->m_dWords[iTo] = pPhrase->m_dWords[j];
 				pPhrase->m_dWords[iTo].m_iAtomPos = iEndCommonAtom + iTo;
 			}
 		}
@@ -3253,8 +3266,8 @@ void CSphTransformation::MakeTransformCommonPhrase ( CSphVector<XQNode_t *> & dC
 		if ( !bHeadIsCommon )
 		{
 			int iStartAtom = pCommonPhrase->m_dWords[0].m_iAtomPos - pPhrase->m_dWords.GetLength();
-			ARRAY_FOREACH ( i, pPhrase->m_dWords )
-				pPhrase->m_dWords[i].m_iAtomPos = iStartAtom + i;
+			ARRAY_FOREACH ( j, pPhrase->m_dWords )
+				pPhrase->m_dWords[j].m_iAtomPos = iStartAtom + j;
 		}
 
 		if ( pPhrase->m_dWords.GetLength()==1 )
@@ -3516,12 +3529,12 @@ bool CSphTransformation::TransformHungOperand ()
 		} else
 		{
 			assert ( pGrand->m_dChildren.Contains ( pParent ) );
-			ARRAY_FOREACH ( i, pGrand->m_dChildren )
+			ARRAY_FOREACH ( j, pGrand->m_dChildren )
 			{
-				if ( pGrand->m_dChildren[i]!=pParent )
+				if ( pGrand->m_dChildren[j]!=pParent )
 					continue;
 
-				pGrand->m_dChildren[i] = pHungNode;
+				pGrand->m_dChildren[j] = pHungNode;
 				pHungNode->m_pParent = pGrand;
 				break;
 			}
@@ -3866,5 +3879,5 @@ void sphSetupQueryTokenizer ( ISphTokenizer * pTokenizer )
 
 
 //
-// $Id: sphinxquery.cpp 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxquery.cpp 4043 2013-07-31 07:00:01Z kevg $
 //

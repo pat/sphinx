@@ -1,7 +1,7 @@
 dnl Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.59)
-AC_INIT([sphinx], [2.1.1-beta], [shodan(at)sphinxsearch.com])
+AC_INIT([sphinx], [2.1.4-release], [shodan(at)sphinxsearch.com])
 
 dnl --------------------------------------------------------------------------
 
@@ -113,7 +113,7 @@ AC_SEARCH_LIBS([setsockopt],[socket])
 AC_SEARCH_LIBS([gethostbyname],[nsl socket resolv])
 AC_SEARCH_LIBS([inflate],[z],[have_lz=yes],[have_lz=no])
 AC_SEARCH_LIBS([logf],[m])
-AC_CHECK_FUNCS([dup2 gethostbyname gettimeofday memmove memset select socket strcasecmp strchr strerror strncasecmp strstr strtol logf pread poll])
+AC_CHECK_FUNCS([dup2 gethostbyname gettimeofday memmove memset select socket strcasecmp strchr strerror strncasecmp strnlen strstr strtol logf pread poll])
 AC_CHECK_FUNCS([backtrace backtrace_symbols])
 
 # Neither defined or undefined. So, check.
@@ -349,6 +349,7 @@ fi
 
 # get rid of possible garbage (like on mac os x)
 MYSQL_CFLAGS=`echo $MYSQL_CFLAGS | sed -e 's/-O[[0123sz]]//g'`
+MYSQL_CFLAGS=`echo $MYSQL_CFLAGS | sed -e 's/\-DNDEBUG//g'`
 
 dnl ---
 
@@ -412,20 +413,39 @@ AC_ARG_WITH([re2],
 )
 
 AC_MSG_CHECKING([whether to compile with re2 library support])
+
+AC_ARG_WITH([re2-includes],
+        AC_HELP_STRING([--with-re2-includes], [path to re2 header files]),
+        [ac_cv_re2_includes=$withval], [ac_cv_re2_includes=no]
+)
+
+AC_ARG_WITH([re2-libs],
+        AC_HELP_STRING([--with-re2-libs], [path to re2 libraries]),
+        [ac_cv_re2_libs=$withval], [ac_cv_re2_libs=no]
+)
+
+# First check if user supplied --with-re2-libs and --with-re2-includes
+if test x$ac_cv_re2_libs != xno && test x$ac_cv_re2_includes != xno; then
+	ac_cv_use_re2=yes
+fi
 if test x$ac_cv_use_re2 != xno; then
-	if test -d libre2 && test -f libre2/re2/re2.h; then
-		AC_MSG_RESULT([yes])
-		AC_DEFINE(USE_RE2, 1, [RE2 library support])
-	else
-		AC_MSG_ERROR([missing re2 sources from libre2])
-	fi
+	AC_CHECK_RE2
+	AC_MSG_RESULT([yes, $LIBRE2_CFLAGS])
+	AC_DEFINE(USE_RE2, 1, [RE2 library support])
+	AC_SUBST([LIBRE2_LIBS])
+	AC_SUBST([LIBRE2_CFLAGS])
+	AC_SUBST([LIBRE2_PATH])
 else
 	AC_MSG_RESULT([no])
-	AC_DEFINE(USE_RE2, 0, [re2 library support])
+	AC_DEFINE(USE_RE2, 0, [RE2 library support])
 fi
 AM_CONDITIONAL(USE_RE2, test x$ac_cv_use_re2 != xno)
 
+
 dnl ---
+
+# we can now set preprocessor flags for both C and C++ compilers
+CPPFLAGS="$CPPFLAGS $MYSQL_CFLAGS $PGSQL_CFLAGS $LIBRE2_CFLAGS"
 
 got_expat=0
 AC_MSG_CHECKING([for libexpat])
@@ -526,7 +546,7 @@ dnl ---
 AC_MSG_CHECKING([whether to enable c++ memory routines override])
 sph_enable_mem_override=yes
 AC_ARG_ENABLE([mem-override],
-    [   --enable-mem-override        enable to override std c++ mem routines in production build (default is yes). Disabling may help in some rare cases as statically linking with mysql on Mac OS X Lion.],
+    [  --enable-mem-override        enable to override std c++ mem routines in production build (default is yes). Disabling may help in some rare cases as statically linking with mysql on Mac OS X Lion.],
     [sph_enable_mem_override=$enableval])
 if test x$sph_enable_mem_override = xyes; then
     AC_MSG_RESULT([yes])

@@ -370,6 +370,16 @@ INSERT INTO `test_table` VALUES
 <!-- regression exist -->
 <sphinxql>select *, exist ( 'mva', 1000 ) + id as cnd1 from idx_mva where cnd1 &lt; 5</sphinxql>
 <sphinxql>select *, exist ( 'body', 1 ) as b from idx_mva</sphinxql>
+
+<!--regression API count(*) vs compat -->
+<sphinxql>SELECT *, count(*) as cnt, 1 as gr FROM main GROUP BY gr</sphinxql>
+
+<!-- regression bigint function vs udf return type -->
+<sphinxql>select *, bigint(idd1) b, min( bigint(idd1)) c from main</sphinxql>
+<sphinxql>select *, bigint(idd1) b, min( bigint(idd1)) c, 1 as gr from main GROUP BY gr</sphinxql>
 </sphqueries>
 
+<queries>
+<query select="*, count(*) as cnt, 1 as gr " groupfunc="attr" groupattr="gr" index="main"/>
+</queries>
 </test>

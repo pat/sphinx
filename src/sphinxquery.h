@@ -1,5 +1,5 @@
 //
-// $Id: sphinxquery.h 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxquery.h 3802 2013-04-10 12:49:42Z tomat $
 //
 
 //
@@ -19,14 +19,6 @@
 #include "sphinx.h"
 
 //////////////////////////////////////////////////////////////////////////////
-
-enum XQStarPosition
-{
-	STAR_NONE	= 0,
-	STAR_FRONT	= 1,
-	STAR_BACK	= 2,
-	STAR_BOTH	= 3
-};
 
 /// extended query word with attached position within atom
 struct XQKeyword_t
@@ -98,6 +90,11 @@ public:
 		m_bZoneSpan = false;
 		m_dFieldMask.Set();
 		m_dZones.Reset();
+	}
+
+	bool IsEmpty() const
+	{
+		return m_bFieldSpec==false && m_iFieldMaxPos==0 && m_bZoneSpan==false && m_dZones.GetLength()==0;
 	}
 
 	XQLimitSpec_t ( const XQLimitSpec_t& dLimit )
@@ -310,5 +307,5 @@ int		sphMarkCommonSubtrees ( int iXQ, const XQQuery_t * pXQ );
 #endif // _sphinxquery_
 
 //
-// $Id: sphinxquery.h 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxquery.h 3802 2013-04-10 12:49:42Z tomat $
 //

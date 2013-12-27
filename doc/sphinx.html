@@ -1,7 +1,7 @@
-<html><head><meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1"><title>Sphinx 2.1.1-beta reference manual</title><meta name="generator" content="DocBook XSL Stylesheets V1.70.1">
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1"><title>Sphinx 2.1.4-release reference manual</title><meta name="generator" content="DocBook XSL Stylesheets V1.70.1">
 <style type="text/css">pre.programlisting { background-color: #f0f0f0; padding: 0.5em; margin-left: 2em; margin-right: 2em; }</style>
 </head>
-<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF"><div class="book" lang="en"><div class="titlepage"><div><div><h1 class="title">Sphinx 2.1.1-beta reference manual</h1></div>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF"><div class="book" lang="en"><div class="titlepage"><div><div><h1 class="title">Sphinx 2.1.4-release reference manual</h1></div>
 <div><h2 class="subtitle">Free open-source SQL full-text search engine</h2></div>
 <div><p class="copyright">Copyright &copy; 2001-2013 Andrew Aksyonoff</p></div>
 <div><p class="copyright">Copyright &copy; 2008-2013 Sphinx Technologies Inc, <a href="http://sphinxsearch.com" target="_top">http://sphinxsearch.com</a></p></div></div>
@@ -94,15 +94,17 @@
 <dt><span class="sect1"><a href="#sphinxql-update">7.23. UPDATE syntax</a></span></dt>
 <dt><span class="sect1"><a href="#sphinxql-attach-index">7.24. ATTACH INDEX syntax</a></span></dt>
 <dt><span class="sect1"><a href="#sphinxql-flush-rtindex">7.25. FLUSH RTINDEX syntax</a></span></dt>
-<dt><span class="sect1"><a href="#sphinxql-truncate-rtindex">7.26. TRUNCATE RTINDEX syntax</a></span></dt>
-<dt><span class="sect1"><a href="#sphinxql-show-agent-status">7.27. SHOW AGENT STATUS</a></span></dt>
-<dt><span class="sect1"><a href="#sphinxql-show-profile">7.28. SHOW PROFILE syntax</a></span></dt>
-<dt><span class="sect1"><a href="#sphinxql-show-index-status">7.29. SHOW INDEX STATUS syntax</a></span></dt>
-<dt><span class="sect1"><a href="#sphinxql-optimize-index">7.30. OPTIMIZE INDEX syntax</a></span></dt>
-<dt><span class="sect1"><a href="#sphinxql-multi-queries">7.31. Multi-statement queries</a></span></dt>
-<dt><span class="sect1"><a href="#sphinxql-comment-syntax">7.32. Comment syntax</a></span></dt>
-<dt><span class="sect1"><a href="#sphinxql-reserved-keywords">7.33. List of SphinxQL reserved keywords</a></span></dt>
-<dt><span class="sect1"><a href="#sphinxql-upgrading-magics">7.34. SphinxQL upgrade notes, version 2.0.1-beta</a></span></dt>
+<dt><span class="sect1"><a href="#sphinxql-flush-ramchunk">7.26. FLUSH RAMCHUNK syntax</a></span></dt>
+<dt><span class="sect1"><a href="#sphinxql-truncate-rtindex">7.27. TRUNCATE RTINDEX syntax</a></span></dt>
+<dt><span class="sect1"><a href="#sphinxql-show-agent-status">7.28. SHOW AGENT STATUS</a></span></dt>
+<dt><span class="sect1"><a href="#sphinxql-show-profile">7.29. SHOW PROFILE syntax</a></span></dt>
+<dt><span class="sect1"><a href="#sphinxql-show-index-status">7.30. SHOW INDEX STATUS syntax</a></span></dt>
+<dt><span class="sect1"><a href="#sphinxql-optimize-index">7.31. OPTIMIZE INDEX syntax</a></span></dt>
+<dt><span class="sect1"><a href="#sphinxql-show-plan">7.32. SHOW PLAN syntax</a></span></dt>
+<dt><span class="sect1"><a href="#sphinxql-multi-queries">7.33. Multi-statement queries</a></span></dt>
+<dt><span class="sect1"><a href="#sphinxql-comment-syntax">7.34. Comment syntax</a></span></dt>
+<dt><span class="sect1"><a href="#sphinxql-reserved-keywords">7.35. List of SphinxQL reserved keywords</a></span></dt>
+<dt><span class="sect1"><a href="#sphinxql-upgrading-magics">7.36. SphinxQL upgrade notes, version 2.0.1-beta</a></span></dt>
 </dl></dd><dt><span class="chapter"><a href="#api-reference">8. API reference</a></span></dt>
 <dd><dl><dt><span class="sect1"><a href="#api-funcgroup-general">8.1. General API functions</a></span></dt>
 <dd><dl><dt><span class="sect2"><a href="#api-func-getlasterror">8.1.1. GetLastError</a></span></dt>
@@ -273,20 +275,21 @@
 <dt><span class="sect2"><a href="#conf-rt-mem-limit">11.2.52. rt_mem_limit</a></span></dt>
 <dt><span class="sect2"><a href="#conf-rt-field">11.2.53. rt_field</a></span></dt>
 <dt><span class="sect2"><a href="#conf-rt-attr-uint">11.2.54. rt_attr_uint</a></span></dt>
-<dt><span class="sect2"><a href="#conf-rt-attr-bigint">11.2.55. rt_attr_bigint</a></span></dt>
-<dt><span class="sect2"><a href="#conf-rt-attr-float">11.2.56. rt_attr_float</a></span></dt>
-<dt><span class="sect2"><a href="#conf-rt-attr-multi">11.2.57. rt_attr_multi</a></span></dt>
-<dt><span class="sect2"><a href="#conf-rt-attr-multi-64">11.2.58. rt_attr_multi_64</a></span></dt>
-<dt><span class="sect2"><a href="#conf-rt-attr-timestamp">11.2.59. rt_attr_timestamp</a></span></dt>
-<dt><span class="sect2"><a href="#conf-rt-attr-string">11.2.60. rt_attr_string</a></span></dt>
-<dt><span class="sect2"><a href="#conf-rt-attr-json">11.2.61. rt_attr_json</a></span></dt>
-<dt><span class="sect2"><a href="#conf-ha-strategy">11.2.62. ha_strategy</a></span></dt>
-<dt><span class="sect2"><a href="#conf-bigram-freq-words">11.2.63. bigram_freq_words</a></span></dt>
-<dt><span class="sect2"><a href="#conf-bigram-index">11.2.64. bigram_index</a></span></dt>
-<dt><span class="sect2"><a href="#conf-index-field-lengths">11.2.65. index_field_lengths</a></span></dt>
-<dt><span class="sect2"><a href="#conf-regexp-filter">11.2.66. regexp_filter</a></span></dt>
-<dt><span class="sect2"><a href="#conf-stopwords-unstemmed">11.2.67. stopwords_unstemmed</a></span></dt>
-<dt><span class="sect2"><a href="#conf-global-idf">11.2.68. global_idf</a></span></dt>
+<dt><span class="sect2"><a href="#conf-rt-attr-bool">11.2.55. rt_attr_bool</a></span></dt>
+<dt><span class="sect2"><a href="#conf-rt-attr-bigint">11.2.56. rt_attr_bigint</a></span></dt>
+<dt><span class="sect2"><a href="#conf-rt-attr-float">11.2.57. rt_attr_float</a></span></dt>
+<dt><span class="sect2"><a href="#conf-rt-attr-multi">11.2.58. rt_attr_multi</a></span></dt>
+<dt><span class="sect2"><a href="#conf-rt-attr-multi-64">11.2.59. rt_attr_multi_64</a></span></dt>
+<dt><span class="sect2"><a href="#conf-rt-attr-timestamp">11.2.60. rt_attr_timestamp</a></span></dt>
+<dt><span class="sect2"><a href="#conf-rt-attr-string">11.2.61. rt_attr_string</a></span></dt>
+<dt><span class="sect2"><a href="#conf-rt-attr-json">11.2.62. rt_attr_json</a></span></dt>
+<dt><span class="sect2"><a href="#conf-ha-strategy">11.2.63. ha_strategy</a></span></dt>
+<dt><span class="sect2"><a href="#conf-bigram-freq-words">11.2.64. bigram_freq_words</a></span></dt>
+<dt><span class="sect2"><a href="#conf-bigram-index">11.2.65. bigram_index</a></span></dt>
+<dt><span class="sect2"><a href="#conf-index-field-lengths">11.2.66. index_field_lengths</a></span></dt>
+<dt><span class="sect2"><a href="#conf-regexp-filter">11.2.67. regexp_filter</a></span></dt>
+<dt><span class="sect2"><a href="#conf-stopwords-unstemmed">11.2.68. stopwords_unstemmed</a></span></dt>
+<dt><span class="sect2"><a href="#conf-global-idf">11.2.69. global_idf</a></span></dt>
 </dl></dd><dt><span class="sect1"><a href="#confgroup-indexer">11.3. <code class="filename">indexer</code> program configuration options</a></span></dt>
 <dd><dl><dt><span class="sect2"><a href="#conf-mem-limit">11.3.1. mem_limit</a></span></dt>
 <dt><span class="sect2"><a href="#conf-max-iops">11.3.2. max_iops</a></span></dt>
@@ -349,24 +352,30 @@
 <dt><span class="sect2"><a href="#conf-rt-merge-maxiosize">11.4.49. rt_merge_maxiosize</a></span></dt>
 <dt><span class="sect2"><a href="#conf-predicted-time-costs">11.4.50. predicted_time_costs</a></span></dt>
 </dl></dd></dl></dd><dt><span class="appendix"><a href="#changelog">A. Sphinx revision history</a></span></dt>
-<dd><dl><dt><span class="sect1"><a href="#rel211">A.1. Version 2.1.1-beta, 20 feb 2013</a></span></dt>
-<dt><span class="sect1"><a href="#rel206">A.2. Version 2.0.6-release, 22 oct 2012</a></span></dt>
-<dt><span class="sect1"><a href="#rel205">A.3. Version 2.0.5-release, 28 jul 2012</a></span></dt>
-<dt><span class="sect1"><a href="#rel204">A.4. Version 2.0.4-release, 02 mar 2012</a></span></dt>
-<dt><span class="sect1"><a href="#rel203">A.5. Version 2.0.3-release, 23 dec 2011</a></span></dt>
-<dt><span class="sect1"><a href="#rel202">A.6. Version 2.0.2-beta, 15 nov 2011</a></span></dt>
-<dt><span class="sect1"><a href="#rel201">A.7. Version 2.0.1-beta, 22 apr 2011</a></span></dt>
-<dt><span class="sect1"><a href="#rel110">A.8. Version 1.10-beta, 19 jul 2010</a></span></dt>
-<dt><span class="sect1"><a href="#rel099">A.9. Version 0.9.9-release, 02 dec 2009</a></span></dt>
-<dt><span class="sect1"><a href="#rel099rc2">A.10. Version 0.9.9-rc2, 08 apr 2009</a></span></dt>
-<dt><span class="sect1"><a href="#rel099rc1">A.11. Version 0.9.9-rc1, 17 nov 2008</a></span></dt>
-<dt><span class="sect1"><a href="#rel0981">A.12. Version 0.9.8.1, 30 oct 2008</a></span></dt>
-<dt><span class="sect1"><a href="#rel098">A.13. Version 0.9.8, 14 jul 2008</a></span></dt>
-<dt><span class="sect1"><a href="#rel097">A.14. Version 0.9.7, 02 apr 2007</a></span></dt>
-<dt><span class="sect1"><a href="#rel097rc2">A.15. Version 0.9.7-rc2, 15 dec 2006</a></span></dt>
-<dt><span class="sect1"><a href="#rel097rc">A.16. Version 0.9.7-rc1, 26 oct 2006</a></span></dt>
-<dt><span class="sect1"><a href="#rel096">A.17. Version 0.9.6, 24 jul 2006</a></span></dt>
-<dt><span class="sect1"><a href="#rel096rc1">A.18. Version 0.9.6-rc1, 26 jun 2006</a></span></dt>
+<dd><dl><dt><span class="sect1"><a href="#rel214">A.1. Version 2.1.4-release, 18 dec 2013</a></span></dt>
+<dt><span class="sect1"><a href="#rel213">A.2. Version 2.1.3-release, 12 nov 2013</a></span></dt>
+<dt><span class="sect1"><a href="#rel212">A.3. Version 2.1.2-release, 10 oct 2013</a></span></dt>
+<dt><span class="sect1"><a href="#rel211">A.4. Version 2.1.1-beta, 20 feb 2013</a></span></dt>
+<dt><span class="sect1"><a href="#rel209">A.5. Version 2.0.9-release, 26 aug 2013</a></span></dt>
+<dt><span class="sect1"><a href="#rel208">A.6. Version 2.0.8-release, 26 apr 2013</a></span></dt>
+<dt><span class="sect1"><a href="#rel207">A.7. Version 2.0.7-release, 26 mar 2013</a></span></dt>
+<dt><span class="sect1"><a href="#rel206">A.8. Version 2.0.6-release, 22 oct 2012</a></span></dt>
+<dt><span class="sect1"><a href="#rel205">A.9. Version 2.0.5-release, 28 jul 2012</a></span></dt>
+<dt><span class="sect1"><a href="#rel204">A.10. Version 2.0.4-release, 02 mar 2012</a></span></dt>
+<dt><span class="sect1"><a href="#rel203">A.11. Version 2.0.3-release, 23 dec 2011</a></span></dt>
+<dt><span class="sect1"><a href="#rel202">A.12. Version 2.0.2-beta, 15 nov 2011</a></span></dt>
+<dt><span class="sect1"><a href="#rel201">A.13. Version 2.0.1-beta, 22 apr 2011</a></span></dt>
+<dt><span class="sect1"><a href="#rel110">A.14. Version 1.10-beta, 19 jul 2010</a></span></dt>
+<dt><span class="sect1"><a href="#rel099">A.15. Version 0.9.9-release, 02 dec 2009</a></span></dt>
+<dt><span class="sect1"><a href="#rel099rc2">A.16. Version 0.9.9-rc2, 08 apr 2009</a></span></dt>
+<dt><span class="sect1"><a href="#rel099rc1">A.17. Version 0.9.9-rc1, 17 nov 2008</a></span></dt>
+<dt><span class="sect1"><a href="#rel0981">A.18. Version 0.9.8.1, 30 oct 2008</a></span></dt>
+<dt><span class="sect1"><a href="#rel098">A.19. Version 0.9.8, 14 jul 2008</a></span></dt>
+<dt><span class="sect1"><a href="#rel097">A.20. Version 0.9.7, 02 apr 2007</a></span></dt>
+<dt><span class="sect1"><a href="#rel097rc2">A.21. Version 0.9.7-rc2, 15 dec 2006</a></span></dt>
+<dt><span class="sect1"><a href="#rel097rc">A.22. Version 0.9.7-rc1, 26 oct 2006</a></span></dt>
+<dt><span class="sect1"><a href="#rel096">A.23. Version 0.9.6, 24 jul 2006</a></span></dt>
+<dt><span class="sect1"><a href="#rel096rc1">A.24. Version 0.9.6-rc1, 26 jun 2006</a></span></dt>
 </dl></dd></dl></div>
 <div class="list-of-examples"><p><b>List of Examples</b></p><dl><dt>3.1. <a href="#ex-ranged-queries">Ranged query usage example</a></dt>
 <dt>3.2. <a href="#ex-xmlpipe-document">XMLpipe document stream</a></dt>
@@ -470,7 +479,7 @@ are available by building third party <a href="http://snowball.tartarus.org/" ta
 <li><code class="filename">spelldump</code>: a simple command-line tool to extract the items from an <code class="filename">ispell</code> or <code class="filename">MySpell</code>
 (as bundled with OpenOffice) format dictionary to help customize your index, for use with <a href="#conf-wordforms" title="11.2.12.&nbsp;wordforms">wordforms</a>.</li>
 <li><code class="filename">indextool</code>: an utility to dump miscellaneous debug information about the index, added in version 0.9.9-rc2.</li>
-<li><code class="filename">wordbreaker</code>: an utility to break down compound words into separate words, added in version 2.1.1.</li>
+<li><code class="filename">wordbreaker</code>: an utility to break down compound words into separate words, added in version 2.1.1-beta.</li>
 </ul></div>
 <p>
 </p></div>
@@ -1028,12 +1037,6 @@ folded versions. The characters that are not in the table are considered
 to be non-letters and will be treated as word separators when indexing
 or searching through this index.
 </p><p>
-Note that while default tables do not include space character
-(ASCII code 0x20, Unicode U+0020) as a letter, it's in fact
-<span class="emphasis"><em>perfectly legal</em></span> to do so. This can be
-useful, for instance, for indexing tag clouds, so that space-separated
-word sets would index as a <span class="emphasis"><em>single</em></span> search query term.
-</p><p>
 Default tables currently include English and Russian characters.
 Please do submit your tables for other languages!
 </p><p>As of version 2.1.1-beta, you can also specify text pattern replacement rules.
@@ -1247,7 +1250,7 @@ XML elements (tags) recognized by xmlpipe2 (and their attributes where applicabl
 <dd><p>Optional element, child of sphinx:schema. Declares an attribute.
         Known attributes are:
         </p><div class="itemizedlist"><ul type="disc"><li>"name", specifies the element name that should be treated as an attribute in the subsequent documents.</li>
-<li>"type", specifies the attribute type. Possible values are "int", "timestamp", "str2ordinal", "bool", "float" and "multi".</li>
+<li>"type", specifies the attribute type. Possible values are "int", "bigint", "timestamp", "str2ordinal", "bool", "float", "multi" and "json".</li>
 <li>"bits", specifies the bit size for "int" attribute type. Valid values are 1 to 32.</li>
 <li>"default", specifies the default value for this attribute that should be used if the attribute's element is not present in the document.</li>
 </ul></div>
@@ -2161,13 +2164,13 @@ and then adds <code class="code">bm25</code> to that per-field sum.
 Currently implemented field-level factors are:
 </p><div class="itemizedlist"><ul type="disc"><li>
 <code class="code">lcs</code> (integer), the length of a maximum verbatim match between
-the document and the query, coutned in words. LCS stands for Longest Common
+the document and the query, counted in words. LCS stands for Longest Common
 Subsequence (or Subset). Takes a minimum value of 1 when only stray keywords
 were matched in a field, and a maximum value of query keywords count
 when the entire query was matched in a field verbatim (in the exact
 query keywords order). For example, if the query is 'hello world'
 and the field contains these two words quoted from the query (that is,
-adjacent to each other, and exaclty in the query order), <code class="code">lcs</code>
+adjacent to each other, and exactly in the query order), <code class="code">lcs</code>
 will be 2. For example, if the query is 'hello world program' and
 the field contains 'hello world', <code class="code">lcs</code> will be 2.
 Note that any subset of the query keyword works, not just a subset
@@ -2176,7 +2179,7 @@ and the field contains 'hello (test program)', <code class="code">lcs</code> wil
 just as well, because both 'hello' and 'program' matched in the same
 respective positions as they were in the query. Finally, if the query
 is 'hello world program' and the field contains 'hello world program',
-<code class="code">lcs</code> will be 3. (Hopefully that is unsurpising at this point.)
+<code class="code">lcs</code> will be 3. (Hopefully that is unsurprising at this point.)
 </li>
 <li>
 <code class="code">user_weight</code> (integer), the user specified per-field weight
@@ -2290,6 +2293,7 @@ Here's the complete reference list for quick access.
 <li><a href="#expr-bitwise-ops">Bitwise operators: &amp;, |</a></li>
 <li><a href="#expr-func-abs">ABS()</a></li>
 <li><a href="#expr-func-bigint">BIGINT()</a></li>
+<li><a href="#expr-func-bitdot">BITDOT()</a></li>
 <li><a href="#expr-func-ceil">CEIL()</a></li>
 <li><a href="#expr-func-contains">CONTAINS()</a></li>
 <li><a href="#expr-func-cos">COS()</a></li>
@@ -2304,6 +2308,7 @@ Here's the complete reference list for quick access.
 <li><a href="#expr-func-if">IF()</a></li>
 <li><a href="#expr-func-in">IN()</a></li>
 <li><a href="#expr-func-interval">INTERVAL()</a></li>
+<li><a href="#expr-func-length">LENGTH()</a></li>
 <li><a href="#expr-func-ln">LN()</a></li>
 <li><a href="#expr-func-log10">LOG10()</a></li>
 <li><a href="#expr-func-log2">LOG2()</a></li>
@@ -2359,7 +2364,9 @@ must be of an integer types. Introduced in version 1.10-beta.
 </p></dd></dl></div></div>
 <div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="numeric-functions"></a>5.5.2.&nbsp;Numeric functions</h3></div></div></div>
 <div class="variablelist"><dl><dt><span class="term"><a name="expr-func-abs"></a>ABS()</span></dt>
-<dd><p>Returns the absolute value of the argument.</p></dd><dt><span class="term"><a name="expr-func-ceil"></a>CEIL()</span></dt>
+<dd><p>Returns the absolute value of the argument.</p></dd><dt><span class="term"><a name="expr-func-bitdot"></a>BITDOT()</span></dt>
+<dd><p>BITDOT(mask, w0, w1, ...) returns the sum of products of an each bit of a mask multiplied with its weight.
+<code class="code">bit0*w0 + bit1*w1 + ...</code></p></dd><dt><span class="term"><a name="expr-func-ceil"></a>CEIL()</span></dt>
 <dd><p>Returns the smallest integer value greater or equal to the argument.</p></dd><dt><span class="term"><a name="expr-func-contains"></a>CONTAINS()</span></dt>
 <dd><p>CONTAINS(polygon, x, y) checks whether the (x,y) point is within the given polygon,
 and returns 1 if true, or 0 if false. The polygon has to be specified using either the <a href="#expr-func-poly2d">POLY2D()</a> function
@@ -2543,6 +2550,11 @@ it technically feasible to implement additional re-ranking pass
 If used with SphinxQL but not called from any UDFs, the result of PACKEDFACTORS()
 is simply formatted as plain text, which can be used to manually assess the ranking
 factors. Note that this feature is not currently supported by the Sphinx API.
+</p></dd><dt><span class="term"><a name="expr-func-length"></a>LENGTH()</span></dt>
+<dd><p>
+LENGTH(attr_mva) function, introduced in version 2.1.2-stable,
+returns amount of elements in MVA set. It works with both 32-bit and
+64-bit MVA attributes.
 </p></dd></dl></div></div></div>
 <div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="sorting-modes"></a>5.6.&nbsp;Sorting modes</h2></div></div></div>
 <p>
@@ -2902,7 +2914,7 @@ Two API methods that implement multi-query mechanism are
 <a href="#api-func-addquery" title="8.6.2.&nbsp;AddQuery">AddQuery()</a> and
 <a href="#api-func-runqueries" title="8.6.3.&nbsp;RunQueries">RunQueries()</a>.
 You can also run multiple queries with SphinxQL, see
-<a href="#sphinxql-multi-queries" title="7.31.&nbsp;Multi-statement queries">Section&nbsp;7.31, &#8220;Multi-statement queries&#8221;</a>.
+<a href="#sphinxql-multi-queries" title="7.33.&nbsp;Multi-statement queries">Section&nbsp;7.33, &#8220;Multi-statement queries&#8221;</a>.
 (In fact, regular <a href="#api-func-addquery" title="8.6.2.&nbsp;AddQuery">Query()</a>
 call is internally implemented as a single AddQuery() call immediately
 followed by RunQueries() call.) AddQuery() captures the current state
@@ -3403,12 +3415,6 @@ the database, along with SQL connection and disconnection
 events. That is useful to diagnose and fix problems with
 SQL sources.
 </li>
-<li><code class="option">--print-queries</code> prints out
-SQL queries that <code class="filename">indexer</code> sends to
-the database, along with SQL connection and disconnection
-events. That is useful to diagnose and fix problems with
-SQL sources.
-</li>
 </ul></div>
 <p>
 </p></div>
@@ -3840,10 +3846,12 @@ Its general usage is:
 </p><pre class="programlisting">
 indextool &lt;command&gt; [options]
 </pre><p>
-The only currently available option applies to all commands
-and lets you specify the configuration file:
+Options apply to all commands:
 </p><div class="itemizedlist"><ul type="disc"><li><code class="option">--config &lt;file&gt;</code> (<code class="option">-c &lt;file&gt;</code> for short)
 overrides the built-in config file names.
+</li>
+<li><code class="option">--quiet</code> (<code class="option">-q</code> for short)
+keep indextool quiet - it will not output banner, etc.
 </li>
 </ul></div>
 <p>
@@ -3889,6 +3897,12 @@ specified as text.
 <li><code class="option">--dumphitlist INDEXNAME --wordid ID</code> dumps all
 the hits (occurences) of a given keyword in a given index, with keyword
 specified as internal numeric ID.
+</li>
+<li><code class="option">--fold INDEXNAME OPTFILE</code>
+This options is useful too see how actually tokenizer proceeds input.
+You can feed indextool with text from file if specified or from stdin otherwise.
+The output will contain spaces instead of separators (accordingly to your
+charset_table settings) and lowercased letters in words.
 </li>
 <li><code class="option">--htmlstrip INDEXNAME</code> filters stdin using
 HTML stripper settings for a given index, and prints the filtering
@@ -3977,15 +3991,17 @@ for more on this tool.
 <dt><span class="sect1"><a href="#sphinxql-update">7.23. UPDATE syntax</a></span></dt>
 <dt><span class="sect1"><a href="#sphinxql-attach-index">7.24. ATTACH INDEX syntax</a></span></dt>
 <dt><span class="sect1"><a href="#sphinxql-flush-rtindex">7.25. FLUSH RTINDEX syntax</a></span></dt>
-<dt><span class="sect1"><a href="#sphinxql-truncate-rtindex">7.26. TRUNCATE RTINDEX syntax</a></span></dt>
-<dt><span class="sect1"><a href="#sphinxql-show-agent-status">7.27. SHOW AGENT STATUS</a></span></dt>
-<dt><span class="sect1"><a href="#sphinxql-show-profile">7.28. SHOW PROFILE syntax</a></span></dt>
-<dt><span class="sect1"><a href="#sphinxql-show-index-status">7.29. SHOW INDEX STATUS syntax</a></span></dt>
-<dt><span class="sect1"><a href="#sphinxql-optimize-index">7.30. OPTIMIZE INDEX syntax</a></span></dt>
-<dt><span class="sect1"><a href="#sphinxql-multi-queries">7.31. Multi-statement queries</a></span></dt>
-<dt><span class="sect1"><a href="#sphinxql-comment-syntax">7.32. Comment syntax</a></span></dt>
-<dt><span class="sect1"><a href="#sphinxql-reserved-keywords">7.33. List of SphinxQL reserved keywords</a></span></dt>
-<dt><span class="sect1"><a href="#sphinxql-upgrading-magics">7.34. SphinxQL upgrade notes, version 2.0.1-beta</a></span></dt>
+<dt><span class="sect1"><a href="#sphinxql-flush-ramchunk">7.26. FLUSH RAMCHUNK syntax</a></span></dt>
+<dt><span class="sect1"><a href="#sphinxql-truncate-rtindex">7.27. TRUNCATE RTINDEX syntax</a></span></dt>
+<dt><span class="sect1"><a href="#sphinxql-show-agent-status">7.28. SHOW AGENT STATUS</a></span></dt>
+<dt><span class="sect1"><a href="#sphinxql-show-profile">7.29. SHOW PROFILE syntax</a></span></dt>
+<dt><span class="sect1"><a href="#sphinxql-show-index-status">7.30. SHOW INDEX STATUS syntax</a></span></dt>
+<dt><span class="sect1"><a href="#sphinxql-optimize-index">7.31. OPTIMIZE INDEX syntax</a></span></dt>
+<dt><span class="sect1"><a href="#sphinxql-show-plan">7.32. SHOW PLAN syntax</a></span></dt>
+<dt><span class="sect1"><a href="#sphinxql-multi-queries">7.33. Multi-statement queries</a></span></dt>
+<dt><span class="sect1"><a href="#sphinxql-comment-syntax">7.34. Comment syntax</a></span></dt>
+<dt><span class="sect1"><a href="#sphinxql-reserved-keywords">7.35. List of SphinxQL reserved keywords</a></span></dt>
+<dt><span class="sect1"><a href="#sphinxql-upgrading-magics">7.36. SphinxQL upgrade notes, version 2.0.1-beta</a></span></dt>
 </dl></div>
 <p>
 SphinxQL is our SQL dialect that exposes all of the search daemon
@@ -4000,7 +4016,7 @@ SELECT
     select_expr [, select_expr ...]
     FROM index [, index2 ...]
     [WHERE where_condition]
-    [GROUP BY {col_name | expr_alias}]
+    [GROUP BY {col_name | expr_alias} [, {sol_name | expr_alias}]]
     [WITHIN GROUP ORDER BY {col_name | expr_alias} {ASC | DESC}]
     [ORDER BY {col_name | expr_alias} {ASC | DESC} [, ...]]
     [LIMIT [offset,] row_count]
@@ -4065,10 +4081,17 @@ There must be at most one MATCH() in the clause. Starting with version
 condition syntax is supported. (Refer to <a href="#sphinxql-set" title="7.9.&nbsp;SET syntax">Section&nbsp;7.9, &#8220;SET syntax&#8221;</a>
 for a discussion of global user variables.)
 </li>
-<li><p>GROUP BY clause. Currently only supports grouping by a single
-column. The column however can be a computed expression:
+<li><p>GROUP BY clause. Supports grouping by multiple columns
+or computed expressions:
 </p><pre class="programlisting">
 SELECT *, group_id*1000+article_type AS gkey FROM example GROUP BY gkey
+SELECT id FROM products GROUP BY region, price
+</pre><p>
+Implicit grouping supported when using aggregate functions without
+specifiying a GROUP BY clause. Consider these two queries:
+</p><pre class="programlisting">
+SELECT MAX(id), MIN(id), COUNT(*) FROM books
+SELECT MAX(id), MIN(id), COUNT(*), 1 AS grp FROM books GROUP BY grp
 </pre><p>
 Aggregate functions (AVG(), MIN(), MAX(), SUM()) in column list
 clause are supported. Arguments to aggregate functions can be either
@@ -4167,7 +4190,7 @@ Supported options and respectively allowed values are:
 <li>'cutoff' - integer (max found matches threshold)</li>
 <li>'field_weights' - a named integer list (per-field user weights for ranking)</li>
 <li>'global_idf' - use global statistics (frequencies)
-from the <a href="#conf-global-idf" title="11.2.68.&nbsp;global_idf">global_idf file</a> for IDF
+from the <a href="#conf-global-idf" title="11.2.69.&nbsp;global_idf">global_idf file</a> for IDF
 computations, rather than the local index statistics.
 Added in version 2.1.1-beta.
 </li>
@@ -4488,7 +4511,7 @@ Introduced in version 2.0.2-beta.
 </p></dd><dt><span class="term"><code class="code">PROFILING = {0 | 1}</code></span></dt>
 <dd><p>
 Enables query profiling in the current session. Defaults to 0.
-See also <a href="#sphinxql-show-profile" title="7.28.&nbsp;SHOW PROFILE syntax">Section&nbsp;7.28, &#8220;SHOW PROFILE syntax&#8221;</a>.
+See also <a href="#sphinxql-show-profile" title="7.29.&nbsp;SHOW PROFILE syntax">Section&nbsp;7.29, &#8220;SHOW PROFILE syntax&#8221;</a>.
 Introduced in version 2.1.1-beta.
 </p></dd></dl></div>
 <p>
@@ -4840,7 +4863,7 @@ Most notably, the target RT index is currently required to be empty,
 making ATTACH INDEX a one-time conversion operation only. Those restrictions
 may be lifted in future releases, as we add the needed functionality to the
 RT indexes. The complete list is as follows.
-</p><div class="itemizedlist"><ul type="disc"><li>Target RT index needs to be empty. (See <a href="#sphinxql-truncate-rtindex" title="7.26.&nbsp;TRUNCATE RTINDEX syntax">Section&nbsp;7.26, &#8220;TRUNCATE RTINDEX syntax&#8221;</a>)</li>
+</p><div class="itemizedlist"><ul type="disc"><li>Target RT index needs to be empty. (See <a href="#sphinxql-truncate-rtindex" title="7.27.&nbsp;TRUNCATE RTINDEX syntax">Section&nbsp;7.27, &#8220;TRUNCATE RTINDEX syntax&#8221;</a>)</li>
 <li>Source disk index needs to have index_sp=0, boundary_step=0, stopword_step=1, dict=crc settings.</li>
 <li>Source disk index needs to have an empty index_zones setting.</li>
 </ul></div>
@@ -4924,7 +4947,29 @@ FLUSH RTINDEX should be almost instant.
 mysql&gt; FLUSH RTINDEX rt;
 Query OK, 0 rows affected (0.05 sec)
 </pre></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="sphinxql-truncate-rtindex"></a>7.26.&nbsp;TRUNCATE RTINDEX syntax</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="sphinxql-flush-ramchunk"></a>7.26.&nbsp;FLUSH RAMCHUNK syntax</h2></div></div></div>
+<pre class="programlisting">
+FLUSH RAMCHUNK rtindex
+</pre><p>
+FLUSH RAMCHUNK statement, added in version 2.1.2-release, forcibly
+creates a new disk chunk in a RT index.
+</p><p>
+Normally, RT index would flush and convert the contents of the
+RAM chunk into a new disk chunk automatically, once the RAM chunk
+reaches the maximum allowed
+<a href="#conf-rt-mem-limit" title="11.2.52.&nbsp;rt_mem_limit">rt_mem_limit</a> size.
+However, for debugging and testing it might be useful to forcibly
+create a new disk chunk, and FLUSH RAMCHUNK statement does exactly that.
+</p><p>
+Note that using FLUSH RAMCHUNK increases RT index fragmentation.
+Most likely, you want to use FLUSH RTINDEX instead. We suggest that
+you abstain from using this statement unless you're absolutely sure
+what you're doing.
+</p><pre class="programlisting">
+mysql&gt; FLUSH RAMCHUNK rt;
+Query OK, 0 rows affected (0.05 sec)
+</pre></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="sphinxql-truncate-rtindex"></a>7.27.&nbsp;TRUNCATE RTINDEX syntax</h2></div></div></div>
 <pre class="programlisting">
 TRUNCATE RTINDEX rtindex
 </pre><p>
@@ -4939,7 +4984,7 @@ You may want to use this if you are using RT indices as "delta index" files; whe
 you build the main index, you need to wipe the delta index, and thus TRUNCATE RTINDEX.
 You also need to use this command before attaching an index; see <a href="#sphinxql-attach-index" title="7.24.&nbsp;ATTACH INDEX syntax">Section&nbsp;7.24, &#8220;ATTACH INDEX syntax&#8221;</a>.
 </p></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="sphinxql-show-agent-status"></a>7.27.&nbsp;SHOW AGENT STATUS</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="sphinxql-show-agent-status"></a>7.28.&nbsp;SHOW AGENT STATUS</h2></div></div></div>
 <pre class="programlisting">
 SHOW AGENT ['agent'|'index'|index] STATUS [ LIKE pattern ]
 </pre><p>
@@ -5045,7 +5090,7 @@ That statement shows the index HA status (ie. whether or not it uses
 agent mirrors at all), and then the mirror information (specifically:
 address, blackhole and persisent flags, and the mirror selection
 probability used when one of the
-<a href="#conf-ha-strategy" title="11.2.62.&nbsp;ha_strategy">weighted-probability strategies</a>
+<a href="#conf-ha-strategy" title="11.2.63.&nbsp;ha_strategy">weighted-probability strategies</a>
 is in effect).
 </p><pre class="programlisting">
 mysql&gt; SHOW AGENT dist_index STATUS;
@@ -5068,7 +5113,7 @@ mysql&gt; SHOW AGENT dist_index STATUS;
 +--------------------------------------+--------------------------------+
 13 rows in set (0.00 sec)
 </pre></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="sphinxql-show-profile"></a>7.28.&nbsp;SHOW PROFILE syntax</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="sphinxql-show-profile"></a>7.29.&nbsp;SHOW PROFILE syntax</h2></div></div></div>
 <pre class="programlisting">
 SHOW PROFILE
 </pre><p>
@@ -5165,7 +5210,7 @@ really belong in any other state, but are too small to deserve their own state.
 </ul></div>
 <p>
 </p></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="sphinxql-show-index-status"></a>7.29.&nbsp;SHOW INDEX STATUS syntax</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="sphinxql-show-index-status"></a>7.30.&nbsp;SHOW INDEX STATUS syntax</h2></div></div></div>
 <pre class="programlisting">
 SHOW INDEX index_name STATUS
 </pre><p>
@@ -5195,7 +5240,7 @@ mysql&gt; SHOW INDEX lj STATUS;
 +----------------------+------------+
 6 rows in set (0.00 sec)
 </pre></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="sphinxql-optimize-index"></a>7.30.&nbsp;OPTIMIZE INDEX syntax</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="sphinxql-optimize-index"></a>7.31.&nbsp;OPTIMIZE INDEX syntax</h2></div></div></div>
 <pre class="programlisting">
 OPTIMIZE INDEX index_name
 </pre><p>
@@ -5234,7 +5279,49 @@ automatically. That might change in the future releases.
 mysql&gt; OPTIMIZE INDEX rt;
 Query OK, 0 rows affected (0.00 sec)
 </pre></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="sphinxql-multi-queries"></a>7.31.&nbsp;Multi-statement queries</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="sphinxql-show-plan"></a>7.32.&nbsp;SHOW PLAN syntax</h2></div></div></div>
+<pre class="programlisting">
+SHOW PLAN
+</pre><p>
+SHOW PLAN statement, added in 2.1.2-release, displays the execution plan
+of the previous SELECT statment. The plan gets generated and stored
+during the actual execution, so profiling must be enabled in the current
+session <span class="bold"><strong>before</strong></span> running that statement. That can be done
+with a <code class="code">SET profiling=1</code> statement.
+</p><p>
+Here's a complete instrumentation example:
+</p><pre class="programlisting">
+mysql&gt; SET profiling=1 \G
+Query OK, 0 rows affected (0.00 sec)
+
+mysql&gt; SELECT id FROM lj WHERE MATCH('the i') LIMIT 1 \G
+*************************** 1. row ***************************
+id: 39815
+1 row in set (1.53 sec)
+
+mysql&gt; SHOW PLAN \G
+*************************** 1. row ***************************
+Variable: transformed_tree
+   Value: AND(
+  AND(KEYWORD(the, querypos=1)),
+  AND(KEYWORD(i, querypos=2)))
+1 row in set (0.00 sec)
+</pre><p>
+And here's a less trivial example that shows how the actually
+evaluated query tree can be rather different from the original one
+because of expansions and other transformations:
+</p><pre class="programlisting">
+mysql&gt; SELECT * FROM test WHERE MATCH('@title abc* @body hey') \G SHOW PLAN \G
+...
+*************************** 1. row ***************************
+Variable: transformed_tree
+   Value: AND(
+  OR(fields=(title), KEYWORD(abcx, querypos=1, expanded), KEYWORD(abcm, querypos=1, expanded)),
+  AND(fields=(body), KEYWORD(hey, querypos=2)))
+1 row in set (0.00 sec)
+</pre><p>
+</p></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="sphinxql-multi-queries"></a>7.33.&nbsp;Multi-statement queries</h2></div></div></div>
 <p>
 Starting version 2.0.1-beta, SphinxQL supports multi-statement
 queries, or batches. Possible inter-statement optimizations described
@@ -5296,7 +5383,7 @@ sequence of these statements are allowed. The results sets
 returned should match those that would be returned if the
 batched queries were sent one by one.
 </p></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="sphinxql-comment-syntax"></a>7.32.&nbsp;Comment syntax</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="sphinxql-comment-syntax"></a>7.34.&nbsp;Comment syntax</h2></div></div></div>
 <p>
 Since version 2.0.1-beta, SphinxQL supports C-style comment syntax.
 Everything from an opening <code class="code">/*</code> sequence to a closing
@@ -5310,7 +5397,7 @@ improving generaly query interoperability between Sphinx and MySQL.)
 SELECT /*! SQL_CALC_FOUND_ROWS */ col1 FROM table1 WHERE ...
 </pre><p>
 </p></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="sphinxql-reserved-keywords"></a>7.33.&nbsp;List of SphinxQL reserved keywords</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="sphinxql-reserved-keywords"></a>7.35.&nbsp;List of SphinxQL reserved keywords</h2></div></div></div>
 <p>A complete alphabetical list of keywords that are currently reserved
 in SphinxQL syntax (and therefore can not be used as identifiers).
 </p><pre class="programlisting">
@@ -5367,7 +5454,7 @@ WEIGHT
 WHERE
 WITHIN
 </pre></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="sphinxql-upgrading-magics"></a>7.34.&nbsp;SphinxQL upgrade notes, version 2.0.1-beta</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="sphinxql-upgrading-magics"></a>7.36.&nbsp;SphinxQL upgrade notes, version 2.0.1-beta</h2></div></div></div>
 <p>
 This section only applies to existing applications that
 use SphinxQL versions prior to 2.0.1-beta.
@@ -5604,7 +5691,7 @@ Introduced in version 0.9.9-rc1.
 </p></div></div>
 <div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="api-funcgroup-general-query-settings"></a>8.2.&nbsp;General query settings</h2></div></div></div>
 <div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="api-func-setlimits"></a>8.2.1.&nbsp;SetLimits</h3></div></div></div>
-<p><span class="bold"><strong>Prototype:</strong></span> function SetLimits ( $offset, $limit, $max_matches=0, $cutoff=0 )</p><p>
+<p><span class="bold"><strong>Prototype:</strong></span> function SetLimits ( $offset, $limit, $max_matches=1000, $cutoff=0 )</p><p>
 Sets offset into server-side result set (<code class="code">$offset</code>) and amount of matches
 to return to client starting from that offset (<code class="code">$limit</code>). Can additionally
 control maximum server-side result set size for current query (<code class="code">$max_matches</code>)
@@ -6589,7 +6676,7 @@ and min and max values to match:
 ... WHERE query='test;cutoff=10000;';
 </pre><p>
 </p></li>
-<li><p>maxquerytme - maximum allowed query time (in milliseconds), as in
+<li><p>maxquerytime - maximum allowed query time (in milliseconds), as in
 <a href="#api-func-setmaxquerytime" title="8.2.2.&nbsp;SetMaxQueryTime">SetMaxQueryTime()</a> API call:
 </p><pre class="programlisting">
 ... WHERE query='test;maxquerytime=1000;';
@@ -7059,20 +7146,21 @@ you a few additional questions about it.
 <dt><span class="sect2"><a href="#conf-rt-mem-limit">11.2.52. rt_mem_limit</a></span></dt>
 <dt><span class="sect2"><a href="#conf-rt-field">11.2.53. rt_field</a></span></dt>
 <dt><span class="sect2"><a href="#conf-rt-attr-uint">11.2.54. rt_attr_uint</a></span></dt>
-<dt><span class="sect2"><a href="#conf-rt-attr-bigint">11.2.55. rt_attr_bigint</a></span></dt>
-<dt><span class="sect2"><a href="#conf-rt-attr-float">11.2.56. rt_attr_float</a></span></dt>
-<dt><span class="sect2"><a href="#conf-rt-attr-multi">11.2.57. rt_attr_multi</a></span></dt>
-<dt><span class="sect2"><a href="#conf-rt-attr-multi-64">11.2.58. rt_attr_multi_64</a></span></dt>
-<dt><span class="sect2"><a href="#conf-rt-attr-timestamp">11.2.59. rt_attr_timestamp</a></span></dt>
-<dt><span class="sect2"><a href="#conf-rt-attr-string">11.2.60. rt_attr_string</a></span></dt>
-<dt><span class="sect2"><a href="#conf-rt-attr-json">11.2.61. rt_attr_json</a></span></dt>
-<dt><span class="sect2"><a href="#conf-ha-strategy">11.2.62. ha_strategy</a></span></dt>
-<dt><span class="sect2"><a href="#conf-bigram-freq-words">11.2.63. bigram_freq_words</a></span></dt>
-<dt><span class="sect2"><a href="#conf-bigram-index">11.2.64. bigram_index</a></span></dt>
-<dt><span class="sect2"><a href="#conf-index-field-lengths">11.2.65. index_field_lengths</a></span></dt>
-<dt><span class="sect2"><a href="#conf-regexp-filter">11.2.66. regexp_filter</a></span></dt>
-<dt><span class="sect2"><a href="#conf-stopwords-unstemmed">11.2.67. stopwords_unstemmed</a></span></dt>
-<dt><span class="sect2"><a href="#conf-global-idf">11.2.68. global_idf</a></span></dt>
+<dt><span class="sect2"><a href="#conf-rt-attr-bool">11.2.55. rt_attr_bool</a></span></dt>
+<dt><span class="sect2"><a href="#conf-rt-attr-bigint">11.2.56. rt_attr_bigint</a></span></dt>
+<dt><span class="sect2"><a href="#conf-rt-attr-float">11.2.57. rt_attr_float</a></span></dt>
+<dt><span class="sect2"><a href="#conf-rt-attr-multi">11.2.58. rt_attr_multi</a></span></dt>
+<dt><span class="sect2"><a href="#conf-rt-attr-multi-64">11.2.59. rt_attr_multi_64</a></span></dt>
+<dt><span class="sect2"><a href="#conf-rt-attr-timestamp">11.2.60. rt_attr_timestamp</a></span></dt>
+<dt><span class="sect2"><a href="#conf-rt-attr-string">11.2.61. rt_attr_string</a></span></dt>
+<dt><span class="sect2"><a href="#conf-rt-attr-json">11.2.62. rt_attr_json</a></span></dt>
+<dt><span class="sect2"><a href="#conf-ha-strategy">11.2.63. ha_strategy</a></span></dt>
+<dt><span class="sect2"><a href="#conf-bigram-freq-words">11.2.64. bigram_freq_words</a></span></dt>
+<dt><span class="sect2"><a href="#conf-bigram-index">11.2.65. bigram_index</a></span></dt>
+<dt><span class="sect2"><a href="#conf-index-field-lengths">11.2.66. index_field_lengths</a></span></dt>
+<dt><span class="sect2"><a href="#conf-regexp-filter">11.2.67. regexp_filter</a></span></dt>
+<dt><span class="sect2"><a href="#conf-stopwords-unstemmed">11.2.68. stopwords_unstemmed</a></span></dt>
+<dt><span class="sect2"><a href="#conf-global-idf">11.2.69. global_idf</a></span></dt>
 </dl></dd><dt><span class="sect1"><a href="#confgroup-indexer">11.3. <code class="filename">indexer</code> program configuration options</a></span></dt>
 <dd><dl><dt><span class="sect2"><a href="#conf-mem-limit">11.3.1. mem_limit</a></span></dt>
 <dt><span class="sect2"><a href="#conf-max-iops">11.3.2. max_iops</a></span></dt>
@@ -7616,6 +7704,7 @@ sql_attr_timestamp = added_ts
 </pre></div>
 <div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-sql-attr-str2ordinal"></a>11.1.24.&nbsp;sql_attr_str2ordinal</h3></div></div></div>
 <p>
+Deprecated.
 Ordinal string number <a href="#attributes" title="3.3.&nbsp;Attributes">attribute</a> declaration.
 Multi-value (there might be multiple attributes declared), optional.
 Applies to SQL source types (<code class="option">mysql</code>, <code class="option">pgsql</code>, <code class="option">mssql</code>) only.
@@ -7758,6 +7847,7 @@ sql_attr_json = properties
 </pre></div>
 <div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-sql-attr-str2wordcount"></a>11.1.29.&nbsp;sql_attr_str2wordcount</h3></div></div></div>
 <p>
+Deprecated.
 Word-count attribute declaration.
 Multi-value (ie. there may be more than one such attribute declared), optional.
 Applies to SQL source types (<code class="option">mysql</code>, <code class="option">pgsql</code>, <code class="option">mssql</code>) only.
@@ -7818,6 +7908,7 @@ sql_field_string = title # will be both indexed and stored
 </pre></div>
 <div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-sql-field-str2wordcount"></a>11.1.32.&nbsp;sql_field_str2wordcount</h3></div></div></div>
 <p>
+Deprecated.
 Combined word-count attribute and full-text field declaration.
 Multi-value (ie. there may be more than one such attribute declared), optional.
 Applies to SQL source types (<code class="option">mysql</code>, <code class="option">pgsql</code>, <code class="option">mssql</code>) only.
@@ -7988,6 +8079,7 @@ xmlpipe_attr_timestamp = published
 </pre></div>
 <div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-xmlpipe-attr-str2ordinal"></a>11.1.46.&nbsp;xmlpipe_attr_str2ordinal</h3></div></div></div>
 <p>
+Deprecated.
 xmlpipe string ordinal attribute declaration.
 Multi-value, optional.
 Applies to <code class="option">xmlpipe2</code> source type only.
@@ -8606,7 +8698,7 @@ settings, so you can use the same separators as in the indexed data.
 The <a href="#conf-morphology" title="11.2.6.&nbsp;morphology">stemmers</a> will normally be
 applied when parsing stopwords file. That might however lead to undesired
 results. Starting with 2.1.1-beta, you can turn that off with
-<a href="#conf-stopwords-unstemmed" title="11.2.67.&nbsp;stopwords_unstemmed">stopwords_unstemmed</a>.
+<a href="#conf-stopwords-unstemmed" title="11.2.68.&nbsp;stopwords_unstemmed">stopwords_unstemmed</a>.
 </p><p>
 Starting with version 2.1.1-beta small enough files are stored in the index
 header, see <a href="#conf-embedded-limit" title="11.2.13.&nbsp;embedded_limit">Section&nbsp;11.2.13, &#8220;embedded_limit&#8221;</a> for details.
@@ -8912,7 +9004,7 @@ charset_table = 0..9, A..Z-&gt;a..z, _, a..z, \
 
 # 'utf-8' defaults for English and Russian
 charset_table = 0..9, A..Z-&gt;a..z, _, a..z, \
-    U+410..U+42F-&gt;U+430..U+44F, U+430..U+44F
+    U+410..U+42F-&gt;U+430..U+44F, U+430..U+44F, U+401-&gt;U+451, U+451
 </pre></div>
 <div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-ignore-chars"></a>11.2.18.&nbsp;ignore_chars</h3></div></div></div>
 <p>
@@ -9357,11 +9449,11 @@ time, etc) recently observed for every agent. It groups those by time spans,
 and karma is that time span length. The best agent mirror is then determined
 dynamically based on the last 2 such time spans. Specific algorithm that
 will be used to pick a mirror can be configured
-<a href="#conf-ha-strategy" title="11.2.62.&nbsp;ha_strategy">ha_strategy</a> directive.
+<a href="#conf-ha-strategy" title="11.2.63.&nbsp;ha_strategy">ha_strategy</a> directive.
 </p><p>
 The karma period is in seconds and defaults to 60 seconds. Master stores
 upto 15 karma spans with per-agent statistics for instrumentation purposes
-(see  <a href="#sphinxql-show-agent-status" title="7.27.&nbsp;SHOW AGENT STATUS">SHOW AGENT STATUS</a>
+(see  <a href="#sphinxql-show-agent-status" title="7.28.&nbsp;SHOW AGENT STATUS">SHOW AGENT STATUS</a>
 statement). However, only the last 2 spans out of those are ever used for
 HA/LB logic.
 </p><p>
@@ -9807,7 +9899,16 @@ Introduced in version 1.10-beta.
 </p><h4>Example:</h4><pre class="programlisting">
 rt_attr_uint = gid
 </pre></div>
-<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-rt-attr-bigint"></a>11.2.55.&nbsp;rt_attr_bigint</h3></div></div></div>
+<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-rt-attr-bool"></a>11.2.55.&nbsp;rt_attr_bool</h3></div></div></div>
+<p>
+Boolean attribute declaration.
+Multi-value (there might be multiple attributes declared), optional.
+Declares a 1-bit unsigned integer attribute.
+Introduced in version 2.1.2-release.
+</p><h4>Example:</h4><pre class="programlisting">
+rt_attr_bool = available
+</pre></div>
+<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-rt-attr-bigint"></a>11.2.56.&nbsp;rt_attr_bigint</h3></div></div></div>
 <p>
 BIGINT attribute declaration.
 Multi-value (an arbitrary number of attributes is allowed), optional.
@@ -9816,7 +9917,7 @@ Introduced in version 1.10-beta.
 </p><h4>Example:</h4><pre class="programlisting">
 rt_attr_bigint = guid
 </pre></div>
-<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-rt-attr-float"></a>11.2.56.&nbsp;rt_attr_float</h3></div></div></div>
+<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-rt-attr-float"></a>11.2.57.&nbsp;rt_attr_float</h3></div></div></div>
 <p>
 Floating point attribute declaration.
 Multi-value (an arbitrary number of attributes is allowed), optional.
@@ -9825,7 +9926,7 @@ Introduced in version 1.10-beta.
 </p><h4>Example:</h4><pre class="programlisting">
 rt_attr_float = gpa
 </pre></div>
-<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-rt-attr-multi"></a>11.2.57.&nbsp;rt_attr_multi</h3></div></div></div>
+<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-rt-attr-multi"></a>11.2.58.&nbsp;rt_attr_multi</h3></div></div></div>
 <p>
 <a href="#mva" title="3.4.&nbsp;MVA (multi-valued attributes)">Multi-valued attribute</a> (MVA) declaration.
 Declares the UNSIGNED INTEGER (unsigned 32-bit) MVA attribute.
@@ -9834,7 +9935,7 @@ Applies to RT indexes only.
 </p><h4>Example:</h4><pre class="programlisting">
 rt_attr_multi = my_tags
 </pre></div>
-<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-rt-attr-multi-64"></a>11.2.58.&nbsp;rt_attr_multi_64</h3></div></div></div>
+<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-rt-attr-multi-64"></a>11.2.59.&nbsp;rt_attr_multi_64</h3></div></div></div>
 <p>
 <a href="#mva" title="3.4.&nbsp;MVA (multi-valued attributes)">Multi-valued attribute</a> (MVA) declaration.
 Declares the BIGINT (signed 64-bit) MVA attribute.
@@ -9843,7 +9944,7 @@ Applies to RT indexes only.
 </p><h4>Example:</h4><pre class="programlisting">
 rt_attr_multi_64 = my_wide_tags
 </pre></div>
-<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-rt-attr-timestamp"></a>11.2.59.&nbsp;rt_attr_timestamp</h3></div></div></div>
+<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-rt-attr-timestamp"></a>11.2.60.&nbsp;rt_attr_timestamp</h3></div></div></div>
 <p>
 Timestamp attribute declaration.
 Multi-value (an arbitrary number of attributes is allowed), optional.
@@ -9851,7 +9952,7 @@ Introduced in version 1.10-beta.
 </p><h4>Example:</h4><pre class="programlisting">
 rt_attr_timestamp = date_added
 </pre></div>
-<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-rt-attr-string"></a>11.2.60.&nbsp;rt_attr_string</h3></div></div></div>
+<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-rt-attr-string"></a>11.2.61.&nbsp;rt_attr_string</h3></div></div></div>
 <p>
 String attribute declaration.
 Multi-value (an arbitrary number of attributes is allowed), optional.
@@ -9859,7 +9960,7 @@ Introduced in version 1.10-beta.
 </p><h4>Example:</h4><pre class="programlisting">
 rt_attr_string = author
 </pre></div>
-<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-rt-attr-json"></a>11.2.61.&nbsp;rt_attr_json</h3></div></div></div>
+<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-rt-attr-json"></a>11.2.62.&nbsp;rt_attr_json</h3></div></div></div>
 <p>
 JSON attribute declaration.
 Multi-value (ie. there may be more than one such attribute declared), optional.
@@ -9869,7 +9970,7 @@ Refer to <a href="#conf-sql-attr-json" title="11.1.28.&nbsp;sql_attr_json">Secti
 </p><h4>Example:</h4><pre class="programlisting">
 rt_attr_json = properties
 </pre></div>
-<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-ha-strategy"></a>11.2.62.&nbsp;ha_strategy</h3></div></div></div>
+<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-ha-strategy"></a>11.2.63.&nbsp;ha_strategy</h3></div></div></div>
 <p>
 Agent mirror selection strategy, for load balancing.
 Optional, default is random.
@@ -9935,7 +10036,7 @@ the randomized strategies, RR imposes a strict querying order (1, 2, 3, ..,
 N-1, N, 1, 2, 3, ... and so on) and <span class="emphasis"><em>guarantees</em></span> that
 no two subsequent queries will be sent to the same mirror.
 </p></div>
-<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-bigram-freq-words"></a>11.2.63.&nbsp;bigram_freq_words</h3></div></div></div>
+<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-bigram-freq-words"></a>11.2.64.&nbsp;bigram_freq_words</h3></div></div></div>
 <p>
 A list of keywords considered "frequent" when indexing bigrams.
 Optional, default is empty.
@@ -9947,7 +10048,7 @@ of the adjacent words pairs into the index. Such a list can then be used
 at searching time to significantly accelerate phrase or sub-phrase
 matching.
 </p><p>
-Some of the bigram indexing modes (see <a href="#conf-bigram-index" title="11.2.64.&nbsp;bigram_index">Section&nbsp;11.2.64, &#8220;bigram_index&#8221;</a>)
+Some of the bigram indexing modes (see <a href="#conf-bigram-index" title="11.2.65.&nbsp;bigram_index">Section&nbsp;11.2.65, &#8220;bigram_index&#8221;</a>)
 require to define a list of frequent keywords. These are <span class="bold"><strong>not</strong></span> to be
 confused with stopwords! Stopwords are completely eliminated when both indexing
 and searching. Frequent keywords are only used by bigrams to determine whether
@@ -9957,7 +10058,7 @@ to index a current word pair or not.
 </p><h4>Example:</h4><pre class="programlisting">
 bigram_freq_words = the, a, you, i
 </pre></div>
-<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-bigram-index"></a>11.2.64.&nbsp;bigram_index</h3></div></div></div>
+<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-bigram-index"></a>11.2.65.&nbsp;bigram_index</h3></div></div></div>
 <p>
 Bigram indexing mode.
 Optional, default is none.
@@ -9977,7 +10078,7 @@ but added anyway for the sake of completeness.)
 </li>
 <li><p><code class="code">first_freq</code>, only index word pairs
 where the <span class="emphasis"><em>first</em></span> word is in a list of frequent words
-(see <a href="#conf-bigram-freq-words" title="11.2.63.&nbsp;bigram_freq_words">Section&nbsp;11.2.63, &#8220;bigram_freq_words&#8221;</a>). For example, with
+(see <a href="#conf-bigram-freq-words" title="11.2.64.&nbsp;bigram_freq_words">Section&nbsp;11.2.64, &#8220;bigram_freq_words&#8221;</a>). For example, with
 <code class="code">bigram_freq_words = the, in, i, a</code>, indexing
 "alone in the dark" text will result in "in the" and "the dark" pairs
 being stored as bigrams, because they begin with a frequent keyword
@@ -9997,7 +10098,7 @@ your mileage may vary.
 </p><h4>Example:</h4><pre class="programlisting">
 bigram_freq_words = both_freq
 </pre></div>
-<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-index-field-lengths"></a>11.2.65.&nbsp;index_field_lengths</h3></div></div></div>
+<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-index-field-lengths"></a>11.2.66.&nbsp;index_field_lengths</h3></div></div></div>
 <p>
 Enables computing and storing of field lengths (both per-document and
 average per-index values) into the index.
@@ -10024,7 +10125,7 @@ directive.
 </p><h4>Example:</h4><pre class="programlisting">
 index_field_lengths = 1
 </pre></div>
-<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-regexp-filter"></a>11.2.66.&nbsp;regexp_filter</h3></div></div></div>
+<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-regexp-filter"></a>11.2.67.&nbsp;regexp_filter</h3></div></div></div>
 <p>
 Regular expressions (regexps) to filter the fields and queries with.
 Optional, multi-value, default is an empty list of regexps.
@@ -10065,7 +10166,7 @@ regexp_filter = \b(\d+)\" =&gt; \1inch
 # index 'blue' or 'red' as 'color'
 regexp_filter = (blue|red) =&gt; color
 </pre></div>
-<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-stopwords-unstemmed"></a>11.2.67.&nbsp;stopwords_unstemmed</h3></div></div></div>
+<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-stopwords-unstemmed"></a>11.2.68.&nbsp;stopwords_unstemmed</h3></div></div></div>
 <p>
 Whether to apply stopwords before or after stemming.
 Optional, default is 0 (apply stopword filter after stemming).
@@ -10085,7 +10186,7 @@ word forms), and the tokens are stopped when token == stopword.
 </p><h4>Example:</h4><pre class="programlisting">
 stopwords_unstemmed = 1
 </pre></div>
-<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-global-idf"></a>11.2.68.&nbsp;global_idf</h3></div></div></div>
+<div class="sect2" lang="en"><div class="titlepage"><div><div><h3 class="title"><a name="conf-global-idf"></a>11.2.69.&nbsp;global_idf</h3></div></div></div>
 <p>
 The path to a file with global (cluster-wide) keyword IDFs.
 Optional, default is empty (use local IDFs).
@@ -11031,7 +11132,7 @@ safely. It defaults to 0, which acts in modern way.
 <span class="bold"><strong>SphinxQL compatibility mode is now deprecated and
 will be removed</strong></span> once we complete bringing SphinxQL in line
 with standard SQL syntax.
-Please refer to <a href="#sphinxql-upgrading-magics" title="7.34.&nbsp;SphinxQL upgrade notes, version 2.0.1-beta">Section&nbsp;7.34, &#8220;SphinxQL upgrade notes, version 2.0.1-beta&#8221;</a>
+Please refer to <a href="#sphinxql-upgrading-magics" title="7.36.&nbsp;SphinxQL upgrade notes, version 2.0.1-beta">Section&nbsp;7.36, &#8220;SphinxQL upgrade notes, version 2.0.1-beta&#8221;</a>
 for the details and update instruction.
 </p><h4>Example:</h4><pre class="programlisting">
 compat_sphinxql_magics = 0 # the future is now
@@ -11123,7 +11224,7 @@ any previous history stops affecting the mirror choice after
 Despite that at most 2 blocks are used for mirror selection,
 upto 15 last blocks are actually stored, for instrumentation purposes.
 They can be inspected using
-<a href="#sphinxql-show-agent-status" title="7.27.&nbsp;SHOW AGENT STATUS">SHOW AGENT STATUS</a>
+<a href="#sphinxql-show-agent-status" title="7.28.&nbsp;SHOW AGENT STATUS">SHOW AGENT STATUS</a>
 statement.
 </p><h4>Example:</h4><pre class="programlisting">
 ha_period_karma = 120
@@ -11220,46 +11321,141 @@ to specify all of them, for readability.
 predicted_time_costs = doc=128, hit=96, skip=4096, match=128
 </pre></div></div></div>
 <div class="appendix" lang="en"><div class="titlepage"><div><div><h2 class="title"><a name="changelog"></a>Appendix&nbsp;A.&nbsp;Sphinx revision history</h2></div></div></div>
-<div class="toc"><p><b>Table of Contents</b></p><dl><dt><span class="sect1"><a href="#rel211">A.1. Version 2.1.1-beta, 20 feb 2013</a></span></dt>
-<dt><span class="sect1"><a href="#rel206">A.2. Version 2.0.6-release, 22 oct 2012</a></span></dt>
-<dt><span class="sect1"><a href="#rel205">A.3. Version 2.0.5-release, 28 jul 2012</a></span></dt>
-<dt><span class="sect1"><a href="#rel204">A.4. Version 2.0.4-release, 02 mar 2012</a></span></dt>
-<dt><span class="sect1"><a href="#rel203">A.5. Version 2.0.3-release, 23 dec 2011</a></span></dt>
-<dt><span class="sect1"><a href="#rel202">A.6. Version 2.0.2-beta, 15 nov 2011</a></span></dt>
-<dt><span class="sect1"><a href="#rel201">A.7. Version 2.0.1-beta, 22 apr 2011</a></span></dt>
-<dt><span class="sect1"><a href="#rel110">A.8. Version 1.10-beta, 19 jul 2010</a></span></dt>
-<dt><span class="sect1"><a href="#rel099">A.9. Version 0.9.9-release, 02 dec 2009</a></span></dt>
-<dt><span class="sect1"><a href="#rel099rc2">A.10. Version 0.9.9-rc2, 08 apr 2009</a></span></dt>
-<dt><span class="sect1"><a href="#rel099rc1">A.11. Version 0.9.9-rc1, 17 nov 2008</a></span></dt>
-<dt><span class="sect1"><a href="#rel0981">A.12. Version 0.9.8.1, 30 oct 2008</a></span></dt>
-<dt><span class="sect1"><a href="#rel098">A.13. Version 0.9.8, 14 jul 2008</a></span></dt>
-<dt><span class="sect1"><a href="#rel097">A.14. Version 0.9.7, 02 apr 2007</a></span></dt>
-<dt><span class="sect1"><a href="#rel097rc2">A.15. Version 0.9.7-rc2, 15 dec 2006</a></span></dt>
-<dt><span class="sect1"><a href="#rel097rc">A.16. Version 0.9.7-rc1, 26 oct 2006</a></span></dt>
-<dt><span class="sect1"><a href="#rel096">A.17. Version 0.9.6, 24 jul 2006</a></span></dt>
-<dt><span class="sect1"><a href="#rel096rc1">A.18. Version 0.9.6-rc1, 26 jun 2006</a></span></dt>
+<div class="toc"><p><b>Table of Contents</b></p><dl><dt><span class="sect1"><a href="#rel214">A.1. Version 2.1.4-release, 18 dec 2013</a></span></dt>
+<dt><span class="sect1"><a href="#rel213">A.2. Version 2.1.3-release, 12 nov 2013</a></span></dt>
+<dt><span class="sect1"><a href="#rel212">A.3. Version 2.1.2-release, 10 oct 2013</a></span></dt>
+<dt><span class="sect1"><a href="#rel211">A.4. Version 2.1.1-beta, 20 feb 2013</a></span></dt>
+<dt><span class="sect1"><a href="#rel209">A.5. Version 2.0.9-release, 26 aug 2013</a></span></dt>
+<dt><span class="sect1"><a href="#rel208">A.6. Version 2.0.8-release, 26 apr 2013</a></span></dt>
+<dt><span class="sect1"><a href="#rel207">A.7. Version 2.0.7-release, 26 mar 2013</a></span></dt>
+<dt><span class="sect1"><a href="#rel206">A.8. Version 2.0.6-release, 22 oct 2012</a></span></dt>
+<dt><span class="sect1"><a href="#rel205">A.9. Version 2.0.5-release, 28 jul 2012</a></span></dt>
+<dt><span class="sect1"><a href="#rel204">A.10. Version 2.0.4-release, 02 mar 2012</a></span></dt>
+<dt><span class="sect1"><a href="#rel203">A.11. Version 2.0.3-release, 23 dec 2011</a></span></dt>
+<dt><span class="sect1"><a href="#rel202">A.12. Version 2.0.2-beta, 15 nov 2011</a></span></dt>
+<dt><span class="sect1"><a href="#rel201">A.13. Version 2.0.1-beta, 22 apr 2011</a></span></dt>
+<dt><span class="sect1"><a href="#rel110">A.14. Version 1.10-beta, 19 jul 2010</a></span></dt>
+<dt><span class="sect1"><a href="#rel099">A.15. Version 0.9.9-release, 02 dec 2009</a></span></dt>
+<dt><span class="sect1"><a href="#rel099rc2">A.16. Version 0.9.9-rc2, 08 apr 2009</a></span></dt>
+<dt><span class="sect1"><a href="#rel099rc1">A.17. Version 0.9.9-rc1, 17 nov 2008</a></span></dt>
+<dt><span class="sect1"><a href="#rel0981">A.18. Version 0.9.8.1, 30 oct 2008</a></span></dt>
+<dt><span class="sect1"><a href="#rel098">A.19. Version 0.9.8, 14 jul 2008</a></span></dt>
+<dt><span class="sect1"><a href="#rel097">A.20. Version 0.9.7, 02 apr 2007</a></span></dt>
+<dt><span class="sect1"><a href="#rel097rc2">A.21. Version 0.9.7-rc2, 15 dec 2006</a></span></dt>
+<dt><span class="sect1"><a href="#rel097rc">A.22. Version 0.9.7-rc1, 26 oct 2006</a></span></dt>
+<dt><span class="sect1"><a href="#rel096">A.23. Version 0.9.6, 24 jul 2006</a></span></dt>
+<dt><span class="sect1"><a href="#rel096rc1">A.24. Version 0.9.6-rc1, 26 jun 2006</a></span></dt>
 </dl></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel211"></a>A.1.&nbsp;Version 2.1.1-beta, 20 feb 2013</h2></div></div></div>
-<h3>Major new features</h3><div class="itemizedlist"><ul type="disc"><li>added query profiling (SET PROFILING=1 and <a href="#sphinxql-show-profile" title="7.28.&nbsp;SHOW PROFILE syntax">SHOW PROFILE</a> statements)</li>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel214"></a>A.1.&nbsp;Version 2.1.4-release, 18 dec 2013</h2></div></div></div>
+<h3>Bug fixes</h3><div class="itemizedlist"><ul type="disc"><li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1778" target="_top">#1778</a>, indexes with more than 255 attributes</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1777" target="_top">#1777</a>, <a href="#sphinxql-select" title="7.1.&nbsp;SELECT syntax">ORDER BY WEIGHT()</a></li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1796" target="_top">#1796</a>, missing results in queries with quorum operator of indexes with some lemmatizer</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1780" target="_top">#1780</a>, incorrect results while querying indexes with wordforms, some lemmatizer and enable_star=1</li>
+<li>fixed, SHOW PROFILE for fullscan queries</li>
+<li>fixed, --with-re2 check</li>
+</ul></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel213"></a>A.2.&nbsp;Version 2.1.3-release, 12 nov 2013</h2></div></div></div>
+<h3>Bug fixes</h3><div class="itemizedlist"><ul type="disc"><li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1753" target="_top">#1753</a>, path to re2 sources could not be set using <code class="option">--with-re2</code>, options <code class="option">--with-re2-libs</code> and <code class="option">--with-re2-includes</code> added to <code class="filename">configure</code></li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1739" target="_top">#1739</a>, erroneous conversion of RAM chunk into disk chunk when loading id32 index with id64 binary</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1738" target="_top">#1738</a>, unlinking RAM chunk when converting it to disk chunk</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1710" target="_top">#1710</a>, unable to filter by attributes created by index_field_lenghts=1</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1716" target="_top">#1716</a>, random crash with with multiple running threads</li>
+<li>fixed crash while querying index with lemmatizer and wordforms</li>
+</ul></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel212"></a>A.3.&nbsp;Version 2.1.2-release, 10 oct 2013</h2></div></div></div>
+<h3>New features</h3><div class="itemizedlist"><ul type="disc"><li>added <a href="#sphinxql-flush-ramchunk" title="7.26.&nbsp;FLUSH RAMCHUNK syntax">FLUSH RAMCHUNK</a> statement</li>
+<li>added <a href="#sphinxql-show-plan" title="7.32.&nbsp;SHOW PLAN syntax">SHOW PLAN</a> statement</li>
+<li>added support for <a href="#sphinxql-select" title="7.1.&nbsp;SELECT syntax">GROUP BY</a> on multiple attributes</li>
+<li>added <a href="#expression-ranker">BM25F()</a> function to <code class="code">SELECT</code> expressions (now works with the expression based ranker)</li>
+<li>added <a href="#ref-indextool" title="6.5.&nbsp;indextool command reference">indextool</a> <code class="option">--fold</code> command and <code class="option">-q</code> switch</li>
+<li>added JSON debug check for RT index RAM chunk</li>
+<li>added <a href="#expr-func-length">LENGTH()</a> function for MVA</li>
+<li>added missing <a href="#conf-rt-attr-bool" title="11.2.55.&nbsp;rt_attr_bool">rt_attr_bool</a> directive</li>
+<li>added support for selecting over 250 columns via SphinxQL</li>
+<li>deprecated custom sort mode, and <a href="#conf-sql-attr-str2ordinal" title="11.1.24.&nbsp;sql_attr_str2ordinal">str2ordinal</a> and <a href="#conf-sql-attr-str2wordcount" title="11.1.29.&nbsp;sql_attr_str2wordcount">str2wordcount</a> attribute types</li>
+<li>optimized <code class="code">SELECT</code>, <code class="code">UPDATE</code> for indexes with many attributes (up to 3.5x speedup in extreme cases)</li>
+<li><code class="code">JSON</code> attributes (up to 5-20% faster <code class="code">SELECTs</code> using JSON objects)</li>
+<li>optimized <a href="#xmlpipe2" title="3.10.&nbsp;xmlpipe2 data source">xmlpipe2</a> indexing (up to 9 times faster on some schemas)</li>
+</ul></div>
+<h3>Bug fixes</h3><div class="itemizedlist"><ul type="disc"><li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1684" target="_top">#1684</a>, <a href="#sphinxql-select" title="7.1.&nbsp;SELECT syntax">COUNT(DISTINCT smth)</a> with implicit <code class="code">GROUP BY</code> returns correct value now</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1672" target="_top">#1672</a>, exact token AOT vs lemma (<code class="filename">indexer</code> skips exact form of token that passed AOT through tokenizer)</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1659" target="_top">#1659</a>, fail while loading empty infix dictionary with <a href="#conf-dict" title="11.2.7.&nbsp;dict">dict=keywords</a></li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1638" target="_top">#1638</a>, force explicit JSON type conversion for aggregate functions</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1628" target="_top">#1628</a>, <a href="#sphinxql-select" title="7.1.&nbsp;SELECT syntax">GROUP_CONCAT()</a> and <a href="#sphinxql-select" title="7.1.&nbsp;SELECT syntax">GROUPBY()</a> support for distributed agents</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1619" target="_top">#1619</a>, <code class="code">INTEGER()</code> conversion function doesn't support signed integers</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1615" target="_top">#1615</a>, global IDF vs exact term (=term) fixed global IDF for missed terms fixed SphinxQL <a href="#conf-global-idf" title="11.2.69.&nbsp;global_idf">global_idf=0 option</a></li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1607" target="_top">#1607</a>, now ignoring binlog when running daemon with <code class="option">--console</code> flag</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1606" target="_top">#1606</a>, hard interruption of the daemon by Ctrl+C (SIGINT) signal</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1592" target="_top">#1592</a>, duplicates vs expression ranker</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1578" target="_top">#1578</a>, <a href="#sorting-modes" title="5.6.&nbsp;Sorting modes">SORT BY</a> string attribute via API <code class="option">attr_asc</code> \ <code class="option">attr_desc</code></li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1575" target="_top">#1575</a>, crash of daemon on MVA receive from agents with <a href="#conf-dist-threads" title="11.4.29.&nbsp;dist_threads">dist_threads</a> enabled</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1574" target="_top">#1574</a>, agent got kill list of local indexes of distributed index</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1573" target="_top">#1573</a>, ranker expression vs expanded terms</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1572" target="_top">#1572</a>, <code class="code">BM25F</code> vs negative terms</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1550" target="_top">#1550</a>, float got cut at full-text part of a query</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1541" target="_top">#1541</a>, <code class="code">BM25F</code> expression in distributes indexes</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1508" target="_top">#1508</a>, <a href="http://sphinxsearch.com/bugs/view.php?id=1522" target="_top">#1522</a>, distributed index query lasts up to <a href="#conf-agent-connect-timeout" title="11.2.36.&nbsp;agent_connect_timeout">agent_connect_timeout</a> with epoll path</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1508" target="_top">#1508</a>, master failed to connect waiting agents up to <a href="#conf-agent-connect-timeout" title="11.2.36.&nbsp;agent_connect_timeout">agent_connect_timeout</a> time</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1489" target="_top">#1489</a>, filtering by integer field in JSON using floating point precision</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1485" target="_top">#1485</a>, <a href="#conf-index-exact-words" title="11.2.45.&nbsp;index_exact_words">index_exact_words</a> vs keyword dict with infix</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1484" target="_top">#1484</a>, <a href="#sphinxql-insert" title="7.6.&nbsp;INSERT and REPLACE syntax">INSERT</a> into RT vs no JSON attribute</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1478" target="_top">#1478</a>, memory leaks at daemon <a href="#misc-functions" title="5.5.6.&nbsp;Miscellaneous functions">PACKEDFACTORS()</a> as UDF argument, index query tokenizer, expression ranker SUM()</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1470" target="_top">#1470</a>, broken UDF unpack (since r3738 UDF version 2)</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1468" target="_top">#1468</a>, multiple conditions in <code class="code">WHERE</code> for JSON attributes</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1466" target="_top">#1466</a>, <a href="#conf-index-field-lengths" title="11.2.66.&nbsp;index_field_lengths">index_field_lengths</a> vs XML data source</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1463" target="_top">#1463</a>, daemon shutdown vs RT index optimize (added forced terminate of long merging operation)</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1460" target="_top">#1460</a>, <a href="#sphinxql-select" title="7.1.&nbsp;SELECT syntax">aggregate functions</a> <code class="code">AVG()</code>, <code class="code">MAX()</code>, <code class="code">MIN()</code>, <code class="code">SUM()</code> do not work for JSON attributes</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1459" target="_top">#1459</a>, <code class="code">BM25F</code> doesn't work with <a href="#conf-sql-field-string" title="11.1.31.&nbsp;sql_field_string">field_string</a> fields</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1458" target="_top">#1458</a>, factors to copy <code class="code">field_tf</code> at UDF</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1450" target="_top">#1450</a>, garbage in JSON fields when selecting them from a RT index</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1449" target="_top">#1449</a>, broken build on Mac OS X</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1446" target="_top">#1446</a>, <a href="#weighting" title="5.4.&nbsp;Search results ranking">WEIGHT()</a> did not work in <code class="code">SELECT</code> expressions</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1445" target="_top">#1445</a>, field-start/field-end modifiers did not work for star-expanded keywords</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1443" target="_top">#1443</a>, <a href="#conf-morphology" title="11.2.6.&nbsp;morphology">morphology=lemmatizer_ru_all</a> now works with <a href="#conf-index-exact-words" title="11.2.45.&nbsp;index_exact_words">index_exact_words=1</a> (exact forms can be matches)</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1442" target="_top">#1442</a>, incorrect <code class="code">COUNT(*)</code> value in queries to distributed indexes with implicit <code class="code">GROUP BY</code></li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1439" target="_top">#1439</a>, filters on float values in JSON issue, string values quoting issue</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1399" target="_top">#1399</a>, filter error message on string attribute</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1384" target="_top">#1384</a>, added possibility to define any own DSN line with <a href="#confgroup-source" title="11.1.&nbsp;Data source configuration options">source=mssql</a> (like as in <code class="code">source=odbc</code>)</li>
+<li>fixed <a href="#sphinxql-attach-index" title="7.24.&nbsp;ATTACH INDEX syntax">ATTACH</a> vs wordforms or stopwords; after daemon was restarted this setting was getting lost in RT indexes</li>
+<li>fixed balancing of agents in HA</li>
+<li>fixed co-working of <code class="code">index_exact_word</code> + AOT lemmatizer</li>
+<li>fixed epoll invoking and turned on by default</li>
+<li>fixed incorrect handling of wildcards in tokenizer</li>
+<li>fixed infix indexing with <code class="option">dict=keywords</code></li>
+<li>fixed <a href="#sphinxql-select" title="7.1.&nbsp;SELECT syntax">max_predicted_time</a> integer overflows</li>
+<li>fixed memory error in tokenizer</li>
+<li>fixed several memory leaks</li>
+<li>fixed <code class="code">PACKEDFACTORS()</code> to work in different <code class="code">GROUP BY</code> queries</li>
+<li>fixed preprocessor definitions for <a href="#conf-regexp-filter" title="11.2.67.&nbsp;regexp_filter">RE2</a> in VS solution</li>
+<li>fixed rotation of global IDF for <code class="option">workers=threads</code> and <code class="option">seamless_rotate=1</code></li>
+<li>fixed rotation of old indexes</li>
+<li>fixed RT kill list survives <code class="code">TRUNCATE</code> and works in newly <code class="code">ATTACH</code>ed index</li>
+<li>fixed saving id32 RT index with id64 daemon</li>
+<li>fixed stemmer vs RT index <code class="code">INSERT</code></li>
+<li>fixed string case error with JSON attributes in select list of a query</li>
+<li>fixed <code class="code">TOP_COUNT</code> usage in <code class="filename">misc/suggest</code> and updated to PHP 5.3 and UTF-8</li>
+</ul></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel211"></a>A.4.&nbsp;Version 2.1.1-beta, 20 feb 2013</h2></div></div></div>
+<h3>Major new features</h3><div class="itemizedlist"><ul type="disc"><li>added query profiling (SET PROFILING=1 and <a href="#sphinxql-show-profile" title="7.29.&nbsp;SHOW PROFILE syntax">SHOW PROFILE</a> statements)</li>
 <li>added AOT-based Russian lemmatizer (<a href="#conf-morphology" title="11.2.6.&nbsp;morphology">morphology={lemmatize_ru | lemmatize_ru_all}</a>, <a href="#conf-lemmatizer-base" title="11.3.8.&nbsp;lemmatizer_base">lemmatizer_base</a>, and <a href="#conf-lemmatizer-cache" title="11.3.9.&nbsp;lemmatizer_cache">lemmatizer_cache</a> directives)</li>
 <li>added <a href="#ref-wordbreaker" title="6.6.&nbsp;wordbreaker command reference">wordbreaker</a>, a tool to split compounds into individual words</li>
 <li>added JSON attributes support (<a href="#conf-sql-attr-json" title="11.1.28.&nbsp;sql_attr_json">sql_attr_json</a>, <a href="#conf-on-json-attr-error" title="11.1.10.&nbsp;on_json_attr_error">on_json_attr_error</a>, <a href="#conf-json-autoconv-numbers" title="11.1.8.&nbsp;json_autoconv_numbers">json_autoconv_numbers</a>, <a href="#conf-json-autoconv-keynames" title="11.1.9.&nbsp;json_autoconv_keynames">json_autoconv_keynames</a> directives)</li>
 <li>added initial subselects support, SELECT * FROM (SELECT ... ORDER BY cond1 LIMIT X) ORDER BY cond2 LIMIT Y</li>
-<li>added bigram indexing, and phrase searching with bigrams (<a href="#conf-bigram-index" title="11.2.64.&nbsp;bigram_index">bigram_index</a>, <a href="#conf-bigram-freq-words" title="11.2.63.&nbsp;bigram_freq_words">bigram_freq_words</a> directives)</li>
+<li>added bigram indexing, and phrase searching with bigrams (<a href="#conf-bigram-index" title="11.2.65.&nbsp;bigram_index">bigram_index</a>, <a href="#conf-bigram-freq-words" title="11.2.64.&nbsp;bigram_freq_words">bigram_freq_words</a> directives)</li>
 <li>added HA/LB support, ha_strategy and agent_persistent directives, SHOW AGENT STATUS statement</li>
-<li>added RT index optimiation (<a href="#sphinxql-optimize-index" title="7.30.&nbsp;OPTIMIZE INDEX syntax">OPTIMIZE INDEX</a> statement, <a href="#conf-rt-merge-iops" title="11.4.48.&nbsp;rt_merge_iops">rt_merge_iops</a> and <a href="#conf-rt-merge-maxiosize" title="11.4.49.&nbsp;rt_merge_maxiosize">rt_merge_maxiosize</a> directives)</li>
+<li>added RT index optimiation (<a href="#sphinxql-optimize-index" title="7.31.&nbsp;OPTIMIZE INDEX syntax">OPTIMIZE INDEX</a> statement, <a href="#conf-rt-merge-iops" title="11.4.48.&nbsp;rt_merge_iops">rt_merge_iops</a> and <a href="#conf-rt-merge-maxiosize" title="11.4.49.&nbsp;rt_merge_maxiosize">rt_merge_maxiosize</a> directives)</li>
 <li>added wildcards support to <a href="#conf-dict" title="11.2.7.&nbsp;dict">dict=keywords</a> (eg. "t?st*")</li>
 <li>added substring search support (min_infix_len=2 and above) to <a href="#conf-dict" title="11.2.7.&nbsp;dict">dict=keywords</a></li>
 </ul></div>
 <h3>New features</h3><div class="itemizedlist"><ul type="disc"><li>added --checkconfig switch to <a href="#ref-indextool" title="6.5.&nbsp;indextool command reference">indextool</a> to check config file for correctness (bug <a href="http://sphinxsearch.com/bugs/view.php?id=1395" target="_top">#1395</a>)</li>
-<li>added global IDF support (<a href="#conf-global-idf" title="11.2.68.&nbsp;global_idf">global_idf</a> directive, <a href="#sphinxql-select" title="7.1.&nbsp;SELECT syntax">OPTION global_idf</a>)</li>
+<li>added global IDF support (<a href="#conf-global-idf" title="11.2.69.&nbsp;global_idf">global_idf</a> directive, <a href="#sphinxql-select" title="7.1.&nbsp;SELECT syntax">OPTION global_idf</a>)</li>
 <li>added "term1 term2 term3"/0.5 <a href="#extended-syntax" title="5.3.&nbsp;Extended query syntax">quorum fraction syntax</a> (bug <a href="http://sphinxsearch.com/bugs/view.php?id=1372" target="_top">#1372</a>)</li>
-<li>added an option to apply stopwords before morphology, <a href="#conf-stopwords-unstemmed" title="11.2.67.&nbsp;stopwords_unstemmed">stopwords_unstemmed</a> directive</li>
+<li>added an option to apply stopwords before morphology, <a href="#conf-stopwords-unstemmed" title="11.2.68.&nbsp;stopwords_unstemmed">stopwords_unstemmed</a> directive</li>
 <li>added an alternative method to compute keyword IDFs, <a href="#sphinxql-select" title="7.1.&nbsp;SELECT syntax">OPTION idf=plain</a></li>
 <li>added boolean query optimizations, <a href="#sphinxql-select" title="7.1.&nbsp;SELECT syntax">OPTION boolean_simplify=1</a> (bug <a href="http://sphinxsearch.com/bugs/view.php?id=1294" target="_top">#1294</a>)</li>
 <li>added stringptr return type support to UDFs, and <a href="#sphinxql-create-function" title="7.18.&nbsp;CREATE FUNCTION syntax">CREATE FUNCTION ... RETURNS STRING syntax</a></li>
 <li>added early query termination by predicted execution time (<a href="#sphinxql-select" title="7.1.&nbsp;SELECT syntax">OPTION max_predicted_time</a>, and <a href="#conf-predicted-time-costs" title="11.4.50.&nbsp;predicted_time_costs">predicted_time_costs</a> directive)</li>
-<li>added <a href="#conf-index-field-lengths" title="11.2.65.&nbsp;index_field_lengths">index_field_lengths</a> directive, BM25A() and BM25F() functions to <a href="#expression-ranker">expression ranker</a></li>
+<li>added <a href="#conf-index-field-lengths" title="11.2.66.&nbsp;index_field_lengths">index_field_lengths</a> directive, BM25A() and BM25F() functions to <a href="#expression-ranker">expression ranker</a></li>
 <li>added ranker=export, and <a href="#expr-func-packedfactors">PACKEDFACTORS()</a> function</li>
 <li>added <a href="#sphinxql-select" title="7.1.&nbsp;SELECT syntax">OPTION agent_query_timeout</a></li>
 <li>added support for attribute files over 4 GB (bug <a href="http://sphinxsearch.com/bugs/view.php?id=1274" target="_top">#1274</a>)</li>
@@ -11271,7 +11467,7 @@ predicted_time_costs = doc=128, hit=96, skip=4096, match=128
 <li>added --morph, --dumpdict switch to <a href="#ref-indextool" title="6.5.&nbsp;indextool command reference">indextool</a></li>
 <li>added support for multiple wordforms files, comment syntax, and pre/post-morphology <a href="#conf-wordforms" title="11.2.12.&nbsp;wordforms">wordforms</a></li>
 <li>added <a href="#sphinxql-select" title="7.1.&nbsp;SELECT syntax">ZONESPANLIST()</a> builtin function</li>
-<li>added <a href="#conf-regexp-filter" title="11.2.66.&nbsp;regexp_filter">regexp_filter</a> directive, regexp document/query filtering support (uses RE2)</li>
+<li>added <a href="#conf-regexp-filter" title="11.2.67.&nbsp;regexp_filter">regexp_filter</a> directive, regexp document/query filtering support (uses RE2)</li>
 <li>added min_idf, max_idf, sum_idf <a href="#expression-ranker">ranking factors</a></li>
 <li>added uservars persistence, and <a href="#conf-sphinxql-state" title="11.4.44.&nbsp;sphinxql_state">sphinxql_state</a> directive (bug <a href="http://sphinxsearch.com/bugs/view.php?id=1132" target="_top">#1132</a>)</li>
 <li>added <a href="#expr-func-poly2d">POLY2D</a>, <a href="#expr-func-geopoly2d">GEOPOLY2D</a>, <a href="#expr-func-contains">CONTAINS</a> functions</li>
@@ -11283,7 +11479,7 @@ predicted_time_costs = doc=128, hit=96, skip=4096, match=128
 <li>added support for upto 255 keywords in <a href="#extended-syntax" title="5.3.&nbsp;Extended query syntax">quorum operator</a> (bug <a href="http://sphinxsearch.com/bugs/view.php?id=1030" target="_top">#1030</a>)</li>
 <li>added multi-threaded agent querying (bug <a href="http://sphinxsearch.com/bugs/view.php?id=1000" target="_top">#1000</a>)</li>
 </ul></div>
-<h3>New SphinxQL features</h3><div class="itemizedlist"><ul type="disc"><li>added <a href="#sphinxql-show-index-status" title="7.29.&nbsp;SHOW INDEX STATUS syntax">SHOW INDEX indexname STATUS</a> statement</li>
+<h3>New SphinxQL features</h3><div class="itemizedlist"><ul type="disc"><li>added <a href="#sphinxql-show-index-status" title="7.30.&nbsp;SHOW INDEX STATUS syntax">SHOW INDEX indexname STATUS</a> statement</li>
 <li>added LIKE clause support to multiple SHOW xxx statements</li>
 <li>added <a href="#sphinxql-select" title="7.1.&nbsp;SELECT syntax">SNIPPET()</a> function</li>
 <li>added <a href="#sphinxql-select" title="7.1.&nbsp;SELECT syntax">GROUP_CONCAT()</a> aggregate function</li>
@@ -11292,7 +11488,7 @@ predicted_time_costs = doc=128, hit=96, skip=4096, match=128
 <li>added support for <a href="#sphinxql-delete" title="7.8.&nbsp;DELETE syntax">DELETE</a> statement over distributed indexes (bug <a href="http://sphinxsearch.com/bugs/view.php?id=1104" target="_top">#1104</a>)</li>
 <li>added <a href="#sphinxql-select" title="7.1.&nbsp;SELECT syntax">EXIST('attr_name', default_value)</a> builtin function (bug <a href="http://sphinxsearch.com/bugs/view.php?id=1037" target="_top">#1037</a>)</li>
 <li>added <a href="#sphinxql-show-variables" title="7.20.&nbsp;SHOW VARIABLES syntax">SHOW VARIABLES WHERE variable_name='xxx'</a> syntax</li>
-<li>added <a href="#sphinxql-truncate-rtindex" title="7.26.&nbsp;TRUNCATE RTINDEX syntax">TRUNCATE RTINDEX</a> statement</li>
+<li>added <a href="#sphinxql-truncate-rtindex" title="7.27.&nbsp;TRUNCATE RTINDEX syntax">TRUNCATE RTINDEX</a> statement</li>
 </ul></div>
 <h3>Major behavior changes and optimizations</h3><div class="itemizedlist"><ul type="disc"><li>changed that UDFs are now allowed in fork/prefork modes via <a href="#conf-sphinxql-state" title="11.4.44.&nbsp;sphinxql_state">sphinxql_state</a> startup script</li>
 <li>changed that <a href="#conf-compat-sphinxql-magics" title="11.4.41.&nbsp;compat_sphinxql_magics">compat_sphinxql_magics</a> now defaults to 0</li>
@@ -11302,7 +11498,103 @@ predicted_time_costs = doc=128, hit=96, skip=4096, match=128
 <li>optimized multi-keyword searching (added skiplists)</li>
 <li>optimized filtering and scan in several frequent cases (single-value, 2-arg, 3-arg WHERE clauses)</li>
 </ul></div></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel206"></a>A.2.&nbsp;Version 2.0.6-release, 22 oct 2012</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel209"></a>A.5.&nbsp;Version 2.0.9-release, 26 aug 2013</h2></div></div></div>
+<h3>Bug fixes</h3><div class="itemizedlist"><ul type="disc"><li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1655" target="_top">#1655</a>, special characters like ()?* were not processed correctly by exceptions</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1651" target="_top">#1651</a>, <a href="#sphinxql-create-function" title="7.18.&nbsp;CREATE FUNCTION syntax">CREATE FUNCTION</a> can now be used with BIGINT return type</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1649" target="_top">#1649</a>, incorrect warning message (about statistics mismatch) was returned when mixing wildcards and regular keywords</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1603" target="_top">#1603</a>, passing MVA64 arguments to non-MVA functions caused unpredicted behaviour and crashes (now explicitly forbidden)</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1601" target="_top">#1601</a>, negative numbers in <a href="#expr-func-in">IN()</a> clause caused a syntax error</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1581" target="_top">#1581</a>, <a href="#conf-dict" title="11.2.7.&nbsp;dict">dict=keywords</a> and <a href="#conf-sql-joined-field" title="11.1.16.&nbsp;sql_joined_field">sql_joined_field</a> occasionally caused <code class="filename">indexer</code> to build corrupted indexes</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1546" target="_top">#1546</a>, file descriptor leaked on index rotation (that eventually prevented <code class="filename">searchd</code> to reload indexes)</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1537" target="_top">#1537</a>, <code class="code">COUNT(*)</code> and <a href="#conf-compat-sphinxql-magics" title="11.4.41.&nbsp;compat_sphinxql_magics">compat_sphinxql_magics=0</a> via SphinxAPI caused an incorrect error message</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1531" target="_top">#1531</a>, #1589, several matching and highlighting issues when using both <a href="#conf-blend-chars" title="11.2.50.&nbsp;blend_chars">blend_chars</a> and multi-wordforms</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1521" target="_top">#1521</a>, <code class="filename">indextool --check</code> did not handle empty RT MVA and gave an incorrect warning</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1392" target="_top">#1392</a>, SphinxSE builds with MySQL 5.6 now</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1346" target="_top">#1346</a>, <a href="#extended-syntax" title="5.3.&nbsp;Extended query syntax">NEAR</a> handles duplicated keywords properly now</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=757" target="_top">#757</a>, wordforms shared between multiple indexes with different tokenizer settings failed to load (they now load with a warning)</li>
+<li>fixed that batch queries did not batch in some cases (because of internal expression alias issues)</li>
+<li>fixed that <a href="#sphinxql-call-keywords" title="7.15.&nbsp;CALL KEYWORDS syntax">CALL KEYWORDS</a> occasionally gave incorrect error messages</li>
+<li>fixed searchd crashes on <a href="#sphinxql-attach-index" title="7.24.&nbsp;ATTACH INDEX syntax">ATTACHing</a> plain indexes with MVAs</li>
+<li>fixed several deadlocks and other threading issues</li>
+<li>fixed incorrect sorting order with <a href="#collations" title="5.12.&nbsp;Collations">utf8_general_ci</a></li>
+<li>fixed that in some cases incorrect attribute values were returned when using expression aliases</li>
+<li>optimized <a href="#xmlpipe2" title="3.10.&nbsp;xmlpipe2 data source">xmlpipe2</a> indexing</li>
+<li>added a warning for missed stopwords, exception, wordforms files on index load and in <code class="filename">indextool --check</code></li>
+</ul></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel208"></a>A.6.&nbsp;Version 2.0.8-release, 26 apr 2013</h2></div></div></div>
+<h3>Bug fixes</h3><div class="itemizedlist"><ul type="disc"><li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1515" target="_top">#1515</a>, log strings over 2KB were clipped when <a href="#conf-query-log-format" title="11.4.6.&nbsp;query_log_format">query_log_format=plain</a></li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1514" target="_top">#1514</a>, RT index disk chunk lose attribute update on daemon restart</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1512" target="_top">#1512</a>, crash while formatting log messages</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1511" target="_top">#1511</a>, crash on indexing PostgreSQL data source with <a href="#mva" title="3.4.&nbsp;MVA (multi-valued attributes)">MVA</a> attributes</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1509" target="_top">#1509</a>, <a href="#conf-blend-chars" title="11.2.50.&nbsp;blend_chars">blend_chars</a> vs incomplete multi-form and overshort</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1504" target="_top">#1504</a>, RT binlog replay vs descending tid on update</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1499" target="_top">#1499</a>, <a href="#conf-sql-field-str2wordcount" title="11.1.32.&nbsp;sql_field_str2wordcount">sql_field_str2wordcount</a> actually is int, not string</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1498" target="_top">#1498</a>, now working with exceptions starting with number too</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1496" target="_top">#1496</a>, multiple destination keywords in wordform</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1494" target="_top">#1494</a>, lost 'mod', '%' operations in select list. Also corrected few typers in the doc.</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1490" target="_top">#1490</a>, <a href="#conf-expand-keywords" title="11.2.49.&nbsp;expand_keywords">expand_keywords</a> vs prefix</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1487" target="_top">#1487</a>, `id` in expression fixed</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1483" target="_top">#1483</a>, snippets limits fix</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1481" target="_top">#1481</a>, shebang config changes check on rotation</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1479" target="_top">#1479</a>, port handling in <a href="#api-reference" title="Chapter&nbsp;8.&nbsp;API reference">PHP Sphinx API</a></li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1474" target="_top">#1474</a>, daemon crash at SphinxQL packet overflows <a href="#conf-max-packet-size" title="11.4.17.&nbsp;max_packet_size">max_packet_size</a></li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1472" target="_top">#1472</a>, crash on loading index to <code class="filename">indextool</code> for check</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1465" target="_top">#1465</a>, <a href="#conf-expansion-limit" title="11.4.40.&nbsp;expansion_limit">expansion_limit</a> got lost in index rotation</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1427" target="_top">#1427</a>, #1506, utf8 3 and 4-bytes codepoints</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1405" target="_top">#1405</a>, between with mixed int float values</li>
+</ul></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel207"></a>A.7.&nbsp;Version 2.0.7-release, 26 mar 2013</h2></div></div></div>
+<h3>Bug fixes</h3><div class="itemizedlist"><ul type="disc"><li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1475" target="_top">#1475</a>, memory leak in the expression parser</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1457" target="_top">#1457</a>, error messages over 2KB were clipped</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1454" target="_top">#1454</a>, searchd did not display an error message when the binlog path did not exist</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1441" target="_top">#1441</a>, SHOW META in a query batch was returning the last non-batch error</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1435" target="_top">#1435</a>, typo in the documentation</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1430" target="_top">#1430</a>, rt_flush_period now works even with a disabled binlog</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1427" target="_top">#1427</a>, overlong 4-byte UTF-8 codes in source text could cause indexer crashes or index corruption</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1418" target="_top">#1418</a>, warnings from local index searches were lost with dist_threads&gt;0</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1417" target="_top">#1417</a>, crash handler now works on searchd startup stage, too (eg. to report index load time crashes)</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1410" target="_top">#1410</a>, bad numerics like '123abc' now result in a proper SphinxQL error message</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1404" target="_top">#1404</a>, a tiny memory leak in shared mutex</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1394" target="_top">#1394</a>, race in --iostats caused incorrect I/O statistics in threaded modes</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1391" target="_top">#1391</a>, QUORUM operator vs docinfo=inline returned wrong attribute values</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1389" target="_top">#1389</a>, edge case in the ORDER operator caused occasionaly searchd crashes</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1382" target="_top">#1382</a>, query parts with field limits but without real keywords (like '@name {') are now simply ignored and no longer cause a query syntax error</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1370" target="_top">#1370</a>, Windows indexer builds failed to fetch rows from MSSQL 2012</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1368" target="_top">#1368</a>, ORDER BY RAND() did not work in RT indexes</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1364" target="_top">#1364</a>, queries with hitless words could occasionally crash searchd</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1363" target="_top">#1363</a>, '*' in charset_table was causing query syntax errors with enable_star=1</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1353" target="_top">#1353</a>, added filtering by 'id' syntax (in addition to '@id') to SphinxSE</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1346" target="_top">#1346</a>, fixed NEAR operator behavior vs duplicated keywords</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1345" target="_top">#1345</a>, invalid PROXIMITY operator threshold now causes a query syntax error rather than unexpected search behavior</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1343" target="_top">#1343</a>, misconfigured indexes with 0 full text fields are now explicitly forbidden</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1342" target="_top">#1342</a>, specific error messages (from the preload stage) went missing when failing to load the indexes</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1339" target="_top">#1339</a>, no warning on inconsistent word statistics</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1335" target="_top">#1335</a>, typo in searchd help screen</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1334" target="_top">#1334</a>, typo in SELECT documentation</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1316" target="_top">#1316</a>, PHRASE operator did not match in a rare self-repeating document/query case</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1297" target="_top">#1297</a>, letting queries complete gracefully instead of killing them off in seamless_rotate=1, workers=prefork case</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1295" target="_top">#1295</a>, mentioned index naming requirements (proper identifier) in the FROM clause docs</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1221" target="_top">#1221</a>, incorrect results when using @groupby in select list via SphinxAPI with compat_sphinxql_magics=0</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1180" target="_top">#1180</a>, special SPZ chars occasionally leaking into snippets</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1171" target="_top">#1171</a>, preforked children did not reload logs on SIGUSR1</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1150" target="_top">#1150</a>, added support for `id` syntax in DELETE and parents in WHERE</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1135" target="_top">#1135</a>, crashes when using MVA/strings attributes in expression ranker</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1124" target="_top">#1124</a>, corrupted attributes after merging with an empty index</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1090" target="_top">#1090</a>, SphinxSE snippets UDF updated to support MySQL 5.5</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1041" target="_top">#1041</a>, added initial support for MVA updates (and other mutex protected things) on FreeBSD</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=999" target="_top">#999</a>, fullscan returned empty result sets in mixed batches of fullscan and fulltext queries</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=921" target="_top">#921</a>, document count/bytes 32bit overflow in indexer progress output</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=539" target="_top">#539</a>, added processing suffix rules with dots in .affix file to spelldump</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=481" target="_top">#481</a>, rotation did not work on Windows with preopen=1</li>
+<li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=268" target="_top">#268</a>, added warnings about duplicate elements in xmlpipe2</li>
+<li>fixed CSphStaticMutex (double initialization issue)</li>
+<li>fixed documentation typo in SQL data sources</li>
+<li>fixed too-late initialization of mutex at daemon</li>
+<li>fixed that an instance of searchd resurrected by watchdog could leak resources and/or crash</li>
+<li>added a console message about crashes during index loading at startup</li>
+<li>added more debug info about failed index loading</li>
+</ul></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel206"></a>A.8.&nbsp;Version 2.0.6-release, 22 oct 2012</h2></div></div></div>
 <h3>Bug fixes</h3><div class="itemizedlist"><ul type="disc"><li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1322" target="_top">#1322</a>, J connector seems to be broken in rel20 , but works in trunk</li>
 <li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1321" target="_top">#1321</a>, 'set names utf8' passes, but 'set names utf-8' doesn't because of syntax error '-'</li>
 <li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1318" target="_top">#1318</a>, unhandled float comparison operators at filter</li>
@@ -11356,7 +11648,7 @@ predicted_time_costs = doc=128, hit=96, skip=4096, match=128
 <li>fixed sample config file</li>
 <li>fixed x64 configurations for libstemmer</li>
 </ul></div></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel205"></a>A.3.&nbsp;Version 2.0.5-release, 28 jul 2012</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel205"></a>A.9.&nbsp;Version 2.0.5-release, 28 jul 2012</h2></div></div></div>
 <h3>Bug fixes</h3><div class="itemizedlist"><ul type="disc"><li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1258" target="_top">#1258</a>, <code class="code">xmlpipe2</code> refused to index indexes with <code class="code">docinfo=inline</code></li>
 <li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1257" target="_top">#1257</a>, legacy groupby modes vs <code class="code">dist_threads</code> could occasionally return wrong search results (race condition)</li>
 <li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1253" target="_top">#1253</a>, missing single-word query performance optimization (simplified ranker) vs prefix-expanded keywords vs <code class="code">dict=keywords</code></li>
@@ -11412,7 +11704,7 @@ predicted_time_costs = doc=128, hit=96, skip=4096, match=128
 <li>fixed that blended vs multiforms vs <a href="#conf-min-word-len" title="11.2.15.&nbsp;min_word_len">min_word_len</a> could hang the query parser</li>
 <li>fixed missing command-line switches documentation</li>
 </ul></div></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel204"></a>A.4.&nbsp;Version 2.0.4-release, 02 mar 2012</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel204"></a>A.10.&nbsp;Version 2.0.4-release, 02 mar 2012</h2></div></div></div>
 <h3>Bug fixes</h3><div class="itemizedlist"><ul type="disc"><li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=605" target="_top">#605</a>, pack vs mysql compress</li>
 <li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=783" target="_top">#783</a>, #862, #917, #985, #990, #1032 documentation bugs</li>
 <li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=885" target="_top">#885</a>, bitwise AND/OR were not available via API</li>
@@ -11448,7 +11740,7 @@ predicted_time_costs = doc=128, hit=96, skip=4096, match=128
 <li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1119" target="_top">#1119</a>, missing expression ranker support in SphinxSE</li>
 <li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1120" target="_top">#1120</a>, negative <a href="#api-funcgroup-querying" title="8.6.&nbsp;Querying">total_found</a>, docs and hits counter on huge indexes</li>
 </ul></div></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel203"></a>A.5.&nbsp;Version 2.0.3-release, 23 dec 2011</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel203"></a>A.11.&nbsp;Version 2.0.3-release, 23 dec 2011</h2></div></div></div>
 <h3>Bug fixes</h3><div class="itemizedlist"><ul type="disc"><li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1031" target="_top">#1031</a>, SphinxQL parsing syntax for MVA at insert \ replace statements</li>
 <li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1027" target="_top">#1027</a>, stalls on attribute update in high-concurrency load</li>
 <li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=1026" target="_top">#1026</a>, daemon crash on malformed API command</li>
@@ -11468,10 +11760,10 @@ predicted_time_costs = doc=128, hit=96, skip=4096, match=128
 <li>fixed build of SphinxSE with MySQL 5.1</li>
 <li>fixed crash log for 'fork' and 'prefork' workers</li>
 </ul></div></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel202"></a>A.6.&nbsp;Version 2.0.2-beta, 15 nov 2011</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel202"></a>A.12.&nbsp;Version 2.0.2-beta, 15 nov 2011</h2></div></div></div>
 <h3>Major new features</h3><div class="itemizedlist"><ul type="disc"><li>added keywords dictionary (<a href="#conf-dict" title="11.2.7.&nbsp;dict"><code class="code">dict=keywords</code></a>) support to RT indexes</li>
-<li>added <a href="#conf-rt-attr-multi" title="11.2.57.&nbsp;rt_attr_multi">MVA</a>, <a href="#conf-index-exact-words" title="11.2.45.&nbsp;index_exact_words">index_exact_words</a> support to RT indexes (#888)</li>
-<li>added <a href="#mva" title="3.4.&nbsp;MVA (multi-valued attributes)">MVA64</a> (a set of BIGINTs) support to both disk and RT indexes (<a href="#conf-rt-attr-multi-64" title="11.2.58.&nbsp;rt_attr_multi_64">rt_attr_multi_64</a> directive)</li>
+<li>added <a href="#conf-rt-attr-multi" title="11.2.58.&nbsp;rt_attr_multi">MVA</a>, <a href="#conf-index-exact-words" title="11.2.45.&nbsp;index_exact_words">index_exact_words</a> support to RT indexes (#888)</li>
+<li>added <a href="#mva" title="3.4.&nbsp;MVA (multi-valued attributes)">MVA64</a> (a set of BIGINTs) support to both disk and RT indexes (<a href="#conf-rt-attr-multi-64" title="11.2.59.&nbsp;rt_attr_multi_64">rt_attr_multi_64</a> directive)</li>
 <li>added an <a href="#expression-ranker">expression-based ranker</a>, and a number of new ranking factors</li>
 <li>added <a href="#sphinxql-attach-index" title="7.24.&nbsp;ATTACH INDEX syntax">ATTACH INDEX</a> statement that converts a disk index to RT index</li>
 <li>added <code class="code">WHERE</code> clause support to <a href="#sphinxql-update" title="7.23.&nbsp;UPDATE syntax">UPDATE</a> statement</li>
@@ -11573,7 +11865,7 @@ predicted_time_costs = doc=128, hit=96, skip=4096, match=128
 <li>fixed that in some extremely rare edge cases tiny parts of an index could end up corrupted with <code class="code">dict=keywords</code></li>
 <li>fixed that field/zone conditions were not propagated to expanded keywords with <code class="code">dict=keywords</code></li>
 </ul></div></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel201"></a>A.7.&nbsp;Version 2.0.1-beta, 22 apr 2011</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel201"></a>A.13.&nbsp;Version 2.0.1-beta, 22 apr 2011</h2></div></div></div>
 <h3>New general features</h3><div class="itemizedlist"><ul type="disc"><li>added remapping support to <a href="#conf-blend-chars" title="11.2.50.&nbsp;blend_chars">blend_chars</a> directive</li>
 <li>added multi-threaded snippet batches support (requires a batch sent via API, <a href="#conf-dist-threads" title="11.4.29.&nbsp;dist_threads">dist_threads</a>, and <code class="code">load_files</code>)</li>
 <li>added collations (<a href="#conf-collation-server" title="11.4.34.&nbsp;collation_server">collation_server</a>, <a href="#conf-collation-libc-locale" title="11.4.35.&nbsp;collation_libc_locale">collation_libc_locale directives</a>)</li>
@@ -11606,7 +11898,7 @@ predicted_time_costs = doc=128, hit=96, skip=4096, match=128
 <li>added <a href="#sphinxql-delete" title="7.8.&nbsp;DELETE syntax">DELETE ... IN (id_list)</a> syntax support</li>
 <li>added C-style comments syntax (for example, <code class="code">SELECT /*!40000 some comment*/ id FROM test</code>)</li>
 <li>added <a href="#sphinxql-update" title="7.23.&nbsp;UPDATE syntax">UPDATE ... WHERE id=X</a> syntax support</li>
-<li>added <a href="#sphinxql-multi-queries" title="7.31.&nbsp;Multi-statement queries">SphinxQL multi-query support</a></li>
+<li>added <a href="#sphinxql-multi-queries" title="7.33.&nbsp;Multi-statement queries">SphinxQL multi-query support</a></li>
 <li>added <a href="#sphinxql-describe" title="7.17.&nbsp;DESCRIBE syntax">DESCRIBE</a>, <a href="#sphinxql-show-tables" title="7.16.&nbsp;SHOW TABLES syntax">SHOW TABLES</a> statements</li>
 </ul></div>
 <h3>New command-line switches</h3><div class="itemizedlist"><ul type="disc"><li>added <code class="code">--print-queries</code> switch to <code class="filename">indexer</code> that dumps SQL queries it runs</li>
@@ -11705,7 +11997,7 @@ predicted_time_costs = doc=128, hit=96, skip=4096, match=128
 <li>fixed libsphinxclient SIGPIPE handling</li>
 <li>fixed libsphinxclient vs VS2003 compiler bug</li>
 </ul></div></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel110"></a>A.8.&nbsp;Version 1.10-beta, 19 jul 2010</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel110"></a>A.14.&nbsp;Version 1.10-beta, 19 jul 2010</h2></div></div></div>
 <div class="itemizedlist"><ul type="disc"><li>added RT indexes support (<a href="#rt-indexes" title="Chapter&nbsp;4.&nbsp;Real-time indexes">Chapter&nbsp;4, <i>Real-time indexes</i></a>)</li>
 <li>added prefork and threads support (<a href="#conf-workers" title="11.4.28.&nbsp;workers">workers</a> directives)</li>
 <li>added multi-threaded local searches in distributed indexes (<a href="#conf-dist-threads" title="11.4.29.&nbsp;dist_threads">dist_threads</a> directive)</li>
@@ -11780,7 +12072,7 @@ predicted_time_costs = doc=128, hit=96, skip=4096, match=128
 <li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=506" target="_top">#506</a>, better MySQL protocol commands support in SphinxQL (PING etc)</li>
 <li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=509" target="_top">#509</a>, indexing ranged results from stored procedures</li>
 </ul></div></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel099"></a>A.9.&nbsp;Version 0.9.9-release, 02 dec 2009</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel099"></a>A.15.&nbsp;Version 0.9.9-release, 02 dec 2009</h2></div></div></div>
 <div class="itemizedlist"><ul type="disc"><li>added Open, Close, Status calls to libsphinxclient (C API)</li>
 <li>added automatic persistent connection reopening to PHP, Python APIs</li>
 <li>added 64-bit value/range filters, fullscan mode support to SphinxSE</li>
@@ -11835,7 +12127,7 @@ predicted_time_costs = doc=128, hit=96, skip=4096, match=128
 <li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=344" target="_top">#344</a> (invalid checkpoints after merge)</li>
 <li>fixed <a href="http://sphinxsearch.com/bugs/view.php?id=326" target="_top">#326</a> (missing CLOCK_xxx on FreeBSD)</li>
 </ul></div></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel099rc2"></a>A.10.&nbsp;Version 0.9.9-rc2, 08 apr 2009</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel099rc2"></a>A.16.&nbsp;Version 0.9.9-rc2, 08 apr 2009</h2></div></div></div>
 <div class="itemizedlist"><ul type="disc"><li>added IsConnectError(), Open(), Close() calls to Java API (bug <a href="http://sphinxsearch.com/bugs/view.php?id=240" target="_top">#240</a>)</li>
 <li>added <a href="#conf-read-buffer" title="11.4.23.&nbsp;read_buffer">read_buffer</a>, <a href="#conf-read-unhinted" title="11.4.24.&nbsp;read_unhinted">read_unhinted</a> directives</li>
 <li>added checks for build options returned by mysql_config (builds on Solaris now)</li>
@@ -11909,7 +12201,7 @@ predicted_time_costs = doc=128, hit=96, skip=4096, match=128
 <li>fixed stupid bug in escaping code, fixed EscapeString() and made it static</li>
 <li>fixed parser vs @field -keyword, foo|@field bar, "" queries (bug <a href="http://sphinxsearch.com/bugs/view.php?id=310" target="_top">#310</a>)</li>
 </ul></div></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel099rc1"></a>A.11.&nbsp;Version 0.9.9-rc1, 17 nov 2008</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel099rc1"></a>A.17.&nbsp;Version 0.9.9-rc1, 17 nov 2008</h2></div></div></div>
 <div class="itemizedlist"><ul type="disc"><li>added <a href="#conf-min-stemming-len" title="11.2.10.&nbsp;min_stemming_len">min_stemming_len</a> directive</li>
 <li>added <a href="#api-func-isconnecterror" title="8.1.7.&nbsp;IsConnectError">IsConnectError()</a> API call (helps distingusih API vs remote errors)</li>
 <li>added duplicate log messages filter to searchd</li>
@@ -11952,7 +12244,7 @@ predicted_time_costs = doc=128, hit=96, skip=4096, match=128
 <li>fixed backslash escaping, added backslash to EscapeString()</li>
 <li>fixed handling of over-2GB dictionary files (.spi)</li>
 </ul></div></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel0981"></a>A.12.&nbsp;Version 0.9.8.1, 30 oct 2008</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel0981"></a>A.18.&nbsp;Version 0.9.8.1, 30 oct 2008</h2></div></div></div>
 <div class="itemizedlist"><ul type="disc"><li>added configure script to libsphinxclient</li>
 <li>changed proximity/quorum operator syntax to require whitespace after length</li>
 <li>fixed potential head process crash on SIGPIPE during "maxed out" message</li>
@@ -11973,7 +12265,7 @@ predicted_time_costs = doc=128, hit=96, skip=4096, match=128
 <li>fixed Python API to accept offset/limit of 'long' type</li>
 <li>fixed default ID range (that filtered out all 64-bit values) in Java and Python APIs</li>
 </ul></div></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel098"></a>A.13.&nbsp;Version 0.9.8, 14 jul 2008</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel098"></a>A.19.&nbsp;Version 0.9.8, 14 jul 2008</h2></div></div></div>
 <h3>Indexing</h3><div class="itemizedlist"><ul type="disc"><li>added support for 64-bit document and keyword IDs, --enable-id64 switch to configure</li>
 <li>added support for floating point attributes</li>
 <li>added support for bitfields in attributes, <a href="#conf-sql-attr-bool" title="11.1.21.&nbsp;sql_attr_bool">sql_attr_bool</a> directive and bit-widths part in <a href="#conf-sql-attr-uint" title="11.1.20.&nbsp;sql_attr_uint">sql_attr_uint</a> directive</li>
@@ -12090,7 +12382,7 @@ predicted_time_costs = doc=128, hit=96, skip=4096, match=128
 <li>fixed rare count(distinct) vs. querying multiple local indexes vs. reusable sorter issue</li>
 <li>fixed sorting of negative floats in SPH_SORT_EXTENDED mode</li>
 </ul></div></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel097"></a>A.14.&nbsp;Version 0.9.7, 02 apr 2007</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel097"></a>A.20.&nbsp;Version 0.9.7, 02 apr 2007</h2></div></div></div>
 <div class="itemizedlist"><ul type="disc"><li>added support for <code class="option">sql_str2ordinal_column</code></li>
 <li>added support for upto 5 sort-by attrs (in extended sorting mode)</li>
 <li>added support for separate groups sorting clause (in group-by mode)</li>
@@ -12128,7 +12420,7 @@ predicted_time_costs = doc=128, hit=96, skip=4096, match=128
 <li>fixed wrong assertion in SBCS encoder</li>
 <li>fixed crashes with no-attribute indexes after rotate</li>
 </ul></div></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel097rc2"></a>A.15.&nbsp;Version 0.9.7-rc2, 15 dec 2006</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel097rc2"></a>A.21.&nbsp;Version 0.9.7-rc2, 15 dec 2006</h2></div></div></div>
 <div class="itemizedlist"><ul type="disc"><li>added support for extended matching mode (query language)</li>
 <li>added support for extended sorting mode (sorting clauses)</li>
 <li>added support for SBCS excerpts</li>
@@ -12145,7 +12437,7 @@ predicted_time_costs = doc=128, hit=96, skip=4096, match=128
 <li>fixed <code class="option">--with-mysql-includes/libs</code> (they conflicted with well-known paths)</li>
 <li>fixes for 64-bit platforms</li>
 </ul></div></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel097rc"></a>A.16.&nbsp;Version 0.9.7-rc1, 26 oct 2006</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel097rc"></a>A.22.&nbsp;Version 0.9.7-rc1, 26 oct 2006</h2></div></div></div>
 <div class="itemizedlist"><ul type="disc"><li>added alpha index merging code</li>
 <li>added an option to decrease <code class="option">max_matches</code> per-query</li>
 <li>added an option to specify IP address for searchd to listen on</li>
@@ -12169,14 +12461,14 @@ predicted_time_costs = doc=128, hit=96, skip=4096, match=128
 <li>fixed line numbering in config parser</li>
 <li>fixed some issues with index rotation</li>
 </ul></div></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel096"></a>A.17.&nbsp;Version 0.9.6, 24 jul 2006</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel096"></a>A.23.&nbsp;Version 0.9.6, 24 jul 2006</h2></div></div></div>
 <div class="itemizedlist"><ul type="disc"><li>added support for empty indexes</li>
 <li>added support for multiple sql_query_pre/post/post_index</li>
 <li>fixed timestamp ranges filter in "match any" mode</li>
 <li>fixed configure issues with --without-mysql and --with-pgsql options</li>
 <li>fixed building on Solaris 9</li>
 </ul></div></div>
-<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel096rc1"></a>A.18.&nbsp;Version 0.9.6-rc1, 26 jun 2006</h2></div></div></div>
+<div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="rel096rc1"></a>A.24.&nbsp;Version 0.9.6-rc1, 26 jun 2006</h2></div></div></div>
 <div class="itemizedlist"><ul type="disc"><li>added boolean queries support (experimental, beta version)</li>
 <li>added simple file-based query cache (experimental, beta version)</li>
 <li>added storage engine for MySQL 5.0 and 5.1 (experimental, beta version)</li>

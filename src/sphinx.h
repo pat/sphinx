@@ -1,5 +1,5 @@
 //
-// $Id: sphinx.h 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinx.h 4321 2013-11-11 20:08:52Z deogar $
 //
 
 //
@@ -196,10 +196,10 @@ inline const	DWORD *	STATIC2DOCINFO ( const DWORD * pAttrs )	{ return STATIC2DOC
 #include "sphinxversion.h"
 
 #ifndef SPHINX_TAG
-#define SPHINX_TAG "-beta"
+#define SPHINX_TAG "-release"
 #endif
 
-#define SPHINX_VERSION			"2.1.1" SPHINX_BITS_TAG SPHINX_TAG " (" SPH_SVN_TAGREV ")"
+#define SPHINX_VERSION			"2.1.4" SPHINX_BITS_TAG SPHINX_TAG " (" SPH_SVN_TAGREV ")"
 #define SPHINX_BANNER			"Sphinx " SPHINX_VERSION "\nCopyright (c) 2001-2013, Andrew Aksyonoff\nCopyright (c) 2008-2013, Sphinx Technologies Inc (http://sphinxsearch.com)\n\n"
 #define SPHINX_SEARCHD_PROTO	1
 #define SPHINX_CLIENT_VERSION	1
@@ -210,7 +210,17 @@ inline const	DWORD *	STATIC2DOCINFO ( const DWORD * pAttrs )	{ return STATIC2DOC
 
 /////////////////////////////////////////////////////////////////////////////
 
+extern int64_t g_iIndexerCurrentDocID;
+extern int64_t g_iIndexerCurrentHits;
+extern int64_t g_iIndexerCurrentRangeMin;
+extern int64_t g_iIndexerCurrentRangeMax;
+extern int64_t g_iIndexerPoolStartDocID;
+extern int64_t g_iIndexerPoolStartHit;
+
+/////////////////////////////////////////////////////////////////////////////
+
 /// Sphinx CRC32 implementation
+extern DWORD	g_dSphinxCRC32 [ 256 ];
 DWORD			sphCRC32 ( const BYTE * pString );
 DWORD			sphCRC32 ( const BYTE * pString, int iLen );
 DWORD			sphCRC32 ( const BYTE * pString, int iLen, DWORD uPrevCRC );
@@ -485,6 +495,14 @@ enum ESphTokenizerClone
 };
 
 
+enum ESphTokenMorph
+{
+	SPH_TOKEN_MORPH_RAW,			///< no morphology applied, tokenizer does not handle morphology
+	SPH_TOKEN_MORPH_ORIGINAL,		///< no morphology applied, but tokenizer handles morphology
+	SPH_TOKEN_MORPH_GUESS			///< morphology applied
+};
+
+
 struct CSphMultiformContainer;
 class CSphWriter;
 
@@ -587,11 +605,16 @@ public:
 	/// was last token a special one?
 	virtual bool					WasTokenSpecial () { return m_bWasSpecial; }
 
+	virtual bool					WasTokenSynonym () const { return m_bWasSynonym; }
+
 	/// get amount of overshort keywords skipped before this token
-	virtual int						GetOvershortCount () { return m_iOvershortCount; }
+	virtual int						GetOvershortCount () { return ( !m_bBlended && m_bBlendedPart ? 0 : m_iOvershortCount ); }
 
 	/// get original tokenized multiform (if any); NULL means there was none
 	virtual BYTE *					GetTokenizedMultiform () { return NULL; }
+
+	/// check whether this token is a generated morphological guess
+	ESphTokenMorph					GetTokenMorph() const { return m_eTokenMorph; }
 
 	virtual bool					TokenIsBlended () const { return m_bBlended; }
 	virtual bool					TokenIsBlendedPart () const { return m_bBlendedPart; }
@@ -622,6 +645,9 @@ public:
 	/// get settings hash
 	virtual uint64_t				GetSettingsFNV () const { return m_tLC.GetFNV(); }
 
+	/// get (readonly) lowercaser
+	const CSphLowercaser &			GetLowercaser() const { return m_tLC; }
+
 protected:
 	virtual bool					RemapCharacters ( const char * sConfig, DWORD uFlags, const char * sSource, bool bCanRemap, CSphString & sError );
 	virtual bool					AddSpecialsSPZ ( const char * sSpecials, const char * sDirective, CSphString & sError );
@@ -640,7 +666,10 @@ protected:
 	bool							m_bBoundary;				///< boundary flag (true immediately after boundary codepoint)
 	int								m_iBoundaryOffset;			///< boundary character offset (in bytes)
 	bool							m_bWasSpecial;				///< special token flag
+	bool							m_bWasSynonym;				///< last token is a synonym token
+	bool							m_bEscaped;					///< backslash handling flag
 	int								m_iOvershortCount;			///< skipped overshort tokens count
+	ESphTokenMorph					m_eTokenMorph;				///< whether last token was a generated morphological guess
 
 	bool							m_bBlended;					///< whether last token (as in just returned from GetToken()) was blended
 	bool							m_bNonBlended;				///< internal, whether there were any normal chars in that blended token
@@ -836,7 +865,7 @@ public:
 	virtual void			HitblockBegin () {}
 
 	/// callback to let dictionary do hit block post-processing
-	virtual void			HitblockPatch ( CSphWordHit *, int ) {}
+	virtual void			HitblockPatch ( CSphWordHit *, int ) const {}
 
 	/// resolve temporary hit block wide wordid (!) back to keyword
 	virtual const char *	HitblockGetKeyword ( SphWordID_t ) { return NULL; }
@@ -1219,16 +1248,13 @@ public:
 	float GetAttrFloat ( const CSphAttrLocator & tLoc ) const
 	{
 		return sphDW2F ( (DWORD)sphGetRowAttr ( tLoc.m_bDynamic ? m_pDynamic : m_pStatic, tLoc ) );
-	};
+	}
 
 	/// integer setter
 	void SetAttr ( const CSphAttrLocator & tLoc, SphAttr_t uValue )
 	{
 		if ( tLoc.IsID() )
-		{
-			// m_iDocID = uValue;
 			return;
-		}
 		assert ( tLoc.m_bDynamic );
 		assert ( tLoc.GetMaxRowitem() < (int)m_pDynamic[-1] );
 		sphSetRowAttr ( m_pDynamic, tLoc, uValue );
@@ -1348,6 +1374,8 @@ struct CSphColumnInfo
 	bool							m_bFilename;	///< column is a file name
 	bool							m_bWeight;		///< is a weight column
 
+	WORD							m_uNext;		///< next in linked list for hash in CSphSchema
+
 	/// handy ctor
 	CSphColumnInfo ( const char * sName=NULL, ESphAttr eType=SPH_ATTR_NONE );
 
@@ -1372,7 +1400,7 @@ struct CSphSchema
 public:
 
 	/// ctor
-	explicit				CSphSchema ( const char * sName="(nameless)" ) : m_sName ( sName ), m_iStaticSize ( 0 ) {}
+	explicit				CSphSchema ( const char * sName="(nameless)" );
 
 	/// get field index by name
 	/// returns -1 if not found
@@ -1433,11 +1461,22 @@ public:
 	// free the linked strings and/or just initialize the pointers with NULL
 	void FreeStringPtrs ( CSphMatch * pMatch, int iUpBound=-1 ) const;
 
+	// returns 0xFFFF if bucket list is empty and position otherwise
+	WORD & GetBucketPos ( const char * sName );
+
+	void RebuildHash ();
+
 protected:
 	CSphVector<CSphColumnInfo>		m_dAttrs;			///< all my attributes
 	CSphVector<int>					m_dStaticUsed;		///< static row part map (amount of used bits in each rowitem)
 	CSphVector<int>					m_dDynamicUsed;		///< dynamic row part map
 	int								m_iStaticSize;		///< static row size (can be different from m_dStaticUsed.GetLength() because of gaps)
+
+	void UpdateHash ( int iStartIdx, int iAddVal );
+
+	static const int	HASH_THRESH		= 32;
+	static const int	BUCKET_COUNT	= 256;
+	WORD				m_dBuckets [ BUCKET_COUNT ];	///< uses indexes in m_dAttrs as ptrs; 0xffff is like NULL in this hash
 
 	struct PtrAttr_t
 	{
@@ -1587,8 +1626,7 @@ class ISphFieldFilter
 public:
 	virtual					~ISphFieldFilter () {}
 
-	virtual	const BYTE *	Apply ( const BYTE * sField, int iLength = 0 ) = 0;
-	virtual int				GetResultLength () const = 0;
+	virtual	int				Apply ( const BYTE * sField, int iLength, CSphVector<BYTE> & dStorage ) = 0;
 	virtual	void			GetSettings ( CSphFieldFilterSettings & tSettings ) const = 0;
 };
 
@@ -1757,6 +1795,7 @@ public:
 	virtual void			SetDumpRows ( FILE * fpDumpRows ) { m_fpDumpRows = fpDumpRows; }
 
 	virtual SphRange_t		IterateFieldMVAStart ( int iAttr );
+	virtual bool			IterateFieldMVAStart ( int, CSphString & ) { assert ( 0 && "not implemented" ); return false; }
 	virtual bool			HasJoinedFields () { return m_iPlainFieldsLength!=m_tSchema.m_dFields.GetLength(); }
 
 protected:
@@ -1785,6 +1824,9 @@ protected:
 	FILE *					m_fpDumpRows;
 	int						m_iPlainFieldsLength;
 	DWORD *					m_pFieldLengthAttrs;	///< pointer into the part of m_tDocInfo where field lengths are stored
+
+	CSphVector<SphDocID_t>	m_dAllIds;				///< used for joined fields FIXME! unlimited RAM use
+	bool					m_bIdsSorted;			///< we sort array to use binary search
 
 protected:
 	struct CSphBuildHitsState_t
@@ -1926,7 +1968,16 @@ protected:
 	static const char * const	MACRO_VALUES [ MACRO_COUNT ];
 
 protected:
-	bool					SetupRanges ( const char * sRangeQuery, const char * sQuery, const char * sPrefix, CSphString & sError );
+	/// by what reason the internal SetupRanges called
+	enum ERangesReason
+	{
+		SRE_DOCS,
+		SRE_MVA,
+		SRE_JOINEDHITS
+	};
+
+protected:
+	bool					SetupRanges ( const char * sRangeQuery, const char * sQuery, const char * sPrefix, CSphString & sError, ERangesReason iReason );
 	bool					RunQueryStep ( const char * sQuery, CSphString & sError );
 
 protected:
@@ -2150,7 +2201,6 @@ private:
 private:
 	CSphString		m_sCommand;			///< my command
 
-	Tag_e			m_eTag;				///< what's our current tag
 	const char *	m_pTag;				///< tag name
 	int				m_iTagLength;		///< tag name length
 	int				m_iBufferSize;		///< buffer size
@@ -2278,7 +2328,8 @@ enum ESphGroupBy
 	SPH_GROUPBY_MONTH	= 2,	///< group by month
 	SPH_GROUPBY_YEAR	= 3,	///< group by year
 	SPH_GROUPBY_ATTR	= 4,	///< group by attribute value
-	SPH_GROUPBY_ATTRPAIR= 5		///< group by sequential attrs pair (rendered redundant by 64bit attrs support; removed)
+	SPH_GROUPBY_ATTRPAIR= 5,	///< group by sequential attrs pair (rendered redundant by 64bit attrs support; removed)
+	SPH_GROUPBY_MULTIPLE= 6		///< group by on multiple attribute values
 };
 
 
@@ -2422,7 +2473,7 @@ public:
 
 	CSphVector<CSphFilterSettings>	m_dFilters;	///< filters
 
-	CSphString		m_sGroupBy;			///< group-by attribute name
+	CSphString		m_sGroupBy;			///< group-by attribute name(s)
 	ESphGroupBy		m_eGroupFunc;		///< function to pre-process group-by attribute value with
 	CSphString		m_sGroupSortBy;		///< sorting clause for groups in group-by mode
 	CSphString		m_sGroupDistinct;	///< count distinct values for this attribute
@@ -2675,7 +2726,7 @@ enum ESphSortKeyPart
 /// JSON key lookup stuff
 struct JsonKey_t
 {
-	uint64_t		m_uKey;		///< name hash
+	CSphString		m_sKey;		///< name string
 	DWORD			m_uMask;	///< Bloom mask for this key
 	int				m_iLen;		///< name length, in bytes
 
@@ -2929,6 +2980,7 @@ public:
 	virtual int					GetKillListSize () const = 0;
 	virtual bool				HasDocid ( SphDocID_t uDocid ) const = 0;
 	virtual bool				IsRT() const { return false; }
+	void						SetBinlog ( bool bBinlog ) { m_bBinlog = bBinlog; }
 	virtual int64_t *			GetFieldLens() const { return NULL; }
 
 	virtual bool				IsStarDict() const { return m_bEnableStar; } // disk index overrides this to support super-old legacy formats
@@ -3042,6 +3094,7 @@ protected:
 
 	bool						m_bKeepFilesOpen;		///< keep files open to avoid race on seamless rotation
 	bool						m_bPreloadWordlist;		///< preload wordlists or keep them on disk
+	bool						m_bBinlog;
 
 	bool						m_bStripperInited;		///< was stripper initialized (old index version (<9) handling)
 	bool						m_bEnableStar;			///< enable star-syntax
@@ -3144,5 +3197,5 @@ extern CSphString g_sLemmatizerBase;
 #endif // _sphinx_
 
 //
-// $Id: sphinx.h 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinx.h 4321 2013-11-11 20:08:52Z deogar $
 //

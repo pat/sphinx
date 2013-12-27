@@ -1,5 +1,5 @@
 //
-// $Id: sphinxutils.h 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxutils.h 4048 2013-07-31 15:31:59Z kevg $
 //
 
 //
@@ -127,10 +127,14 @@ protected:
 	bool			ValidateKey ( const char * sKey );
 
 #if !USE_WINDOWS
-	bool			TryToExec ( char * pBuffer, char * pEnd, const char * szFilename, CSphVector<char> & dResult );
+	bool			TryToExec ( char * pBuffer, const char * szFilename, CSphVector<char> & dResult );
 #endif
 	char *			GetBufferString ( char * szDest, int iMax, const char * & szSource );
 };
+
+#if !USE_WINDOWS
+bool TryToExec ( char * pBuffer, const char * szFilename, CSphVector<char> & dResult, char * sError, int iErrorLen );
+#endif
 
 /////////////////////////////////////////////////////////////////////////////
 
@@ -225,5 +229,5 @@ void sphCheckDuplicatePaths ( const CSphConfig & hConf );
 #endif // _sphinxutils_
 
 //
-// $Id: sphinxutils.h 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxutils.h 4048 2013-07-31 15:31:59Z kevg $
 //

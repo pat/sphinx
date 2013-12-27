@@ -1,5 +1,5 @@
-Sphinx 2.1.1-beta reference manual
-==================================
+Sphinx 2.1.4-release reference manual
+=====================================
 
 Free open-source SQL full-text search engine
 ============================================
@@ -108,15 +108,17 @@ Table of Contents
    7.23. UPDATE syntax
    7.24. ATTACH INDEX syntax
    7.25. FLUSH RTINDEX syntax
-   7.26. TRUNCATE RTINDEX syntax
-   7.27. SHOW AGENT STATUS
-   7.28. SHOW PROFILE syntax
-   7.29. SHOW INDEX STATUS syntax
-   7.30. OPTIMIZE INDEX syntax
-   7.31. Multi-statement queries
-   7.32. Comment syntax
-   7.33. List of SphinxQL reserved keywords
-   7.34. SphinxQL upgrade notes, version 2.0.1-beta
+   7.26. FLUSH RAMCHUNK syntax
+   7.27. TRUNCATE RTINDEX syntax
+   7.28. SHOW AGENT STATUS
+   7.29. SHOW PROFILE syntax
+   7.30. SHOW INDEX STATUS syntax
+   7.31. OPTIMIZE INDEX syntax
+   7.32. SHOW PLAN syntax
+   7.33. Multi-statement queries
+   7.34. Comment syntax
+   7.35. List of SphinxQL reserved keywords
+   7.36. SphinxQL upgrade notes, version 2.0.1-beta
 
 8. API reference
    8.1. General API functions
@@ -299,20 +301,21 @@ Table of Contents
       11.2.52. rt_mem_limit
       11.2.53. rt_field
       11.2.54. rt_attr_uint
-      11.2.55. rt_attr_bigint
-      11.2.56. rt_attr_float
-      11.2.57. rt_attr_multi
-      11.2.58. rt_attr_multi_64
-      11.2.59. rt_attr_timestamp
-      11.2.60. rt_attr_string
-      11.2.61. rt_attr_json
-      11.2.62. ha_strategy
-      11.2.63. bigram_freq_words
-      11.2.64. bigram_index
-      11.2.65. index_field_lengths
-      11.2.66. regexp_filter
-      11.2.67. stopwords_unstemmed
-      11.2.68. global_idf
+      11.2.55. rt_attr_bool
+      11.2.56. rt_attr_bigint
+      11.2.57. rt_attr_float
+      11.2.58. rt_attr_multi
+      11.2.59. rt_attr_multi_64
+      11.2.60. rt_attr_timestamp
+      11.2.61. rt_attr_string
+      11.2.62. rt_attr_json
+      11.2.63. ha_strategy
+      11.2.64. bigram_freq_words
+      11.2.65. bigram_index
+      11.2.66. index_field_lengths
+      11.2.67. regexp_filter
+      11.2.68. stopwords_unstemmed
+      11.2.69. global_idf
 
    11.3. indexer program configuration options
       11.3.1. mem_limit
@@ -378,24 +381,30 @@ Table of Contents
       11.4.50. predicted_time_costs
 
 A. Sphinx revision history
-   A.1. Version 2.1.1-beta, 20 feb 2013
-   A.2. Version 2.0.6-release, 22 oct 2012
-   A.3. Version 2.0.5-release, 28 jul 2012
-   A.4. Version 2.0.4-release, 02 mar 2012
-   A.5. Version 2.0.3-release, 23 dec 2011
-   A.6. Version 2.0.2-beta, 15 nov 2011
-   A.7. Version 2.0.1-beta, 22 apr 2011
-   A.8. Version 1.10-beta, 19 jul 2010
-   A.9. Version 0.9.9-release, 02 dec 2009
-   A.10. Version 0.9.9-rc2, 08 apr 2009
-   A.11. Version 0.9.9-rc1, 17 nov 2008
-   A.12. Version 0.9.8.1, 30 oct 2008
-   A.13. Version 0.9.8, 14 jul 2008
-   A.14. Version 0.9.7, 02 apr 2007
-   A.15. Version 0.9.7-rc2, 15 dec 2006
-   A.16. Version 0.9.7-rc1, 26 oct 2006
-   A.17. Version 0.9.6, 24 jul 2006
-   A.18. Version 0.9.6-rc1, 26 jun 2006
+   A.1. Version 2.1.4-release, 18 dec 2013
+   A.2. Version 2.1.3-release, 12 nov 2013
+   A.3. Version 2.1.2-release, 10 oct 2013
+   A.4. Version 2.1.1-beta, 20 feb 2013
+   A.5. Version 2.0.9-release, 26 aug 2013
+   A.6. Version 2.0.8-release, 26 apr 2013
+   A.7. Version 2.0.7-release, 26 mar 2013
+   A.8. Version 2.0.6-release, 22 oct 2012
+   A.9. Version 2.0.5-release, 28 jul 2012
+   A.10. Version 2.0.4-release, 02 mar 2012
+   A.11. Version 2.0.3-release, 23 dec 2011
+   A.12. Version 2.0.2-beta, 15 nov 2011
+   A.13. Version 2.0.1-beta, 22 apr 2011
+   A.14. Version 1.10-beta, 19 jul 2010
+   A.15. Version 0.9.9-release, 02 dec 2009
+   A.16. Version 0.9.9-rc2, 08 apr 2009
+   A.17. Version 0.9.9-rc1, 17 nov 2008
+   A.18. Version 0.9.8.1, 30 oct 2008
+   A.19. Version 0.9.8, 14 jul 2008
+   A.20. Version 0.9.7, 02 apr 2007
+   A.21. Version 0.9.7-rc2, 15 dec 2006
+   A.22. Version 0.9.7-rc1, 26 oct 2006
+   A.23. Version 0.9.6, 24 jul 2006
+   A.24. Version 0.9.6-rc1, 26 jun 2006
 
 List of Examples
 
@@ -531,7 +540,7 @@ Currently, Sphinx distribution tarball includes the following software:
    * indextool: an utility to dump miscellaneous debug information about
      the index, added in version 0.9.9-rc2.
    * wordbreaker: an utility to break down compound words into separate
-     words, added in version 2.1.1.
+     words, added in version 2.1.1-beta.
 
 1.4. License
 ============
@@ -1144,11 +1153,6 @@ letter characters to their case folded versions. The characters that are
 not in the table are considered to be non-letters and will be treated as
 word separators when indexing or searching through this index.
 
-Note that while default tables do not include space character (ASCII code
-0x20, Unicode U+0020) as a letter, it's in fact perfectly legal to do so.
-This can be useful, for instance, for indexing tag clouds, so that
-space-separated word sets would index as a single search query term.
-
 Default tables currently include English and Russian characters. Please do
 submit your tables for other languages!
 
@@ -1387,7 +1391,8 @@ sphinx:attr
       * "name", specifies the element name that should be treated as an
         attribute in the subsequent documents.
       * "type", specifies the attribute type. Possible values are "int",
-        "timestamp", "str2ordinal", "bool", "float" and "multi".
+        "bigint", "timestamp", "str2ordinal", "bool", "float", "multi" and
+        "json".
       * "bits", specifies the bit size for "int" attribute type. Valid
         values are 1 to 32.
       * "default", specifies the default value for this attribute that
@@ -2353,13 +2358,13 @@ and then adds bm25 to that per-field sum. Currently implemented field-level
 factors are:
 
    * lcs (integer), the length of a maximum verbatim match between the
-     document and the query, coutned in words. LCS stands for Longest
+     document and the query, counted in words. LCS stands for Longest
      Common Subsequence (or Subset). Takes a minimum value of 1 when only
      stray keywords were matched in a field, and a maximum value of query
      keywords count when the entire query was matched in a field verbatim
      (in the exact query keywords order). For example, if the query is
      'hello world' and the field contains these two words quoted from the
-     query (that is, adjacent to each other, and exaclty in the query
+     query (that is, adjacent to each other, and exactly in the query
      order), lcs will be 2. For example, if the query is 'hello world
      program' and the field contains 'hello world', lcs will be 2. Note
      that any subset of the query keyword works, not just a subset of
@@ -2368,7 +2373,7 @@ factors are:
      well, because both 'hello' and 'program' matched in the same
      respective positions as they were in the query. Finally, if the query
      is 'hello world program' and the field contains 'hello world program',
-     lcs will be 3. (Hopefully that is unsurpising at this point.)
+     lcs will be 3. (Hopefully that is unsurprising at this point.)
    * user_weight (integer), the user specified per-field weight (refer to
      SetFieldWeights() in SphinxAPI and OPTION field_weights in SphinxQL
      respectively). The weights default to 1 if not specified explicitly.
@@ -2448,6 +2453,7 @@ and functions. Here's the complete reference list for quick access.
    * Bitwise operators: &, |
    * ABS()
    * BIGINT()
+   * BITDOT()
    * CEIL()
    * CONTAINS()
    * COS()
@@ -2462,6 +2468,7 @@ and functions. Here's the complete reference list for quick access.
    * IF()
    * IN()
    * INTERVAL()
+   * LENGTH()
    * LN()
    * LOG10()
    * LOG2()
@@ -2525,6 +2532,10 @@ Bitwise operators: &, |
 
 ABS()
    Returns the absolute value of the argument.
+
+BITDOT()
+   BITDOT(mask, w0, w1, ...) returns the sum of products of an each bit of
+   a mask multiplied with its weight. bit0*w0 + bit1*w1 + ...
 
 CEIL()
    Returns the smallest integer value greater or equal to the argument.
@@ -2773,6 +2784,11 @@ PACKEDFACTORS()
    PACKEDFACTORS() is simply formatted as plain text, which can be used to
    manually assess the ranking factors. Note that this feature is not
    currently supported by the Sphinx API.
+
+LENGTH()
+   LENGTH(attr_mva) function, introduced in version 2.1.2-stable, returns
+   amount of elements in MVA set. It works with both 32-bit and 64-bit MVA
+   attributes.
 
 5.6. Sorting modes
 ==================
@@ -3143,7 +3159,7 @@ one go (more formally, one network request).
 
 Two API methods that implement multi-query mechanism are AddQuery() and
 RunQueries(). You can also run multiple queries with SphinxQL, see
-Section 7.31, <<Multi-statement queries>>. (In fact, regular Query() call
+Section 7.33, <<Multi-statement queries>>. (In fact, regular Query() call
 is internally implemented as a single AddQuery() call immediately followed
 by RunQueries() call.) AddQuery() captures the current state of all the
 query settings set by previous API calls, and memorizes the query.
@@ -3629,9 +3645,6 @@ performed. These options are:
    * --print-queries prints out SQL queries that indexer sends to the
      database, along with SQL connection and disconnection events. That is
      useful to diagnose and fix problems with SQL sources.
-   * --print-queries prints out SQL queries that indexer sends to the
-     database, along with SQL connection and disconnection events. That is
-     useful to diagnose and fix problems with SQL sources.
 
 6.2. searchd command reference
 ==============================
@@ -4051,11 +4064,12 @@ just indexdump.) Its general usage is:
 
    | indextool <command> [options]
 
-The only currently available option applies to all commands and lets you
-specify the configuration file:
+Options apply to all commands:
 
    * --config <file> (-c <file> for short) overrides the built-in config
      file names.
+   * --quiet (-q for short) keep indextool quiet - it will not output
+     banner, etc.
 
 The commands are as follows:
 
@@ -4088,6 +4102,11 @@ The commands are as follows:
    * --dumphitlist INDEXNAME --wordid ID dumps all the hits (occurences) of
      a given keyword in a given index, with keyword specified as internal
      numeric ID.
+   * --fold INDEXNAME OPTFILE This options is useful too see how actually
+     tokenizer proceeds input. You can feed indextool with text from file
+     if specified or from stdin otherwise. The output will contain spaces
+     instead of separators (accordingly to your charset_table settings) and
+     lowercased letters in words.
    * --htmlstrip INDEXNAME filters stdin using HTML stripper settings for
      a given index, and prints the filtering results to stdout. Note that
      the settings will be taken from sphinx.conf, and not the index header.
@@ -4177,15 +4196,17 @@ Table of Contents
 7.23. UPDATE syntax
 7.24. ATTACH INDEX syntax
 7.25. FLUSH RTINDEX syntax
-7.26. TRUNCATE RTINDEX syntax
-7.27. SHOW AGENT STATUS
-7.28. SHOW PROFILE syntax
-7.29. SHOW INDEX STATUS syntax
-7.30. OPTIMIZE INDEX syntax
-7.31. Multi-statement queries
-7.32. Comment syntax
-7.33. List of SphinxQL reserved keywords
-7.34. SphinxQL upgrade notes, version 2.0.1-beta
+7.26. FLUSH RAMCHUNK syntax
+7.27. TRUNCATE RTINDEX syntax
+7.28. SHOW AGENT STATUS
+7.29. SHOW PROFILE syntax
+7.30. SHOW INDEX STATUS syntax
+7.31. OPTIMIZE INDEX syntax
+7.32. SHOW PLAN syntax
+7.33. Multi-statement queries
+7.34. Comment syntax
+7.35. List of SphinxQL reserved keywords
+7.36. SphinxQL upgrade notes, version 2.0.1-beta
 
 SphinxQL is our SQL dialect that exposes all of the search daemon
 functionality using a standard SQL syntax with a few Sphinx-specific
@@ -4201,7 +4222,7 @@ statements syntax.
    |     select_expr [, select_expr ...]
    |     FROM index [, index2 ...]
    |     [WHERE where_condition]
-   |     [GROUP BY {col_name | expr_alias}]
+   |     [GROUP BY {col_name | expr_alias} [, {sol_name | expr_alias}]]
    |     [WITHIN GROUP ORDER BY {col_name | expr_alias} {ASC | DESC}]
    |     [ORDER BY {col_name | expr_alias} {ASC | DESC} [, ...]]
    |     [LIMIT [offset,] row_count]
@@ -4260,10 +4281,17 @@ omissions (such as (currently) missing support for JOINs). Specifically,
      Starting with version 2.0.1-beta, {col_name | expr_alias} [NOT] IN
      @uservar condition syntax is supported. (Refer to Section 7.9, <<SET
      syntax>> for a discussion of global user variables.)
-   * GROUP BY clause. Currently only supports grouping by a single column.
-     The column however can be a computed expression:
+   * GROUP BY clause. Supports grouping by multiple columns or computed
+     expressions:
 
       | SELECT *, group_id*1000+article_type AS gkey FROM example GROUP BY gkey
+      | SELECT id FROM products GROUP BY region, price
+
+     Implicit grouping supported when using aggregate functions without
+     specifiying a GROUP BY clause. Consider these two queries:
+
+      | SELECT MAX(id), MIN(id), COUNT(*) FROM books
+      | SELECT MAX(id), MIN(id), COUNT(*), 1 AS grp FROM books GROUP BY grp
 
      Aggregate functions (AVG(), MIN(), MAX(), SUM()) in column list clause
      are supported. Arguments to aggregate functions can be either plain
@@ -4694,7 +4722,7 @@ SQL_MODE = value
 
 PROFILING = {0 | 1}
    Enables query profiling in the current session. Defaults to 0. See also
-   Section 7.28, <<SHOW PROFILE syntax>>. Introduced in version 2.1.1-beta.
+   Section 7.29, <<SHOW PROFILE syntax>>. Introduced in version 2.1.1-beta.
 
 Known global server variables are:
 
@@ -5041,7 +5069,7 @@ ATTACH INDEX a one-time conversion operation only. Those restrictions may
 be lifted in future releases, as we add the needed functionality to the RT
 indexes. The complete list is as follows.
 
-   * Target RT index needs to be empty. (See Section 7.26, <<TRUNCATE
+   * Target RT index needs to be empty. (See Section 7.27, <<TRUNCATE
      RTINDEX syntax>>)
    * Source disk index needs to have index_sp=0, boundary_step=0,
      stopword_step=1, dict=crc settings.
@@ -5125,7 +5153,28 @@ instant.
    | mysql> FLUSH RTINDEX rt;
    | Query OK, 0 rows affected (0.05 sec)
 
-7.26. TRUNCATE RTINDEX syntax
+7.26. FLUSH RAMCHUNK syntax
+===========================
+
+   | FLUSH RAMCHUNK rtindex
+
+FLUSH RAMCHUNK statement, added in version 2.1.2-release, forcibly creates
+a new disk chunk in a RT index.
+
+Normally, RT index would flush and convert the contents of the RAM chunk
+into a new disk chunk automatically, once the RAM chunk reaches the maximum
+allowed rt_mem_limit size. However, for debugging and testing it might be
+useful to forcibly create a new disk chunk, and FLUSH RAMCHUNK statement
+does exactly that.
+
+Note that using FLUSH RAMCHUNK increases RT index fragmentation. Most
+likely, you want to use FLUSH RTINDEX instead. We suggest that you abstain
+from using this statement unless you're absolutely sure what you're doing.
+
+   | mysql> FLUSH RAMCHUNK rt;
+   | Query OK, 0 rows affected (0.05 sec)
+
+7.27. TRUNCATE RTINDEX syntax
 =============================
 
    | TRUNCATE RTINDEX rtindex
@@ -5142,7 +5191,7 @@ files; when you build the main index, you need to wipe the delta index, and
 thus TRUNCATE RTINDEX. You also need to use this command before attaching
 an index; see Section 7.24, <<ATTACH INDEX syntax>>.
 
-7.27. SHOW AGENT STATUS
+7.28. SHOW AGENT STATUS
 =======================
 
    | SHOW AGENT ['agent'|'index'|index] STATUS [ LIKE pattern ]
@@ -5270,7 +5319,7 @@ when one of the weighted-probability strategies is in effect).
    | +--------------------------------------+--------------------------------+
    | 13 rows in set (0.00 sec)
 
-7.28. SHOW PROFILE syntax
+7.29. SHOW PROFILE syntax
 =========================
 
    | SHOW PROFILE
@@ -5368,7 +5417,7 @@ Here's a brief description of the currently profiled states.
    * aggregate, aggregating multiple result sets.
    * net_write, writing the result set to the network.
 
-7.29. SHOW INDEX STATUS syntax
+7.30. SHOW INDEX STATUS syntax
 ==============================
 
    | SHOW INDEX index_name STATUS
@@ -5397,7 +5446,7 @@ Currently, those include:
    | +----------------------+------------+
    | 6 rows in set (0.00 sec)
 
-7.30. OPTIMIZE INDEX syntax
+7.31. OPTIMIZE INDEX syntax
 ===========================
 
    | OPTIMIZE INDEX index_name
@@ -5432,7 +5481,49 @@ be optimized automatically. That might change in the future releases.
    | mysql> OPTIMIZE INDEX rt;
    | Query OK, 0 rows affected (0.00 sec)
 
-7.31. Multi-statement queries
+7.32. SHOW PLAN syntax
+======================
+
+   | SHOW PLAN
+
+SHOW PLAN statement, added in 2.1.2-release, displays the execution plan of
+the previous SELECT statment. The plan gets generated and stored during the
+actual execution, so profiling must be enabled in the current session
+before running that statement. That can be done with a SET profiling=1
+statement.
+
+Here's a complete instrumentation example:
+
+   | mysql> SET profiling=1 \G
+   | Query OK, 0 rows affected (0.00 sec)
+   | 
+   | mysql> SELECT id FROM lj WHERE MATCH('the i') LIMIT 1 \G
+   | *************************** 1. row ***************************
+   | id: 39815
+   | 1 row in set (1.53 sec)
+   | 
+   | mysql> SHOW PLAN \G
+   | *************************** 1. row ***************************
+   | Variable: transformed_tree
+   |    Value: AND(
+   |   AND(KEYWORD(the, querypos=1)),
+   |   AND(KEYWORD(i, querypos=2)))
+   | 1 row in set (0.00 sec)
+
+And here's a less trivial example that shows how the actually evaluated
+query tree can be rather different from the original one because of
+expansions and other transformations:
+
+   | mysql> SELECT * FROM test WHERE MATCH('@title abc* @body hey') \G SHOW PLAN \G
+   | ...
+   | *************************** 1. row ***************************
+   | Variable: transformed_tree
+   |    Value: AND(
+   |   OR(fields=(title), KEYWORD(abcx, querypos=1, expanded), KEYWORD(abcm, querypos=1, expanded)),
+   |   AND(fields=(body), KEYWORD(hey, querypos=2)))
+   | 1 row in set (0.00 sec)
+
+7.33. Multi-statement queries
 =============================
 
 Starting version 2.0.1-beta, SphinxQL supports multi-statement queries, or
@@ -5490,7 +5581,7 @@ WARNINGS, SHOW STATUS, and SHOW META. Arbitrary sequence of these
 statements are allowed. The results sets returned should match those that
 would be returned if the batched queries were sent one by one.
 
-7.32. Comment syntax
+7.34. Comment syntax
 ====================
 
 Since version 2.0.1-beta, SphinxQL supports C-style comment syntax.
@@ -5503,7 +5594,7 @@ between Sphinx and MySQL.)
 
    | SELECT /*! SQL_CALC_FOUND_ROWS */ col1 FROM table1 WHERE ...
 
-7.33. List of SphinxQL reserved keywords
+7.35. List of SphinxQL reserved keywords
 ========================================
 
 A complete alphabetical list of keywords that are currently reserved in
@@ -5562,7 +5653,7 @@ SphinxQL syntax (and therefore can not be used as identifiers).
    | WHERE
    | WITHIN
 
-7.34. SphinxQL upgrade notes, version 2.0.1-beta
+7.36. SphinxQL upgrade notes, version 2.0.1-beta
 ================================================
 
 This section only applies to existing applications that use SphinxQL
@@ -5818,8 +5909,8 @@ there were no connection attempts at all). Introduced in version 0.9.9-rc1.
 8.2.1. SetLimits
 ----------------
 
-Prototype: function SetLimits ( $offset, $limit, $max_matches=0, $cutoff=0
-)
+Prototype: function SetLimits ( $offset, $limit, $max_matches=1000,
+$cutoff=0 )
 
 Sets offset into server-side result set ($offset) and amount of matches to
 return to client starting from that offset ($limit). Can additionally
@@ -6948,7 +7039,7 @@ number of options can be specified. Available options are:
 
       | ... WHERE query='test;cutoff=10000;';
 
-   * maxquerytme - maximum allowed query time (in milliseconds), as in
+   * maxquerytime - maximum allowed query time (in milliseconds), as in
      SetMaxQueryTime() API call:
 
       | ... WHERE query='test;maxquerytime=1000;';
@@ -7389,20 +7480,21 @@ Table of Contents
    11.2.52. rt_mem_limit
    11.2.53. rt_field
    11.2.54. rt_attr_uint
-   11.2.55. rt_attr_bigint
-   11.2.56. rt_attr_float
-   11.2.57. rt_attr_multi
-   11.2.58. rt_attr_multi_64
-   11.2.59. rt_attr_timestamp
-   11.2.60. rt_attr_string
-   11.2.61. rt_attr_json
-   11.2.62. ha_strategy
-   11.2.63. bigram_freq_words
-   11.2.64. bigram_index
-   11.2.65. index_field_lengths
-   11.2.66. regexp_filter
-   11.2.67. stopwords_unstemmed
-   11.2.68. global_idf
+   11.2.55. rt_attr_bool
+   11.2.56. rt_attr_bigint
+   11.2.57. rt_attr_float
+   11.2.58. rt_attr_multi
+   11.2.59. rt_attr_multi_64
+   11.2.60. rt_attr_timestamp
+   11.2.61. rt_attr_string
+   11.2.62. rt_attr_json
+   11.2.63. ha_strategy
+   11.2.64. bigram_freq_words
+   11.2.65. bigram_index
+   11.2.66. index_field_lengths
+   11.2.67. regexp_filter
+   11.2.68. stopwords_unstemmed
+   11.2.69. global_idf
 
 11.3. indexer program configuration options
    11.3.1. mem_limit
@@ -7990,9 +8082,9 @@ Example:
 11.1.24. sql_attr_str2ordinal
 -----------------------------
 
-Ordinal string number attribute declaration. Multi-value (there might be
-multiple attributes declared), optional. Applies to SQL source types
-(mysql, pgsql, mssql) only.
+Deprecated. Ordinal string number attribute declaration. Multi-value (there
+might be multiple attributes declared), optional. Applies to SQL source
+types (mysql, pgsql, mssql) only.
 
 This attribute type (so-called ordinal, for brevity) is intended to allow
 sorting by string values, but without storing the strings themselves. When
@@ -8140,9 +8232,9 @@ Example:
 11.1.29. sql_attr_str2wordcount
 -------------------------------
 
-Word-count attribute declaration. Multi-value (ie. there may be more than
-one such attribute declared), optional. Applies to SQL source types (mysql,
-pgsql, mssql) only. Introduced in version 1.10-beta.
+Deprecated. Word-count attribute declaration. Multi-value (ie. there may be
+more than one such attribute declared), optional. Applies to SQL source
+types (mysql, pgsql, mssql) only. Introduced in version 1.10-beta.
 
 Word-count attribute takes a string column, tokenizes it according to index
 settings, and stores the resulting number of tokens in an attribute. This
@@ -8204,10 +8296,10 @@ Example:
 11.1.32. sql_field_str2wordcount
 --------------------------------
 
-Combined word-count attribute and full-text field declaration. Multi-value
-(ie. there may be more than one such attribute declared), optional. Applies
-to SQL source types (mysql, pgsql, mssql) only. Introduced in version
-1.10-beta.
+Deprecated. Combined word-count attribute and full-text field declaration.
+Multi-value (ie. there may be more than one such attribute declared),
+optional. Applies to SQL source types (mysql, pgsql, mssql) only.
+Introduced in version 1.10-beta.
 
 sql_attr_str2wordcount only stores the column word count but does not
 full-text index it. In some cases it might be desired to both full-text
@@ -8402,9 +8494,9 @@ Example:
 11.1.46. xmlpipe_attr_str2ordinal
 ---------------------------------
 
-xmlpipe string ordinal attribute declaration. Multi-value, optional.
-Applies to xmlpipe2 source type only. Syntax fully matches that of
-sql_attr_str2ordinal.
+Deprecated. xmlpipe string ordinal attribute declaration. Multi-value,
+optional. Applies to xmlpipe2 source type only. Syntax fully matches that
+of sql_attr_str2ordinal.
 
 Example:
 
@@ -9345,7 +9437,7 @@ Example:
    | 
    | # 'utf-8' defaults for English and Russian
    | charset_table = 0..9, A..Z->a..z, _, a..z, \
-   |     U+410..U+42F->U+430..U+44F, U+430..U+44F
+   |     U+410..U+42F->U+430..U+44F, U+430..U+44F, U+401->U+451, U+451
 
 11.2.18. ignore_chars
 ---------------------
@@ -10307,7 +10399,18 @@ Example:
 
    | rt_attr_uint = gid
 
-11.2.55. rt_attr_bigint
+11.2.55. rt_attr_bool
+---------------------
+
+Boolean attribute declaration. Multi-value (there might be multiple
+attributes declared), optional. Declares a 1-bit unsigned integer
+attribute. Introduced in version 2.1.2-release.
+
+Example:
+
+   | rt_attr_bool = available
+
+11.2.56. rt_attr_bigint
 -----------------------
 
 BIGINT attribute declaration. Multi-value (an arbitrary number of
@@ -10318,7 +10421,7 @@ Example:
 
    | rt_attr_bigint = guid
 
-11.2.56. rt_attr_float
+11.2.57. rt_attr_float
 ----------------------
 
 Floating point attribute declaration. Multi-value (an arbitrary number of
@@ -10329,7 +10432,7 @@ Example:
 
    | rt_attr_float = gpa
 
-11.2.57. rt_attr_multi
+11.2.58. rt_attr_multi
 ----------------------
 
 Multi-valued attribute (MVA) declaration. Declares the UNSIGNED INTEGER
@@ -10340,7 +10443,7 @@ Example:
 
    | rt_attr_multi = my_tags
 
-11.2.58. rt_attr_multi_64
+11.2.59. rt_attr_multi_64
 -------------------------
 
 Multi-valued attribute (MVA) declaration. Declares the BIGINT (signed
@@ -10351,7 +10454,7 @@ Example:
 
    | rt_attr_multi_64 = my_wide_tags
 
-11.2.59. rt_attr_timestamp
+11.2.60. rt_attr_timestamp
 --------------------------
 
 Timestamp attribute declaration. Multi-value (an arbitrary number of
@@ -10361,7 +10464,7 @@ Example:
 
    | rt_attr_timestamp = date_added
 
-11.2.60. rt_attr_string
+11.2.61. rt_attr_string
 -----------------------
 
 String attribute declaration. Multi-value (an arbitrary number of
@@ -10371,7 +10474,7 @@ Example:
 
    | rt_attr_string = author
 
-11.2.61. rt_attr_json
+11.2.62. rt_attr_json
 ---------------------
 
 JSON attribute declaration. Multi-value (ie. there may be more than one
@@ -10384,7 +10487,7 @@ Example:
 
    | rt_attr_json = properties
 
-11.2.62. ha_strategy
+11.2.63. ha_strategy
 --------------------
 
 Agent mirror selection strategy, for load balancing. Optional, default is
@@ -10466,7 +10569,7 @@ randomized strategies, RR imposes a strict querying order (1, 2, 3, ..,
 N-1, N, 1, 2, 3, ... and so on) and guarantees that no two subsequent
 queries will be sent to the same mirror.
 
-11.2.63. bigram_freq_words
+11.2.64. bigram_freq_words
 --------------------------
 
 A list of keywords considered "frequent" when indexing bigrams. Optional,
@@ -10477,7 +10580,7 @@ it stores a document list for either all or some of the adjacent words
 pairs into the index. Such a list can then be used at searching time to
 significantly accelerate phrase or sub-phrase matching.
 
-Some of the bigram indexing modes (see Section 11.2.64, <<bigram_index>>)
+Some of the bigram indexing modes (see Section 11.2.65, <<bigram_index>>)
 require to define a list of frequent keywords. These are not to be confused
 with stopwords! Stopwords are completely eliminated when both indexing and
 searching. Frequent keywords are only used by bigrams to determine whether
@@ -10489,7 +10592,7 @@ Example:
 
    | bigram_freq_words = the, a, you, i
 
-11.2.64. bigram_index
+11.2.65. bigram_index
 ---------------------
 
 Bigram indexing mode. Optional, default is none. Added in 2.1.1-beta.
@@ -10506,7 +10609,7 @@ are:
      even on a moderately sized index, but added anyway for the sake of
      completeness.)
    * first_freq, only index word pairs where the first word is in a list of
-     frequent words (see Section 11.2.63, <<bigram_freq_words>>). For
+     frequent words (see Section 11.2.64, <<bigram_freq_words>>). For
      example, with bigram_freq_words = the, in, i, a, indexing "alone in
      the dark" text will result in "in the" and "the dark" pairs being
      stored as bigrams, because they begin with a frequent keyword (either
@@ -10525,7 +10628,7 @@ Example:
 
    | bigram_freq_words = both_freq
 
-11.2.65. index_field_lengths
+11.2.66. index_field_lengths
 ----------------------------
 
 Enables computing and storing of field lengths (both per-document and
@@ -10553,7 +10656,7 @@ Example:
 
    | index_field_lengths = 1
 
-11.2.66. regexp_filter
+11.2.67. regexp_filter
 ----------------------
 
 Regular expressions (regexps) to filter the fields and queries with.
@@ -10593,7 +10696,7 @@ Example:
    | # index 'blue' or 'red' as 'color'
    | regexp_filter = (blue|red) => color
 
-11.2.67. stopwords_unstemmed
+11.2.68. stopwords_unstemmed
 ----------------------------
 
 Whether to apply stopwords before or after stemming. Optional, default is
@@ -10614,7 +10717,7 @@ Example:
 
    | stopwords_unstemmed = 1
 
-11.2.68. global_idf
+11.2.69. global_idf
 -------------------
 
 The path to a file with global (cluster-wide) keyword IDFs. Optional,
@@ -11649,7 +11752,7 @@ compliance with standard SQL. However, existing applications must not get
 broken, and compat_sphinxql_magics lets you upgrade safely. It defaults to
 0, which acts in modern way. SphinxQL compatibility mode is now deprecated
 and will be removed once we complete bringing SphinxQL in line with
-standard SQL syntax. Please refer to Section 7.34, <<SphinxQL upgrade
+standard SQL syntax. Please refer to Section 7.36, <<SphinxQL upgrade
 notes, version 2.0.1-beta>> for the details and update instruction.
 
 Example:
@@ -11867,26 +11970,169 @@ Appendix A. Sphinx revision history
 
 Table of Contents
 
-A.1. Version 2.1.1-beta, 20 feb 2013
-A.2. Version 2.0.6-release, 22 oct 2012
-A.3. Version 2.0.5-release, 28 jul 2012
-A.4. Version 2.0.4-release, 02 mar 2012
-A.5. Version 2.0.3-release, 23 dec 2011
-A.6. Version 2.0.2-beta, 15 nov 2011
-A.7. Version 2.0.1-beta, 22 apr 2011
-A.8. Version 1.10-beta, 19 jul 2010
-A.9. Version 0.9.9-release, 02 dec 2009
-A.10. Version 0.9.9-rc2, 08 apr 2009
-A.11. Version 0.9.9-rc1, 17 nov 2008
-A.12. Version 0.9.8.1, 30 oct 2008
-A.13. Version 0.9.8, 14 jul 2008
-A.14. Version 0.9.7, 02 apr 2007
-A.15. Version 0.9.7-rc2, 15 dec 2006
-A.16. Version 0.9.7-rc1, 26 oct 2006
-A.17. Version 0.9.6, 24 jul 2006
-A.18. Version 0.9.6-rc1, 26 jun 2006
+A.1. Version 2.1.4-release, 18 dec 2013
+A.2. Version 2.1.3-release, 12 nov 2013
+A.3. Version 2.1.2-release, 10 oct 2013
+A.4. Version 2.1.1-beta, 20 feb 2013
+A.5. Version 2.0.9-release, 26 aug 2013
+A.6. Version 2.0.8-release, 26 apr 2013
+A.7. Version 2.0.7-release, 26 mar 2013
+A.8. Version 2.0.6-release, 22 oct 2012
+A.9. Version 2.0.5-release, 28 jul 2012
+A.10. Version 2.0.4-release, 02 mar 2012
+A.11. Version 2.0.3-release, 23 dec 2011
+A.12. Version 2.0.2-beta, 15 nov 2011
+A.13. Version 2.0.1-beta, 22 apr 2011
+A.14. Version 1.10-beta, 19 jul 2010
+A.15. Version 0.9.9-release, 02 dec 2009
+A.16. Version 0.9.9-rc2, 08 apr 2009
+A.17. Version 0.9.9-rc1, 17 nov 2008
+A.18. Version 0.9.8.1, 30 oct 2008
+A.19. Version 0.9.8, 14 jul 2008
+A.20. Version 0.9.7, 02 apr 2007
+A.21. Version 0.9.7-rc2, 15 dec 2006
+A.22. Version 0.9.7-rc1, 26 oct 2006
+A.23. Version 0.9.6, 24 jul 2006
+A.24. Version 0.9.6-rc1, 26 jun 2006
 
-A.1. Version 2.1.1-beta, 20 feb 2013
+A.1. Version 2.1.4-release, 18 dec 2013
+=======================================
+
+Bug fixes
+---------
+
+   * fixed #1778, indexes with more than 255 attributes
+   * fixed #1777, ORDER BY WEIGHT()
+   * fixed #1796, missing results in queries with quorum operator of
+     indexes with some lemmatizer
+   * fixed #1780, incorrect results while querying indexes with wordforms,
+     some lemmatizer and enable_star=1
+   * fixed, SHOW PROFILE for fullscan queries
+   * fixed, --with-re2 check
+
+A.2. Version 2.1.3-release, 12 nov 2013
+=======================================
+
+Bug fixes
+---------
+
+   * fixed #1753, path to re2 sources could not be set using --with-re2,
+     options --with-re2-libs and --with-re2-includes added to configure
+   * fixed #1739, erroneous conversion of RAM chunk into disk chunk when
+     loading id32 index with id64 binary
+   * fixed #1738, unlinking RAM chunk when converting it to disk chunk
+   * fixed #1710, unable to filter by attributes created by
+     index_field_lenghts=1
+   * fixed #1716, random crash with with multiple running threads
+   * fixed crash while querying index with lemmatizer and wordforms
+
+A.3. Version 2.1.2-release, 10 oct 2013
+=======================================
+
+New features
+------------
+
+   * added FLUSH RAMCHUNK statement
+   * added SHOW PLAN statement
+   * added support for GROUP BY on multiple attributes
+   * added BM25F() function to SELECT expressions (now works with the
+     expression based ranker)
+   * added indextool --fold command and -q switch
+   * added JSON debug check for RT index RAM chunk
+   * added LENGTH() function for MVA
+   * added missing rt_attr_bool directive
+   * added support for selecting over 250 columns via SphinxQL
+   * deprecated custom sort mode, and str2ordinal and str2wordcount
+     attribute types
+   * optimized SELECT, UPDATE for indexes with many attributes (up to 3.5x
+     speedup in extreme cases)
+   * JSON attributes (up to 5-20% faster SELECTs using JSON objects)
+   * optimized xmlpipe2 indexing (up to 9 times faster on some schemas)
+
+Bug fixes
+---------
+
+   * fixed #1684, COUNT(DISTINCT smth) with implicit GROUP BY returns
+     correct value now
+   * fixed #1672, exact token AOT vs lemma (indexer skips exact form of
+     token that passed AOT through tokenizer)
+   * fixed #1659, fail while loading empty infix dictionary with
+     dict=keywords
+   * fixed #1638, force explicit JSON type conversion for aggregate
+     functions
+   * fixed #1628, GROUP_CONCAT() and GROUPBY() support for distributed
+     agents
+   * fixed #1619, INTEGER() conversion function doesn't support signed
+     integers
+   * fixed #1615, global IDF vs exact term (=term) fixed global IDF for
+     missed terms fixed SphinxQL global_idf=0 option
+   * fixed #1607, now ignoring binlog when running daemon with --console
+     flag
+   * fixed #1606, hard interruption of the daemon by Ctrl+C (SIGINT) signal
+   * fixed #1592, duplicates vs expression ranker
+   * fixed #1578, SORT BY string attribute via API attr_asc \ attr_desc
+   * fixed #1575, crash of daemon on MVA receive from agents with
+     dist_threads enabled
+   * fixed #1574, agent got kill list of local indexes of distributed index
+   * fixed #1573, ranker expression vs expanded terms
+   * fixed #1572, BM25F vs negative terms
+   * fixed #1550, float got cut at full-text part of a query
+   * fixed #1541, BM25F expression in distributes indexes
+   * fixed #1508, #1522, distributed index query lasts up to
+     agent_connect_timeout with epoll path
+   * fixed #1508, master failed to connect waiting agents up to
+     agent_connect_timeout time
+   * fixed #1489, filtering by integer field in JSON using floating point
+     precision
+   * fixed #1485, index_exact_words vs keyword dict with infix
+   * fixed #1484, INSERT into RT vs no JSON attribute
+   * fixed #1478, memory leaks at daemon PACKEDFACTORS() as UDF argument,
+     index query tokenizer, expression ranker SUM()
+   * fixed #1470, broken UDF unpack (since r3738 UDF version 2)
+   * fixed #1468, multiple conditions in WHERE for JSON attributes
+   * fixed #1466, index_field_lengths vs XML data source
+   * fixed #1463, daemon shutdown vs RT index optimize (added forced
+     terminate of long merging operation)
+   * fixed #1460, aggregate functions AVG(), MAX(), MIN(), SUM() do not
+     work for JSON attributes
+   * fixed #1459, BM25F doesn't work with field_string fields
+   * fixed #1458, factors to copy field_tf at UDF
+   * fixed #1450, garbage in JSON fields when selecting them from a RT
+     index
+   * fixed #1449, broken build on Mac OS X
+   * fixed #1446, WEIGHT() did not work in SELECT expressions
+   * fixed #1445, field-start/field-end modifiers did not work for
+     star-expanded keywords
+   * fixed #1443, morphology=lemmatizer_ru_all now works with
+     index_exact_words=1 (exact forms can be matches)
+   * fixed #1442, incorrect COUNT(*) value in queries to distributed
+     indexes with implicit GROUP BY
+   * fixed #1439, filters on float values in JSON issue, string values
+     quoting issue
+   * fixed #1399, filter error message on string attribute
+   * fixed #1384, added possibility to define any own DSN line with
+     source=mssql (like as in source=odbc)
+   * fixed ATTACH vs wordforms or stopwords; after daemon was restarted
+     this setting was getting lost in RT indexes
+   * fixed balancing of agents in HA
+   * fixed co-working of index_exact_word + AOT lemmatizer
+   * fixed epoll invoking and turned on by default
+   * fixed incorrect handling of wildcards in tokenizer
+   * fixed infix indexing with dict=keywords
+   * fixed max_predicted_time integer overflows
+   * fixed memory error in tokenizer
+   * fixed several memory leaks
+   * fixed PACKEDFACTORS() to work in different GROUP BY queries
+   * fixed preprocessor definitions for RE2 in VS solution
+   * fixed rotation of global IDF for workers=threads and seamless_rotate=1
+   * fixed rotation of old indexes
+   * fixed RT kill list survives TRUNCATE and works in newly ATTACHed index
+   * fixed saving id32 RT index with id64 daemon
+   * fixed stemmer vs RT index INSERT
+   * fixed string case error with JSON attributes in select list of a query
+   * fixed TOP_COUNT usage in misc/suggest and updated to PHP 5.3 and UTF-8
+
+A.4. Version 2.1.1-beta, 20 feb 2013
 ====================================
 
 Major new features
@@ -11984,7 +12230,163 @@ Major behavior changes and optimizations
    * optimized filtering and scan in several frequent cases (single-value,
      2-arg, 3-arg WHERE clauses)
 
-A.2. Version 2.0.6-release, 22 oct 2012
+A.5. Version 2.0.9-release, 26 aug 2013
+=======================================
+
+Bug fixes
+---------
+
+   * fixed #1655, special characters like ()?* were not processed correctly
+     by exceptions
+   * fixed #1651, CREATE FUNCTION can now be used with BIGINT return type
+   * fixed #1649, incorrect warning message (about statistics mismatch) was
+     returned when mixing wildcards and regular keywords
+   * fixed #1603, passing MVA64 arguments to non-MVA functions caused
+     unpredicted behaviour and crashes (now explicitly forbidden)
+   * fixed #1601, negative numbers in IN() clause caused a syntax error
+   * fixed #1581, dict=keywords and sql_joined_field occasionally caused
+     indexer to build corrupted indexes
+   * fixed #1546, file descriptor leaked on index rotation (that eventually
+     prevented searchd to reload indexes)
+   * fixed #1537, COUNT(*) and compat_sphinxql_magics=0 via SphinxAPI
+     caused an incorrect error message
+   * fixed #1531, #1589, several matching and highlighting issues when
+     using both blend_chars and multi-wordforms
+   * fixed #1521, indextool --check did not handle empty RT MVA and gave an
+     incorrect warning
+   * fixed #1392, SphinxSE builds with MySQL 5.6 now
+   * fixed #1346, NEAR handles duplicated keywords properly now
+   * fixed #757, wordforms shared between multiple indexes with different
+     tokenizer settings failed to load (they now load with a warning)
+   * fixed that batch queries did not batch in some cases (because of
+     internal expression alias issues)
+   * fixed that CALL KEYWORDS occasionally gave incorrect error messages
+   * fixed searchd crashes on ATTACHing plain indexes with MVAs
+   * fixed several deadlocks and other threading issues
+   * fixed incorrect sorting order with utf8_general_ci
+   * fixed that in some cases incorrect attribute values were returned when
+     using expression aliases
+   * optimized xmlpipe2 indexing
+   * added a warning for missed stopwords, exception, wordforms files on
+     index load and in indextool --check
+
+A.6. Version 2.0.8-release, 26 apr 2013
+=======================================
+
+Bug fixes
+---------
+
+   * fixed #1515, log strings over 2KB were clipped when
+     query_log_format=plain
+   * fixed #1514, RT index disk chunk lose attribute update on daemon
+     restart
+   * fixed #1512, crash while formatting log messages
+   * fixed #1511, crash on indexing PostgreSQL data source with MVA
+     attributes
+   * fixed #1509, blend_chars vs incomplete multi-form and overshort
+   * fixed #1504, RT binlog replay vs descending tid on update
+   * fixed #1499, sql_field_str2wordcount actually is int, not string
+   * fixed #1498, now working with exceptions starting with number too
+   * fixed #1496, multiple destination keywords in wordform
+   * fixed #1494, lost 'mod', '%' operations in select list. Also corrected
+     few typers in the doc.
+   * fixed #1490, expand_keywords vs prefix
+   * fixed #1487, `id` in expression fixed
+   * fixed #1483, snippets limits fix
+   * fixed #1481, shebang config changes check on rotation
+   * fixed #1479, port handling in PHP Sphinx API
+   * fixed #1474, daemon crash at SphinxQL packet overflows max_packet_size
+   * fixed #1472, crash on loading index to indextool for check
+   * fixed #1465, expansion_limit got lost in index rotation
+   * fixed #1427, #1506, utf8 3 and 4-bytes codepoints
+   * fixed #1405, between with mixed int float values
+
+A.7. Version 2.0.7-release, 26 mar 2013
+=======================================
+
+Bug fixes
+---------
+
+   * fixed #1475, memory leak in the expression parser
+   * fixed #1457, error messages over 2KB were clipped
+   * fixed #1454, searchd did not display an error message when the binlog
+     path did not exist
+   * fixed #1441, SHOW META in a query batch was returning the last
+     non-batch error
+   * fixed #1435, typo in the documentation
+   * fixed #1430, rt_flush_period now works even with a disabled binlog
+   * fixed #1427, overlong 4-byte UTF-8 codes in source text could cause
+     indexer crashes or index corruption
+   * fixed #1418, warnings from local index searches were lost with
+     dist_threads>0
+   * fixed #1417, crash handler now works on searchd startup stage, too
+     (eg. to report index load time crashes)
+   * fixed #1410, bad numerics like '123abc' now result in a proper
+     SphinxQL error message
+   * fixed #1404, a tiny memory leak in shared mutex
+   * fixed #1394, race in --iostats caused incorrect I/O statistics in
+     threaded modes
+   * fixed #1391, QUORUM operator vs docinfo=inline returned wrong
+     attribute values
+   * fixed #1389, edge case in the ORDER operator caused occasionaly
+     searchd crashes
+   * fixed #1382, query parts with field limits but without real keywords
+     (like '@name {') are now simply ignored and no longer cause a query
+     syntax error
+   * fixed #1370, Windows indexer builds failed to fetch rows from MSSQL
+     2012
+   * fixed #1368, ORDER BY RAND() did not work in RT indexes
+   * fixed #1364, queries with hitless words could occasionally crash
+     searchd
+   * fixed #1363, '*' in charset_table was causing query syntax errors with
+     enable_star=1
+   * fixed #1353, added filtering by 'id' syntax (in addition to '@id') to
+     SphinxSE
+   * fixed #1346, fixed NEAR operator behavior vs duplicated keywords
+   * fixed #1345, invalid PROXIMITY operator threshold now causes a query
+     syntax error rather than unexpected search behavior
+   * fixed #1343, misconfigured indexes with 0 full text fields are now
+     explicitly forbidden
+   * fixed #1342, specific error messages (from the preload stage) went
+     missing when failing to load the indexes
+   * fixed #1339, no warning on inconsistent word statistics
+   * fixed #1335, typo in searchd help screen
+   * fixed #1334, typo in SELECT documentation
+   * fixed #1316, PHRASE operator did not match in a rare self-repeating
+     document/query case
+   * fixed #1297, letting queries complete gracefully instead of killing
+     them off in seamless_rotate=1, workers=prefork case
+   * fixed #1295, mentioned index naming requirements (proper identifier)
+     in the FROM clause docs
+   * fixed #1221, incorrect results when using @groupby in select list via
+     SphinxAPI with compat_sphinxql_magics=0
+   * fixed #1180, special SPZ chars occasionally leaking into snippets
+   * fixed #1171, preforked children did not reload logs on SIGUSR1
+   * fixed #1150, added support for `id` syntax in DELETE and parents in
+     WHERE
+   * fixed #1135, crashes when using MVA/strings attributes in expression
+     ranker
+   * fixed #1124, corrupted attributes after merging with an empty index
+   * fixed #1090, SphinxSE snippets UDF updated to support MySQL 5.5
+   * fixed #1041, added initial support for MVA updates (and other mutex
+     protected things) on FreeBSD
+   * fixed #999, fullscan returned empty result sets in mixed batches of
+     fullscan and fulltext queries
+   * fixed #921, document count/bytes 32bit overflow in indexer progress
+     output
+   * fixed #539, added processing suffix rules with dots in .affix file to
+     spelldump
+   * fixed #481, rotation did not work on Windows with preopen=1
+   * fixed #268, added warnings about duplicate elements in xmlpipe2
+   * fixed CSphStaticMutex (double initialization issue)
+   * fixed documentation typo in SQL data sources
+   * fixed too-late initialization of mutex at daemon
+   * fixed that an instance of searchd resurrected by watchdog could leak
+     resources and/or crash
+   * added a console message about crashes during index loading at startup
+   * added more debug info about failed index loading
+
+A.8. Version 2.0.6-release, 22 oct 2012
 =======================================
 
 Bug fixes
@@ -12055,7 +12457,7 @@ Bug fixes
    * fixed sample config file
    * fixed x64 configurations for libstemmer
 
-A.3. Version 2.0.5-release, 28 jul 2012
+A.9. Version 2.0.5-release, 28 jul 2012
 =======================================
 
 Bug fixes
@@ -12162,8 +12564,8 @@ Bug fixes
      parser
    * fixed missing command-line switches documentation
 
-A.4. Version 2.0.4-release, 02 mar 2012
-=======================================
+A.10. Version 2.0.4-release, 02 mar 2012
+========================================
 
 Bug fixes
 ---------
@@ -12217,8 +12619,8 @@ Bug fixes
    * fixed #1120, negative total_found, docs and hits counter on huge
      indexes
 
-A.5. Version 2.0.3-release, 23 dec 2011
-=======================================
+A.11. Version 2.0.3-release, 23 dec 2011
+========================================
 
 Bug fixes
 ---------
@@ -12247,8 +12649,8 @@ Bug fixes
    * fixed build of SphinxSE with MySQL 5.1
    * fixed crash log for 'fork' and 'prefork' workers
 
-A.6. Version 2.0.2-beta, 15 nov 2011
-====================================
+A.12. Version 2.0.2-beta, 15 nov 2011
+=====================================
 
 Major new features
 ------------------
@@ -12418,8 +12820,8 @@ Bug fixes
    * fixed that field/zone conditions were not propagated to expanded
      keywords with dict=keywords
 
-A.7. Version 2.0.1-beta, 22 apr 2011
-====================================
+A.13. Version 2.0.1-beta, 22 apr 2011
+=====================================
 
 New general features
 --------------------
@@ -12595,8 +12997,8 @@ Bug fixes
    * fixed libsphinxclient SIGPIPE handling
    * fixed libsphinxclient vs VS2003 compiler bug
 
-A.8. Version 1.10-beta, 19 jul 2010
-===================================
+A.14. Version 1.10-beta, 19 jul 2010
+====================================
 
    * added RT indexes support (Chapter 4, Real-time indexes)
    * added prefork and threads support (workers directives)
@@ -12684,8 +13086,8 @@ A.8. Version 1.10-beta, 19 jul 2010
      etc)
    * fixed #509, indexing ranged results from stored procedures
 
-A.9. Version 0.9.9-release, 02 dec 2009
-=======================================
+A.15. Version 0.9.9-release, 02 dec 2009
+========================================
 
    * added Open, Close, Status calls to libsphinxclient (C API)
    * added automatic persistent connection reopening to PHP, Python APIs
@@ -12747,7 +13149,7 @@ A.9. Version 0.9.9-release, 02 dec 2009
    * fixed #344 (invalid checkpoints after merge)
    * fixed #326 (missing CLOCK_xxx on FreeBSD)
 
-A.10. Version 0.9.9-rc2, 08 apr 2009
+A.16. Version 0.9.9-rc2, 08 apr 2009
 ====================================
 
    * added IsConnectError(), Open(), Close() calls to Java API (bug #240)
@@ -12846,7 +13248,7 @@ A.10. Version 0.9.9-rc2, 08 apr 2009
      static
    * fixed parser vs @field -keyword, foo|@field bar, "" queries (bug #310)
 
-A.11. Version 0.9.9-rc1, 17 nov 2008
+A.17. Version 0.9.9-rc1, 17 nov 2008
 ====================================
 
    * added min_stemming_len directive
@@ -12909,7 +13311,7 @@ A.11. Version 0.9.9-rc1, 17 nov 2008
    * fixed backslash escaping, added backslash to EscapeString()
    * fixed handling of over-2GB dictionary files (.spi)
 
-A.12. Version 0.9.8.1, 30 oct 2008
+A.18. Version 0.9.8.1, 30 oct 2008
 ==================================
 
    * added configure script to libsphinxclient
@@ -12946,7 +13348,7 @@ A.12. Version 0.9.8.1, 30 oct 2008
    * fixed default ID range (that filtered out all 64-bit values) in Java
      and Python APIs
 
-A.13. Version 0.9.8, 14 jul 2008
+A.19. Version 0.9.8, 14 jul 2008
 ================================
 
 Indexing
@@ -13126,7 +13528,7 @@ Changes and fixes since 0.9.8-rc2
      reusable sorter issue
    * fixed sorting of negative floats in SPH_SORT_EXTENDED mode
 
-A.14. Version 0.9.7, 02 apr 2007
+A.20. Version 0.9.7, 02 apr 2007
 ================================
 
    * added support for sql_str2ordinal_column
@@ -13176,7 +13578,7 @@ A.14. Version 0.9.7, 02 apr 2007
    * fixed wrong assertion in SBCS encoder
    * fixed crashes with no-attribute indexes after rotate
 
-A.15. Version 0.9.7-rc2, 15 dec 2006
+A.21. Version 0.9.7-rc2, 15 dec 2006
 ====================================
 
    * added support for extended matching mode (query language)
@@ -13198,7 +13600,7 @@ A.15. Version 0.9.7-rc2, 15 dec 2006
      paths)
    * fixes for 64-bit platforms
 
-A.16. Version 0.9.7-rc1, 26 oct 2006
+A.22. Version 0.9.7-rc1, 26 oct 2006
 ====================================
 
    * added alpha index merging code
@@ -13227,7 +13629,7 @@ A.16. Version 0.9.7-rc1, 26 oct 2006
    * fixed line numbering in config parser
    * fixed some issues with index rotation
 
-A.17. Version 0.9.6, 24 jul 2006
+A.23. Version 0.9.6, 24 jul 2006
 ================================
 
    * added support for empty indexes
@@ -13236,7 +13638,7 @@ A.17. Version 0.9.6, 24 jul 2006
    * fixed configure issues with --without-mysql and --with-pgsql options
    * fixed building on Solaris 9
 
-A.18. Version 0.9.6-rc1, 26 jun 2006
+A.24. Version 0.9.6-rc1, 26 jun 2006
 ====================================
 
    * added boolean queries support (experimental, beta version)

@@ -48,6 +48,28 @@ index rt
 	index_exact_words = 1
 	morphology = stem_en
 }
+
+index rt_fix
+{
+	type			= rt
+	path			= <data_path/>/rt_fix
+	rt_field		= title	
+	rt_attr_uint	= id1
+	min_infix_len = 1
+	dict = keywords
+	morphology = stem_en
+	enable_star = 1	
+}
+
+index wf
+{
+	source			= srctest
+	path			= <data_path/>/wf
+	dict = keywords
+	index_exact_words = 1
+	morphology = none
+	wordforms		= <this_test/>/wordforms.txt
+}
 </config>
 
 <queries>
@@ -89,6 +111,16 @@ REPLACE INTO rt (id, id1, title) VALUES ( 1, 1, 'work worked working workings wo
 <sphinxql>SELECT * FROM rt WHERE MATCH('=run')</sphinxql>
 <sphinxql>show meta</sphinxql>
 <sphinxql>SELECT * FROM rt WHERE MATCH('=runs')</sphinxql>
+<sphinxql>show meta</sphinxql>
+<sphinxql>REPLACE INTO rt_fix (id, id1, title) VALUES ( 1, 1, 'hi people how are you' )</sphinxql>
+<sphinxql>SELECT * FROM rt_fix WHERE MATCH('ho*')</sphinxql>
+<sphinxql>SELECT * FROM wf WHERE MATCH('run')</sphinxql>
+<sphinxql>show meta</sphinxql>
+<sphinxql>SELECT * FROM wf WHERE MATCH('runs')</sphinxql>
+<sphinxql>show meta</sphinxql>
+<sphinxql>SELECT * FROM wf WHERE MATCH('=run')</sphinxql>
+<sphinxql>show meta</sphinxql>
+<sphinxql>SELECT * FROM wf WHERE MATCH('=runs')</sphinxql>
 <sphinxql>show meta</sphinxql>
 </sphqueries>
 

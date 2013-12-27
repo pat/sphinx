@@ -1,5 +1,5 @@
 //
-// $Id: tests.cpp 3701 2013-02-20 18:10:18Z deogar $
+// $Id: tests.cpp 4067 2013-08-12 05:04:21Z kevg $
 //
 
 //
@@ -39,7 +39,7 @@
 
 //////////////////////////////////////////////////////////////////////////
 
-const char * g_sTmpfile = "__libsphinxtest.tmp";
+static const char * g_sTmpfile = "__libsphinxtest.tmp";
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -457,6 +457,7 @@ void TestTokenizer ( bool bUTF8 )
 	SafeDelete ( pTokenizer );
 	printf ( "test utf8 4-bytes codepoint\n" );
 	BYTE sTest21[] = "\xF4\x80\x80\x80\x32\x34\x20";
+	BYTE sTest22[] = "\xEC\x97\xB0";
 	BYTE sRes21[SPH_MAX_WORD_LEN];
 
 	memset ( sRes21, 0, sizeof(sRes21) );
@@ -468,6 +469,17 @@ void TestTokenizer ( bool bUTF8 )
 	BYTE * pRes21 = sRes21;
 	SPH_UTF8_ENCODE ( pRes21, iCode21 );
 	assert ( sTest21[0]==sRes21[0] && sTest21[1]==sRes21[1] && sTest21[2]==sRes21[2] && sTest21[3]==sRes21[3] );
+
+	memset ( sRes21, 0, sizeof(sRes21) );
+	pTest21 = sTest22;
+	int iCode22 = sphUTF8Decode ( pTest21 );
+	assert ( iCode22==0xC5F0 );
+	assert ( sphUTF8Encode ( sRes21, iCode22 )==3 );
+	assert ( memcmp ( sTest22, sRes21, sizeof(sTest22) )==0 );
+	memset ( sRes21, 0, sizeof(sRes21) );
+	pRes21 = sRes21;
+	SPH_UTF8_ENCODE ( pRes21, iCode22 );
+	assert ( memcmp ( sTest22, sRes21, sizeof(sTest22) )==0 );
 
 	pTokenizer = sphCreateUTF8Tokenizer();
 	pTokenizer->SetBuffer ( (BYTE*)sTest21, sizeof(sTest21) );
@@ -512,7 +524,7 @@ void BenchTokenizer ( bool bUTF8 )
 	CSphString sError;
 	for ( int iRun=1; iRun<=2; iRun++ )
 	{
-		int iData;
+		int iData = 0;
 		char * sData = LoadFile ( "./configure", &iData, true );
 
 		ISphTokenizer * pTokenizer = bUTF8 ? sphCreateUTF8Tokenizer () : sphCreateSBCSTokenizer ();
@@ -1450,8 +1462,8 @@ void BenchLocators ()
 //////////////////////////////////////////////////////////////////////////
 
 #ifndef NDEBUG
-int g_iRwlock;
-CSphRwlock g_tRwlock;
+static int g_iRwlock;
+static CSphRwlock g_tRwlock;
 
 void RwlockReader ( void * pArg )
 {
@@ -1542,7 +1554,7 @@ void TestCleanup ()
 
 //////////////////////////////////////////////////////////////////////////
 
-volatile int g_iMutexBench = 0;
+static volatile int g_iMutexBench = 0;
 
 void DummyThread ( void * )
 {}
@@ -1760,7 +1772,7 @@ struct SortDataGenDesc_t
 	const char *		m_sName;
 };
 
-SortDataGenDesc_t g_dSortDataGens[] =
+static SortDataGenDesc_t g_dSortDataGens[] =
 {
 	{ SortDataRepeat1245,	"repeat1245" },
 	{ SortDataEnd0,			"end0" },
@@ -2078,7 +2090,7 @@ void TestStridedSort ()
 
 //////////////////////////////////////////////////////////////////////////
 
-const char * g_sFieldsData[] = { "33", "1033", "If I were a cat...", "We are the greatest cat" };
+static const char * g_sFieldsData[] = { "33", "1033", "If I were a cat...", "We are the greatest cat" };
 
 class SphTestDoc_c : public CSphSource_Document
 {
@@ -2163,7 +2175,7 @@ void TestRTInit ()
 {
 	CSphConfigSection tRTConfig;
 
-	sphRTInit();
+	sphRTInit ( tRTConfig, true );
 	sphRTConfigure ( tRTConfig, true );
 
 	SmallStringHash_T<CSphIndex*> hIndexes;
@@ -2542,7 +2554,7 @@ void TestSpanSearch()
 
 //////////////////////////////////////////////////////////////////////////
 
-const char * CORPUS = "corpus.txt";
+static const char * CORPUS = "corpus.txt";
 const int POOLSIZE = 80*1048576;
 const int GAP = 4;
 
@@ -2821,7 +2833,7 @@ void BenchMisc()
 	int64_t iAvg = 0;
 	for ( int i=0; i<THREADS; i++ )
 	{
-		int64_t t = tmEnd[i] - tmStart;
+		t = tmEnd[i] - tmStart;
 		iMin = Min ( iMin, t );
 		iMax = Max ( iMax, t );
 		iAvg += t;
@@ -2890,6 +2902,35 @@ void TestArabicStemmer()
 
 //////////////////////////////////////////////////////////////////////////
 
+void TestAppendf()
+{
+	CSphStringBuilder sRes;
+	sRes.Appendf ( "12345678" );
+	sRes.Appendf ( "this is my rifle this is my gun" );
+	sRes.Appendf ( " int=%d float=%f string=%s", 123, 456.789, "helloworld" );
+	assert ( strcmp ( sRes.cstr(), "12345678this is my rifle this is my gun int=123 float=456.789000 string=helloworld" )==0 );
+}
+
+void BenchAppendf()
+{
+	int64_t tm1 = sphMicroTimer();
+	CSphStringBuilder sRes1;
+	for ( int i=0; i<200; i++ )
+		sRes1.Appendf ( "%d ", i );
+	tm1 = sphMicroTimer() - tm1;
+
+	int64_t tm2 = sphMicroTimer();
+	CSphString sRes2;
+	sRes2.SetSprintf ( "%d ", 0 );
+	for ( int i=1; i<200; i++ )
+		sRes2.SetSprintf ( "%s%d ", sRes2.cstr(), i );
+	tm2 = sphMicroTimer() - tm2;
+
+	printf ( "benchmarking stringbuilder... %d microsec builder vs %d microsec string\n", int(tm1), int(tm2) );
+}
+
+//////////////////////////////////////////////////////////////////////////
+
 int main ()
 {
 	// threads should be initialized before memory allocations
@@ -2904,6 +2945,7 @@ int main ()
 #endif
 
 #ifdef NDEBUG
+	BenchAppendf();
 	BenchMisc();
 	BenchStripper ();
 	BenchTokenizer ( false );
@@ -2912,6 +2954,7 @@ int main ()
 	BenchLocators ();
 	BenchThreads ();
 #else
+	TestAppendf();
 	TestQueryParser ();
 	TestQueryTransforms ();
 	TestStripper ();
@@ -2938,5 +2981,5 @@ int main ()
 }
 
 //
-// $Id: tests.cpp 3701 2013-02-20 18:10:18Z deogar $
+// $Id: tests.cpp 4067 2013-08-12 05:04:21Z kevg $
 //

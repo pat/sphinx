@@ -1,5 +1,5 @@
 //
-// $Id: search.cpp 3701 2013-02-20 18:10:18Z deogar $
+// $Id: search.cpp 3890 2013-05-25 10:48:43Z kevg $
 //
 
 //
@@ -182,6 +182,7 @@ int main ( int argc, char ** argv )
 			{
 				int iDummy; // to avoid gcc unused result warning
 				iDummy = fread ( sThrowaway, 1, sizeof(sThrowaway), stdin );
+				iDummy++; // to avoid gcc set but not used warning
 			}
 		}
 
@@ -486,5 +487,5 @@ int main ( int argc, char ** argv )
 }
 
 //
-// $Id: search.cpp 3701 2013-02-20 18:10:18Z deogar $
+// $Id: search.cpp 3890 2013-05-25 10:48:43Z kevg $
 //

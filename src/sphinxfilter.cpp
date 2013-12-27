@@ -1,5 +1,5 @@
 //
-// $Id: sphinxfilter.cpp 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxfilter.cpp 4278 2013-10-25 15:24:45Z glook $
 //
 
 //
@@ -56,7 +56,7 @@ struct IFilter_Values: virtual ISphFilter
 		m_iValueCount = iCount;
 	}
 
-	inline const SphAttr_t GetValue ( int iIndex ) const
+	inline SphAttr_t GetValue ( int iIndex ) const
 	{
 		assert ( iIndex>=0 && iIndex<m_iValueCount );
 		return m_pValues[iIndex];
@@ -573,6 +573,12 @@ struct Filter_And2 : public ISphFilter
 		m_pArg1->SetMVAStorage ( pMva );
 		m_pArg2->SetMVAStorage ( pMva );
 	}
+
+	virtual void SetStringStorage ( const BYTE * pStrings )
+	{
+		m_pArg1->SetStringStorage ( pStrings );
+		m_pArg2->SetStringStorage ( pStrings );
+	}
 };
 
 
@@ -619,6 +625,13 @@ struct Filter_And3 : public ISphFilter
 		m_pArg1->SetMVAStorage ( pMva );
 		m_pArg2->SetMVAStorage ( pMva );
 		m_pArg3->SetMVAStorage ( pMva );
+	}
+
+	virtual void SetStringStorage ( const BYTE * pStrings )
+	{
+		m_pArg1->SetStringStorage ( pStrings );
+		m_pArg2->SetStringStorage ( pStrings );
+		m_pArg3->SetStringStorage ( pStrings );
 	}
 };
 
@@ -798,6 +811,7 @@ static inline ISphFilter * ReportError ( CSphString & sError, const char * sMess
 		case SPH_FILTER_VALUES:			sFilterName = "intvalues"; break;
 		case SPH_FILTER_RANGE:			sFilterName = "intrange"; break;
 		case SPH_FILTER_FLOATRANGE:		sFilterName = "floatrange"; break;
+		case SPH_FILTER_STRING:			sFilterName = "string"; break;
 		default:						sFilterName.SetSprintf ( "(filter-type-%d)", eFilterType ); break;
 	}
 
@@ -852,13 +866,16 @@ static ISphFilter * CreateFilter ( ESphAttr eAttrType, ESphFilter eFilterType, i
 		return ReportError ( sError, "unsupported filter type '%s' on float column", eFilterType );
 	}
 
+	if ( eAttrType==SPH_ATTR_STRING || eAttrType==SPH_ATTR_STRINGPTR )
+		return ReportError ( sError, "unsupported filter type '%s' on string column", eFilterType );
+
 	// non-float, non-MVA
 	switch ( eFilterType )
 	{
 		case SPH_FILTER_VALUES:
-			if ( iNumValues==1 && ( eAttrType==SPH_ATTR_INTEGER || eAttrType==SPH_ATTR_BIGINT ) )
+			if ( iNumValues==1 && ( eAttrType==SPH_ATTR_INTEGER || eAttrType==SPH_ATTR_BIGINT || eAttrType==SPH_ATTR_TOKENCOUNT ) )
 			{
-				if ( eAttrType==SPH_ATTR_INTEGER && !tLoc.m_bDynamic && tLoc.m_iBitCount==32 && ( tLoc.m_iBitOffset % 32 )==0 )
+				if ( ( eAttrType==SPH_ATTR_INTEGER || eAttrType==SPH_ATTR_TOKENCOUNT ) && !tLoc.m_bDynamic && tLoc.m_iBitCount==32 && ( tLoc.m_iBitOffset % 32 )==0 )
 					return new Filter_SingleValueStatic32();
 				else
 					return new Filter_SingleValue();
@@ -932,12 +949,18 @@ public:
 				return EvalValues ( (DWORD)sphJsonLoadInt ( &pValue ) );
 			case JSON_INT64:
 				return EvalValues ( sphJsonLoadBigint ( &pValue ) );
+			case JSON_DOUBLE:
+				return EvalValues ( (SphAttr_t)sphQW2D ( sphJsonLoadBigint ( &pValue ) ) );
 			default:
 				return false;
 		}
 	}
 };
 
+
+#if USE_WINDOWS
+#pragma warning(disable:4127) // conditional expr is const for MSVC
+#endif
 
 template < bool HAS_EQUALS >
 class JsonFilterRange_c : public JsonFilter_c<IFilter_Range>
@@ -957,9 +980,61 @@ public:
 				return EvalRange<HAS_EQUALS> ( sphJsonLoadInt ( &pValue ), m_iMinValue, m_iMaxValue );
 			case JSON_INT64:
 				return EvalRange<HAS_EQUALS> ( sphJsonLoadBigint ( &pValue ), m_iMinValue, m_iMaxValue );
+			case JSON_DOUBLE:
+			{
+				double fValue = sphQW2D ( sphJsonLoadBigint ( &pValue ) );
+				if ( HAS_EQUALS )
+					return fValue>=m_iMinValue && fValue<=m_iMaxValue;
+				else
+					return fValue>m_iMinValue && fValue<m_iMaxValue;
+			}
 			default:
 				return false;
 		}
+	}
+};
+
+
+template < bool HAS_EQUALS >
+class JsonFilterFloatRange_c : public JsonFilter_c<IFilter_Range>
+{
+public:
+	JsonFilterFloatRange_c ( const CSphAttrLocator & tLoc, const char * pInCol )
+		: JsonFilter_c<IFilter_Range> ( tLoc, pInCol )
+	{}
+
+	float m_fMinValue;
+	float m_fMaxValue;
+
+	virtual void SetRangeFloat ( float fMin, float fMax )
+	{
+		m_fMinValue = fMin;
+		m_fMaxValue = fMax;
+	}
+
+	virtual bool Eval ( const CSphMatch & tMatch ) const
+	{
+		const BYTE * pValue;
+		float fValue;
+		ESphJsonType eRes = GetKey ( &pValue, tMatch );
+		switch ( eRes )
+		{
+			case JSON_INT32:
+				fValue = (float)sphJsonLoadInt ( &pValue );
+				break;
+			case JSON_INT64:
+				fValue = (float)sphJsonLoadBigint ( &pValue );
+				break;
+			case JSON_DOUBLE:
+				fValue = (float)sphQW2D ( sphJsonLoadBigint ( &pValue ) );
+				break;
+			default:
+				return false;
+		}
+		if ( HAS_EQUALS )
+			return fValue>=m_fMinValue && fValue<=m_fMaxValue;
+		else
+			return fValue>m_fMinValue && fValue<m_fMaxValue;
 	}
 };
 
@@ -1009,6 +1084,11 @@ static ISphFilter * CreateFilterJson ( const CSphColumnInfo * pAttr, ESphFilter 
 	{
 		case SPH_FILTER_VALUES:
 			return new JsonFilterValues_c ( pAttr->m_tLocator, pInCol );
+		case SPH_FILTER_FLOATRANGE:
+			if ( bRangeEq )
+				return new JsonFilterFloatRange_c<true> ( pAttr->m_tLocator, pInCol );
+			else
+				return new JsonFilterFloatRange_c<false> ( pAttr->m_tLocator, pInCol );
 		case SPH_FILTER_RANGE:
 			if ( bRangeEq )
 				return new JsonFilterRange_c<true> ( pAttr->m_tLocator, pInCol );
@@ -1131,5 +1211,5 @@ ISphFilter * sphJoinFilters ( ISphFilter * pA, ISphFilter * pB )
 }
 
 //
-// $Id: sphinxfilter.cpp 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxfilter.cpp 4278 2013-10-25 15:24:45Z glook $
 //

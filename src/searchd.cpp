@@ -1,5 +1,5 @@
 //
-// $Id: searchd.cpp 3701 2013-02-20 18:10:18Z deogar $
+// $Id: searchd.cpp 4357 2013-11-22 07:17:37Z kevg $
 //
 
 //
@@ -66,6 +66,7 @@ extern "C"
 	#define sphSockSend(_sock,_buf,_len)	::send(_sock,_buf,_len,0)
 	#define sphSockClose(_sock)				::closesocket(_sock)
 
+	#define sphSeek		_lseeki64
 	#define stat		_stat
 
 #else
@@ -84,10 +85,8 @@ extern "C"
 		#include <poll.h>
 	#endif
 
-// temporary switch it off for bugfixing
 	#if HAVE_EPOLL
-		#undef HAVE_EPOLL
-// #include <sys/epoll.h>
+		#include <sys/epoll.h>
 	#endif
 
 	// there's no MSG_NOSIGNAL on OS X
@@ -98,7 +97,7 @@ extern "C"
 	#define sphSockRecv(_sock,_buf,_len)	::recv(_sock,_buf,_len,MSG_NOSIGNAL)
 	#define sphSockSend(_sock,_buf,_len)	::send(_sock,_buf,_len,MSG_NOSIGNAL)
 	#define sphSockClose(_sock)				::close(_sock)
-
+	#define sphSeek		lseek
 #endif
 
 #if USE_SYSLOG
@@ -164,7 +163,7 @@ enum ProtocolType_e
 };
 
 
-const char * g_dProtoNames[PROTO_TOTAL] =
+static const char * g_dProtoNames[PROTO_TOTAL] =
 {
 	"sphinxapi", "sphinxql"
 };
@@ -292,7 +291,6 @@ static Mpm_e			g_eWorkers			= USE_WINDOWS ? MPM_THREADS : MPM_FORK;
 
 static int				g_iPreforkChildren	= 10;		// how much workers to keep
 static CSphVector<int>	g_dChildren;
-static volatile bool	g_bAcceptUnlocked	= true;		// whether this preforked child is guaranteed to be *not* holding a lock around accept
 static int				g_iClientFD			= -1;
 static int				g_iDistThreads		= 0;
 static int				g_iPingInterval		= 0;		// by default ping HA agents every 1 second
@@ -308,7 +306,7 @@ enum ThdState_e
 	THD_STATE_TOTAL
 };
 
-const char * g_dThdStates[THD_STATE_TOTAL] = {
+static const char * g_dThdStates[THD_STATE_TOTAL] = {
 	"handshake", "net_read", "net_write", "query"
 };
 
@@ -331,7 +329,19 @@ struct ThdDesc_t
 	{}
 };
 
-static CSphStaticMutex			g_tThdMutex;
+struct StaticThreadsOnlyMutex_t
+{
+	StaticThreadsOnlyMutex_t ();
+	~StaticThreadsOnlyMutex_t ();
+	void Lock ();
+	void Unlock ();
+
+private:
+	CSphMutex m_tLock;
+};
+
+
+static StaticThreadsOnlyMutex_t	g_tThdMutex;
 static CSphVector<ThdDesc_t*>	g_dThd;				///< existing threads table
 
 static int						g_iConnID = 0;		///< global conn-id in none/fork/threads; current conn-id in prefork
@@ -434,37 +444,15 @@ private:
 	IndexHash_c::HashEntry_t *	m_pIterator;
 };
 
-struct ThreadsOnlyMutex_t
-{
-	bool Init ();
-	void Done ();
-	void Lock ();
-	void Unlock ();
-
-private:
-	CSphMutex m_tLock;
-};
-
-struct StaticThreadsOnlyMutex_t
-{
-	StaticThreadsOnlyMutex_t ();
-	~StaticThreadsOnlyMutex_t ();
-	void Lock ();
-	void Unlock ();
-
-private:
-	CSphMutex m_tLock;
-};
-
 
 static IndexHash_c *						g_pLocalIndexes = NULL;	// served (local) indexes hash
 static CSphVector<const char *>				g_dRotating;			// names of indexes to be rotated this time
 static const char *							g_sPrereading	= NULL;	// name of index currently being preread
 static CSphIndex *							g_pPrereading	= NULL;	// rotation "buffer"
 
-static ThreadsOnlyMutex_t					g_tRotateQueueMutex;
+static StaticThreadsOnlyMutex_t				g_tRotateQueueMutex;
 static CSphVector<CSphString>				g_dRotateQueue;		// FIXME? maybe replace it with lockless ring buffer
-static ThreadsOnlyMutex_t					g_tRotateConfigMutex;
+static StaticThreadsOnlyMutex_t				g_tRotateConfigMutex;
 static SphThread_t							g_tRotateThread;
 static SphThread_t							g_tRotationServiceThread;
 static volatile bool						g_bInvokeRotationService = false;
@@ -474,8 +462,8 @@ static SphThread_t							g_tRtFlushThread;
 
 // optimize thread
 static SphThread_t							g_tOptimizeThread;
-CSphMutex									g_tOptimizeQueueMutex;
-CSphVector<CSphString>						g_dOptimizeQueue;
+static CSphMutex							g_tOptimizeQueueMutex;
+static CSphVector<CSphString>				g_dOptimizeQueue;
 static ThrottleState_t						g_tRtThrottle;
 
 static StaticThreadsOnlyMutex_t				g_tDistLock;
@@ -558,7 +546,7 @@ enum
 
 
 /// command names
-const char * g_dApiCommands[SEARCHD_COMMAND_TOTAL] =
+static const char * g_dApiCommands[SEARCHD_COMMAND_TOTAL] =
 {
 	"search", "excerpt", "update", "keywords", "persist", "status", "query", "flushattrs"
 };
@@ -709,7 +697,6 @@ struct AgentDesc_t
 	int				m_iDashIndex;	///< index into global searchd host stats array (1 host can hold >1 agents)
 	bool			m_bPersistent;	///< whether to keep the persistent connection to the agent.
 	RentPersistent	m_dPersPool;	///< socket number, -1 if not connected (has sense only if the connection is persistent)
-	int				m_iPersPool;	///< socket number, -1 if not connected (has sense only if the connection is persistent)
 
 public:
 	AgentDesc_t ()
@@ -718,6 +705,7 @@ public:
 		, m_iFamily ( AF_INET )
 		, m_uAddr ( 0 )
 		, m_iStatsIndex ( -1 )
+		, m_iDashIndex ( 0 )
 		, m_bPersistent ( false )
 		, m_dPersPool ( -1 )
 	{}
@@ -870,7 +858,6 @@ struct FlushState_t
 
 static volatile FlushState_t *	g_pFlush		= NULL;
 static CSphSharedBuffer<FlushState_t>	g_tFlushBuffer;
-static CSphMutex g_tFlushMutex;
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -892,7 +879,7 @@ struct Uservar_t
 	{}
 };
 
-static CSphMutex					g_tUservarsMutex;
+static StaticThreadsOnlyMutex_t		g_tUservarsMutex;
 static SmallStringHash_T<Uservar_t>	g_hUservars;
 
 static volatile int64_t				g_tmSphinxqlState; // last state (uservars+udfs+...) update timestamp
@@ -929,13 +916,6 @@ static CSphString					g_sSphinxqlState;
 #define getpid			GetCurrentProcessId
 
 #endif // USE_WINDOWS
-
-// FIXME! must be in sync with sphinx.cpp
-const int EXT_COUNT = 9;
-const int EXT_MVP = 9;
-const char * g_dNewExts[EXT_COUNT] = { ".new.sph", ".new.spa", ".new.spi", ".new.spd", ".new.spp", ".new.spm", ".new.spk", ".new.sps", ".new.spe" };
-const char * g_dOldExts[] = { ".old.sph", ".old.spa", ".old.spi", ".old.spd", ".old.spp", ".old.spm", ".old.spk", ".old.sps", ".old.spe", ".old.mvp" };
-const char * g_dCurExts[] = { ".sph", ".spa", ".spi", ".spd", ".spp", ".spm", ".spk", ".sps", ".spe", ".mvp" };
 
 /////////////////////////////////////////////////////////////////////////////
 // MISC
@@ -1152,7 +1132,10 @@ ServedIndex_t * IndexHash_c::GetWlockedEntry ( const CSphString & tKey ) const
 
 ServedIndex_t & IndexHash_c::GetUnlockedEntry ( const CSphString & tKey ) const
 {
-	return BASE::operator[] ( tKey );
+	Rlock();
+	ServedIndex_t & tRes = BASE::operator[] ( tKey );
+	Unlock();
+	return tRes;
 }
 
 
@@ -1166,36 +1149,10 @@ bool IndexHash_c::Exists ( const CSphString & tKey ) const
 
 //////////////////////////////////////////////////////////////////////////
 
-
-bool ThreadsOnlyMutex_t::Init ()
-{
-	if ( g_eWorkers==MPM_THREADS )
-		return m_tLock.Init();
-	else
-		return true;
-}
-
-void ThreadsOnlyMutex_t::Done ()
-{
-	if ( g_eWorkers==MPM_THREADS )
-		m_tLock.Done();
-}
-
-void ThreadsOnlyMutex_t::Lock ()
-{
-	if ( g_eWorkers==MPM_THREADS )
-		m_tLock.Lock();
-}
-
-void ThreadsOnlyMutex_t::Unlock()
-{
-	if ( g_eWorkers==MPM_THREADS )
-		m_tLock.Unlock();
-}
-
 StaticThreadsOnlyMutex_t::StaticThreadsOnlyMutex_t ()
 {
-	m_tLock.Init();
+	if ( !m_tLock.Init() )
+		sphDie ( "failed to create static mutex" );
 }
 
 StaticThreadsOnlyMutex_t::~StaticThreadsOnlyMutex_t ()
@@ -1250,7 +1207,11 @@ int sphFormatCurrentTime ( char * sTimeBuf, int iBufLen )
 
 /// physically emit log entry
 /// buffer must have 1 extra byte for linefeed
+#if USE_WINDOWS
 void sphLogEntry ( ESphLogLevel eLevel, char * sBuf, char * sTtyBuf )
+#else
+void sphLogEntry ( ESphLogLevel , char * sBuf, char * sTtyBuf )
+#endif
 {
 #if USE_WINDOWS
 	if ( g_bService && g_iLogFile==STDOUT_FILENO )
@@ -1290,7 +1251,7 @@ void sphLogEntry ( ESphLogLevel eLevel, char * sBuf, char * sTtyBuf )
 	{
 		strcat ( sBuf, "\n" ); // NOLINT
 
-		lseek ( g_iLogFile, 0, SEEK_END );
+		sphSeek ( g_iLogFile, 0, SEEK_END );
 		if ( g_bLogTty )
 			sphWrite ( g_iLogFile, sTtyBuf, strlen(sTtyBuf) );
 		else
@@ -1422,53 +1383,6 @@ void LogWarning ( const char * sWarning )
 
 /////////////////////////////////////////////////////////////////////////////
 
-struct StrBuf_t
-{
-protected:
-	char		m_sBuf [ 2048 ];
-	char *		m_pBuf;
-	int			m_iLeft;
-
-public:
-	StrBuf_t ()
-	{
-		memset ( m_sBuf, 0, sizeof(m_sBuf) );
-		m_iLeft = sizeof(m_sBuf)-1;
-		m_pBuf = m_sBuf;
-	}
-
-	const char * cstr ()
-	{
-		return m_sBuf;
-	}
-
-	int GetLength ()
-	{
-		return sizeof(m_sBuf)-1-m_iLeft;
-	}
-
-	bool Append ( const char * s, bool bWhole )
-	{
-		if ( !s )
-			return false;
-		int iLen = strlen(s);
-		if ( bWhole && m_iLeft<iLen )
-			return false;
-
-		iLen = Min ( m_iLeft, iLen );
-		memcpy ( m_pBuf, s, iLen );
-		m_pBuf += iLen;
-		m_iLeft -= iLen;
-		return true;
-	}
-
-	const StrBuf_t & operator += ( const char * s )
-	{
-		Append ( s, false );
-		return *this;
-	}
-};
-
 static int CmpString ( const CSphString & a, const CSphString & b )
 {
 	if ( !a.cstr() && !b.cstr() )
@@ -1544,7 +1458,7 @@ public:
 		return m_dLog.GetLength()==0;
 	}
 
-	void BuildReport ( StrBuf_t & sReport )
+	void BuildReport ( CSphStringBuilder & sReport )
 	{
 		if ( IsEmpty() )
 			return;
@@ -1561,7 +1475,7 @@ public:
 					continue;
 
 			// build current span
-			StrBuf_t sSpan;
+			CSphStringBuilder sSpan;
 			if ( iSpanStart )
 				sSpan += ";\n";
 			sSpan += "index ";
@@ -1572,12 +1486,10 @@ public:
 				sSpan += m_dLog[j].m_sIndex.cstr();
 			}
 			sSpan += ": ";
-			if ( !sSpan.Append ( m_dLog[iSpanStart].m_sError.cstr(), true ) )
-				break;
+			sSpan += m_dLog[iSpanStart].m_sError.cstr();
 
 			// flush current span
-			if ( !sReport.Append ( sSpan.cstr(), true ) )
-				break;
+			sReport += sSpan.cstr();
 
 			// done
 			iSpanStart = i;
@@ -1607,6 +1519,28 @@ static void UpdateAliveChildrenList ( CSphVector<int> & dChildren )
 #endif
 
 
+static bool SaveIndexes ()
+{
+	CSphString sError;
+	bool bAllSaved = true;
+	for ( IndexHashIterator_c it ( g_pLocalIndexes ); it.Next(); )
+	{
+		const ServedIndex_t & tServed = it.Get();
+		if ( !tServed.m_bEnabled )
+			continue;
+
+		tServed.ReadLock();
+		if ( !tServed.m_pIndex->SaveAttributes ( sError ) )
+		{
+			sphWarning ( "index %s: attrs save failed: %s", it.GetKey().cstr(), sError.cstr() );
+			bAllSaved = false;
+		}
+		tServed.Unlock();
+	}
+	return bAllSaved;
+}
+
+
 void Shutdown ()
 {
 #if !USE_WINDOWS
@@ -1632,6 +1566,7 @@ void Shutdown ()
 			DWORD uHandshakeOk = 0;
 			int iDummy; // to avoid gcc unused result warning
 			iDummy = ::write ( fdStopwait, &uHandshakeOk, sizeof(DWORD) );
+			iDummy++; // to avoid gcc set but not used variable warning
 		}
 #endif
 
@@ -1662,12 +1597,8 @@ void Shutdown ()
 			g_tThdMutex.Lock();
 			g_dThd.Reset();
 			g_tThdMutex.Unlock();
-			g_tFlushMutex.Done();
-			g_tUservarsMutex.Done();
 			g_tOptimizeQueueMutex.Done();
 		}
-		g_tRotateQueueMutex.Done();
-		g_tRotateConfigMutex.Done();
 
 		sphThreadJoin ( &g_tRotationServiceThread );
 
@@ -1704,18 +1635,7 @@ void Shutdown ()
 
 		CSphString sError;
 		// save attribute updates for all local indexes
-		for ( IndexHashIterator_c it ( g_pLocalIndexes ); it.Next(); )
-		{
-			const ServedIndex_t & tServed = it.Get();
-			if ( !tServed.m_bEnabled )
-				continue;
-
-			if ( !tServed.m_pIndex->SaveAttributes ( sError ) )
-			{
-				sphWarning ( "index %s: attrs save failed: %s", it.GetKey().cstr(), sError.cstr() );
-				bAttrsSaveOk = false;
-			}
-		}
+		bAttrsSaveOk = SaveIndexes();
 
 		// unlock indexes and release locks if needed
 		for ( IndexHashIterator_c it ( g_pLocalIndexes ); it.Next(); )
@@ -1754,6 +1674,7 @@ void Shutdown ()
 			DWORD uStatus = bAttrsSaveOk;
 			int iDummy; // to avoid gcc unused result warning
 		iDummy = ::write ( fdStopwait, &uStatus, sizeof(DWORD) );
+		iDummy++; // to avoid gcc set but not used variable warning
 		::close ( fdStopwait );
 		}
 #endif
@@ -1935,7 +1856,7 @@ LONG WINAPI SphCrashLogger_c::HandleCrash ( EXCEPTION_POINTERS * pExc )
 		CRASH_EXIT;
 
 	// log [time][pid]
-	lseek ( g_iLogFile, 0, SEEK_END );
+	sphSeek ( g_iLogFile, 0, SEEK_END );
 	sphWrite ( g_iLogFile, g_sCrashInfo, g_iCrashInfoLen );
 
 	// log query
@@ -2084,7 +2005,7 @@ CrashQuery_t SphCrashLogger_c::GetQuery()
 }
 
 
-void SetSignalHandlers ()
+void SetSignalHandlers ( bool bAllowCtrlC=false )
 {
 	SphCrashLogger_c::Init();
 
@@ -2097,7 +2018,12 @@ void SetSignalHandlers ()
 	for ( ;; )
 	{
 		sa.sa_handler = sigterm;	if ( sigaction ( SIGTERM, &sa, NULL )!=0 ) break;
-		sa.sa_handler = sigterm;	if ( sigaction ( SIGINT, &sa, NULL )!=0 ) break;
+		if ( !bAllowCtrlC )
+		{
+			sa.sa_handler = sigterm;
+			if ( sigaction ( SIGINT, &sa, NULL )!=0 )
+				break;
+		}
 		sa.sa_handler = sighup;		if ( sigaction ( SIGHUP, &sa, NULL )!=0 ) break;
 		sa.sa_handler = sigusr1;	if ( sigaction ( SIGUSR1, &sa, NULL )!=0 ) break;
 		sa.sa_handler = sigchld;	if ( sigaction ( SIGCHLD, &sa, NULL )!=0 ) break;
@@ -2159,19 +2085,22 @@ void sphFDSet ( int fd, fd_set * set )
 #endif // USE_WINDOWS
 
 
+#if USE_WINDOWS
 const char * sphSockError ( int iErr=0 )
 {
-	#if USE_WINDOWS
-		if ( iErr==0 )
-			iErr = WSAGetLastError ();
+	if ( iErr==0 )
+		iErr = WSAGetLastError ();
 
-		static char sBuf [ 256 ];
-		_snprintf ( sBuf, sizeof(sBuf), "WSA error %d", iErr );
-		return sBuf;
-	#else
-		return strerror ( errno );
-	#endif
+	static char sBuf [ 256 ];
+	_snprintf ( sBuf, sizeof(sBuf), "WSA error %d", iErr );
+	return sBuf;
 }
+#else
+const char * sphSockError ( int =0 )
+{
+	return strerror ( errno );
+}
+#endif
 
 
 int sphSockGetErrno ()
@@ -2494,12 +2423,26 @@ int sphSetSockNB ( int iSock )
 	#endif
 }
 
+class CloseOnDestroy : public ISphNoncopyable
+{
+	int m_id;
+public:
+	explicit CloseOnDestroy ( int id ) : m_id ( id ) {}
+	~CloseOnDestroy() { close ( m_id ); }
+};
 
 /// wait until socket is readable or writable
 int sphPoll ( int iSock, int64_t tmTimeout, bool bWrite=false )
 {
-// don't need to use epoll for only one socket.
-#if HAVE_POLL
+#if HAVE_EPOLL
+	int eid = epoll_create ( 1 );
+	CloseOnDestroy dEid ( eid );
+	epoll_event dEvent;
+	dEvent.events = bWrite ? EPOLLOUT : EPOLLIN;
+	epoll_ctl ( eid, EPOLL_CTL_ADD, iSock, &dEvent );
+	// do poll
+	return ::epoll_wait ( eid, &dEvent, 1, int ( tmTimeout/1000 ) );
+#elif HAVE_POLL
 	struct pollfd pfd;
 	pfd.fd = iSock;
 	pfd.events = bWrite ? POLLOUT : POLLIN;
@@ -2525,8 +2468,17 @@ bool sphSockEof ( int iSock )
 		return true;
 
 	char cBuf;
-// don't need to use epoll for only one socket
-#if HAVE_POLL
+#if HAVE_EPOLL
+	int eid = epoll_create ( 1 );
+	CloseOnDestroy dEid ( eid );
+	epoll_event dEvent;
+	dEvent.events = EPOLLPRI | EPOLLIN;
+	epoll_ctl ( eid, EPOLL_CTL_ADD, iSock, &dEvent );
+	if ( ::epoll_wait ( eid, &dEvent, 1, 0 )<0 )
+		return true;
+
+	if ( dEvent.events & (EPOLLPRI|EPOLLIN) )
+#elif HAVE_POLL
 	struct pollfd pfd;
 	pfd.fd = iSock;
 	pfd.events = POLLPRI | POLLIN;
@@ -2713,6 +2665,8 @@ public:
 #endif
 
 	bool		SendString ( const char * sStr );
+
+	bool		SendMysqlInt ( int iVal );
 	bool		SendMysqlString ( const char * sStr );
 
 	bool		Flush ( bool bUnfreeze=false );
@@ -2855,16 +2809,22 @@ bool NetOutputBuffer_c::SendString ( const char * sStr )
 }
 
 
+int MysqlPackedLen ( int iLen )
+{
+	if ( iLen<251 )
+		return 1;
+	if ( iLen<=0xffff )
+		return 3;
+	if ( iLen<=0xffffff )
+		return 4;
+	return 9;
+}
+
+
 int MysqlPackedLen ( const char * sStr )
 {
 	int iLen = strlen(sStr);
-	if ( iLen<251 )
-		return 1 + iLen;
-	if ( iLen<=0xffff )
-		return 3 + iLen;
-	if ( iLen<=0xffffff )
-		return 4 + iLen;
-	return 9 + iLen;
+	return MysqlPackedLen ( iLen ) + iLen;
 }
 
 
@@ -2941,6 +2901,16 @@ int MysqlUnpack ( InputBuffer_c & tReq, DWORD * pSize )
 	tReq.GetByte();
 	*pSize -= 8;
 	return iRes;
+}
+
+
+bool NetOutputBuffer_c::SendMysqlInt ( int iVal )
+{
+	if ( m_bError )
+		return false;
+	BYTE dBuf[12];
+	BYTE * pBuf = (BYTE*) MysqlPack ( dBuf, iVal );
+	return SendBytes ( dBuf, (int)( pBuf-dBuf ) );
 }
 
 
@@ -3552,7 +3522,7 @@ public:
 	{
 		// minimal probability must not fall below the original one with this coef.
 		const float fMin_coef = 0.1f;
-		float fMin_value = fMin_coef/m_dAgents.GetLength();
+		DWORD uMin_value = DWORD ( 65535*fMin_coef/m_dAgents.GetLength() );
 
 		if ( m_pWeights && HostDashboard_t::IsHalfPeriodChanged ( &m_uTimestamp ) )
 		{
@@ -3577,11 +3547,13 @@ public:
 			ARRAY_FOREACH ( i, dTimers )
 			{
 				if ( dTimers[i] > 0 )
+				{
 					dCoefs[i] = (float)dMin/dTimers[i];
-				else
-					dCoefs[i] = fMin_value/m_pWeights[i];
-				if ( m_pWeights[i]*dCoefs[i] < fMin_value )
-					dCoefs[i] = fMin_value/m_pWeights[i]; // restrict balancing like 1/0 into 0.9/0.1
+					if ( m_pWeights[i]*dCoefs[i] < uMin_value )
+						dCoefs[i] = (float)uMin_value/m_pWeights[i]; // restrict balancing like 1/0 into 0.9/0.1
+				} else
+					dCoefs[i] = (float)uMin_value/m_pWeights[i];
+
 				fNormale += m_pWeights[i]*dCoefs[i];
 			}
 
@@ -3615,7 +3587,7 @@ public:
 		DWORD uLimit = uBound;
 		ARRAY_FOREACH ( i, dCandidates )
 			uLimit += m_pWeights[dCandidates[i]];
-		DWORD uChance = uLimit * sphRand()/0xFFFFFFFF;
+		DWORD uChance = sphRand() % uLimit;
 
 		if ( uChance<=uBound )
 			return;
@@ -3995,6 +3967,8 @@ public:
 		m_iWall += sphMicroTimer ();
 	}
 
+	void Fail ( eAgentStats eStat, const char* sMessage, ... ) __attribute__ ( ( format ( printf, 3, 4 ) ) );
+
 	AgentConn_t & operator = ( const AgentDesc_t & rhs )
 	{
 		m_sHost = rhs.m_sHost;
@@ -4022,6 +3996,7 @@ public:
 			if ( m_iSock==-2 ) // no free persistent connections. This connection will be not persistent
 				m_bPersistent = false;
 		}
+		m_bFresh = ( m_bPersistent && m_iSock<0 );
 	}
 };
 
@@ -4145,6 +4120,16 @@ inline void agent_stats_inc ( AgentConn_t & tAgent, eAgentStats iCounter )
 	}
 }
 
+void AgentConn_t::Fail ( eAgentStats eStat, const char* sMessage, ... )
+{
+	Close ();
+	va_list ap;
+	va_start ( ap, sMessage );
+	m_sFailure.SetSprintfVa ( sMessage, ap );
+	va_end ( ap );
+	agent_stats_inc ( *this, eStat );
+}
+
 struct AgentConnectionContext_t
 {
 	const IRequestBuilder_t * m_pBuilder;
@@ -4234,10 +4219,8 @@ void RemoteConnectToAgent ( AgentConn_t & tAgent )
 		int iErr = sphSockGetErrno();
 		if ( iErr!=EINPROGRESS && iErr!=EINTR && iErr!=EWOULDBLOCK ) // check for EWOULDBLOCK is for winsock only
 		{
-			tAgent.Close ();
-			tAgent.m_sFailure.SetSprintf ( "connect() failed: %s", sphSockError(iErr) );
+			tAgent.Fail ( eConnectFailures, "connect() failed: %s", sphSockError(iErr) );
 			tAgent.m_eState = AGENT_RETRY; // do retry on connect() failures
-			agent_stats_inc ( tAgent, eConnectFailures );
 			return;
 
 		} else
@@ -4247,6 +4230,18 @@ void RemoteConnectToAgent ( AgentConn_t & tAgent )
 		}
 	} else
 	{
+		// connect() success
+		// send the client's proto version right now to avoid w-w-r pattern.
+		NetOutputBuffer_c tOut ( tAgent.m_iSock );
+		tOut.SendDword ( SPHINX_CLIENT_VERSION );
+		bool bFlushed = tOut.Flush (); // FIXME! handle flush failure?
+		// fix #1071
+#ifdef	TCP_NODELAY
+		int bNoDelay = 1;
+		if ( bFlushed && tAgent.m_iFamily==AF_INET )
+			setsockopt ( tAgent.m_iSock, IPPROTO_TCP, TCP_NODELAY, (char*)&bNoDelay, sizeof(bNoDelay) );
+#endif
+
 		// socket connected, ready to read hello message
 		tAgent.m_eState = AGENT_HANDSHAKE;
 	}
@@ -4269,44 +4264,56 @@ int RemoteQueryAgents ( AgentConnectionContext_t * pCtx )
 	CSphVector<epoll_event> dEvents ( pCtx->m_iAgentCount );
 	epoll_event dEvent;
 	int iEvents = 0;
-
-	bool bDone = true;
-	for ( int i=0; i<pCtx->m_iAgentCount; i++ )
-	{
-		AgentConn_t & tAgent = pCtx->m_pAgents[i];
-		// select only 'initial' agents - which are not send query response.
-		if ( tAgent.m_eState<AGENT_CONNECTING || tAgent.m_eState>AGENT_QUERYED )
-			continue;
-
-		assert ( !tAgent.m_sPath.IsEmpty() || tAgent.m_iPort>0 );
-		assert ( tAgent.m_iSock>0 );
-		if ( tAgent.m_iSock<=0 || ( tAgent.m_sPath.IsEmpty() && tAgent.m_iPort<=0 ) )
-		{
-			tAgent.Close ();
-			tAgent.m_sFailure.SetSprintf ( "invalid agent in querying. Socket %d, Path %s, Port %d", tAgent.m_iSock, tAgent.m_sPath.cstr(), tAgent.m_iPort );
-			tAgent.m_eState = AGENT_RETRY; // do retry on connect() failures
-			agent_stats_inc ( tAgent, eConnectFailures );
-			continue;
-		}
-		dEvent.events = ( tAgent.m_eState==AGENT_CONNECTING || tAgent.m_eState==AGENT_ESTABLISHED ) ? EPOLLOUT : EPOLLIN;
-		dEvent.data.ptr = &tAgent;
-		epoll_ctl ( eid, EPOLL_CTL_ADD, tAgent.m_iSock, &dEvent );
-		++iEvents;
-		if ( tAgent.m_eState!=AGENT_QUERYED )
-			bDone = false;
-	}
+	bool bTimeout = false;
 
 	for ( ;; )
 	{
-		bDone = iEvents==0;
 		if ( !iEvents )
+		{
+			for ( int i=0; i<pCtx->m_iAgentCount; i++ )
+			{
+				AgentConn_t & tAgent = pCtx->m_pAgents[i];
+				// select only 'initial' agents - which are not send query response.
+				if ( tAgent.m_eState<AGENT_CONNECTING || tAgent.m_eState>AGENT_QUERYED )
+					continue;
+
+				assert ( !tAgent.m_sPath.IsEmpty() || tAgent.m_iPort>0 );
+				assert ( tAgent.m_iSock>0 );
+				if ( tAgent.m_iSock<=0 || ( tAgent.m_sPath.IsEmpty() && tAgent.m_iPort<=0 ) )
+				{
+					tAgent.Fail ( eConnectFailures, "invalid agent in querying. Socket %d, Path %s, Port %d", tAgent.m_iSock, tAgent.m_sPath.cstr(), tAgent.m_iPort );
+					tAgent.m_eState = AGENT_RETRY; // do retry on connect() failures
+					continue;
+				}
+				dEvent.events = ( tAgent.m_eState==AGENT_CONNECTING || tAgent.m_eState==AGENT_ESTABLISHED ) ? EPOLLOUT : EPOLLIN;
+				dEvent.data.ptr = &tAgent;
+				epoll_ctl ( eid, EPOLL_CTL_ADD, tAgent.m_iSock, &dEvent );
+				++iEvents;
+			}
+		}
+
+		bool bDone = true;
+		for ( int i=0; i<pCtx->m_iAgentCount; i++ )
+		{
+			AgentConn_t & tAgent = pCtx->m_pAgents[i];
+			// select only 'initial' agents - which are not send query response.
+			if ( tAgent.m_eState<AGENT_CONNECTING || tAgent.m_eState>AGENT_QUERYED )
+				continue;
+			if ( tAgent.m_eState!=AGENT_QUERYED )
+				bDone = false;
+		}
+		if ( bDone )
 			break;
 
 		// compute timeout
 		int64_t tmSelect = sphMicroTimer();
 		int64_t tmMicroLeft = tmMaxTimer - tmSelect;
 		if ( tmMicroLeft<=0 )
+		{
+			bTimeout = true;
 			break; // FIXME? what about iTimeout==0 case?
+		}
+
 
 		// do poll
 		int iSelected = ::epoll_wait ( eid, dEvents.Begin(), dEvents.GetLength(), int( tmMicroLeft/1000 ) );
@@ -4334,9 +4341,7 @@ int RemoteQueryAgents ( AgentConnectionContext_t * pCtx )
 					socklen_t iErrLen = sizeof(iErr);
 					getsockopt ( tAgent.m_iSock, SOL_SOCKET, SO_ERROR, (char*)&iErr, &iErrLen );
 					// connect() failure
-					tAgent.m_sFailure.SetSprintf ( "connect() failed: %s", sphSockError(iErr) );
-					tAgent.Close ();
-					agent_stats_inc ( tAgent, eConnectFailures );
+					tAgent.Fail ( eConnectFailures, "connect() failed: %s", sphSockError(iErr) );
 					continue;
 				}
 				// connect() success
@@ -4368,27 +4373,21 @@ int RemoteQueryAgents ( AgentConnectionContext_t * pCtx )
 				{
 					epoll_ctl ( eid, EPOLL_CTL_DEL, tAgent.m_iSock, &dEvent );
 					--iEvents;
-					tAgent.Close ();
 					if ( iRes<0 )
 					{
 						// network error
 						int iErr = sphSockGetErrno();
-						tAgent.m_sFailure.SetSprintf ( "handshake failure (errno=%d, msg=%s)", iErr, sphSockError(iErr) );
-						agent_stats_inc ( tAgent, eNetworkErrors );
-
+						tAgent.Fail ( eNetworkErrors, "handshake failure (errno=%d, msg=%s)", iErr, sphSockError(iErr) );
 					} else if ( iRes>0 )
 					{
 						// incomplete reply
-						tAgent.m_sFailure.SetSprintf ( "handshake failure (exp=%d, recv=%d)", (int)sizeof(iRemoteVer), iRes );
-						agent_stats_inc ( tAgent, eWrongReplies );
-
+						tAgent.Fail ( eWrongReplies, "handshake failure (exp=%d, recv=%d)", (int)sizeof(iRemoteVer), iRes );
 					} else
 					{
 						// agent closed the connection
 						// this might happen in out-of-sync connect-accept case; so let's retry
-						tAgent.m_sFailure = "handshake failure (connection was closed)";
+						tAgent.Fail ( eUnexpectedClose, "handshake failure (connection was closed)" );
 						tAgent.m_eState = AGENT_RETRY;
-						agent_stats_inc ( tAgent, eUnexpectedClose );
 					}
 					continue;
 				}
@@ -4396,15 +4395,13 @@ int RemoteQueryAgents ( AgentConnectionContext_t * pCtx )
 				iRemoteVer = ntohl ( iRemoteVer );
 				if (!( iRemoteVer==SPHINX_SEARCHD_PROTO || iRemoteVer==0x01000000UL ) ) // workaround for all the revisions that sent it in host order...
 				{
-					tAgent.m_sFailure.SetSprintf ( "handshake failure (unexpected protocol version=%d)", iRemoteVer );
-					agent_stats_inc ( tAgent, eWrongReplies );
-					tAgent.Close ();
+					tAgent.Fail ( eWrongReplies, "handshake failure (unexpected protocol version=%d)", iRemoteVer );
 					continue;
 				}
 
 				NetOutputBuffer_c tOut ( tAgent.m_iSock );
 				// check if we need to reset the persistent connection
-				if ( tAgent.m_bFresh )
+				if ( tAgent.m_bFresh && tAgent.m_bPersistent )
 				{
 					tOut.SendWord ( SEARCHD_COMMAND_PERSIST );
 					tOut.SendWord ( 0 ); // dummy version
@@ -4429,7 +4426,6 @@ int RemoteQueryAgents ( AgentConnectionContext_t * pCtx )
 				tOut.Flush (); // FIXME! handle flush failure?
 				tAgent.m_eState = AGENT_QUERYED;
 				iAgents++;
-				--iEvents;
 				dEvent.events = EPOLLIN;
 				dEvent.data.ptr = &tAgent;
 				epoll_ctl ( eid, EPOLL_CTL_MOD, tAgent.m_iSock, &dEvent );
@@ -4454,18 +4450,16 @@ int RemoteQueryAgents ( AgentConnectionContext_t * pCtx )
 	for ( int i=0; i<pCtx->m_iAgentCount; i++ )
 	{
 		AgentConn_t & tAgent = pCtx->m_pAgents[i];
-		if ( tAgent.m_eState!=AGENT_QUERYED && tAgent.m_eState!=AGENT_UNUSED && tAgent.m_eState!=AGENT_RETRY && tAgent.m_eState!=AGENT_PREREPLY
-			&& tAgent.m_eState!=AGENT_REPLY )
+		if ( bTimeout && ( tAgent.m_eState!=AGENT_QUERYED && tAgent.m_eState!=AGENT_UNUSED && tAgent.m_eState!=AGENT_RETRY && tAgent.m_eState!=AGENT_PREREPLY
+			&& tAgent.m_eState!=AGENT_REPLY ) )
 		{
 			// technically, we can end up here via two different routes
 			// a) connect() never finishes in given time frame
 			// b) agent actually accept()s the connection but keeps silence
 			// however, there's no way to tell the two from each other
 			// so we just account both cases as connect() failure
-			tAgent.Close ();
-			tAgent.m_sFailure.SetSprintf ( "connect() timed out" );
+			tAgent.Fail ( eTimeoutsConnect, "connect() timed out" );
 			tAgent.m_eState = AGENT_RETRY; // do retry on connect() failures
-			agent_stats_inc ( tAgent, eTimeoutsConnect );
 		}
 	}
 
@@ -4474,6 +4468,7 @@ int RemoteQueryAgents ( AgentConnectionContext_t * pCtx )
 
 // epoll version. Plain version below
 // processing states AGENT_QUERY, AGENT_PREREPLY and AGENT_REPLY
+// may work in parallel with RemoteQueryAgents, so the state MAY change duirng a call.
 int RemoteWaitForAgents ( CSphVector<AgentConn_t> & dAgents, int iTimeout, IReplyParser_t & tParser )
 {
 	assert ( iTimeout>=0 );
@@ -4485,219 +4480,225 @@ int RemoteWaitForAgents ( CSphVector<AgentConn_t> & dAgents, int iTimeout, IRepl
 	CSphVector<epoll_event> dEvents ( dAgents.GetLength() );
 	epoll_event dEvent;
 	int iEvents = 0;
+	bool bTimeout = false;
 
-	bool bDone = true;
+	for ( ;; )
+	{
+		if ( !iEvents )
+		{
+			bool bDone = true;
+			ARRAY_FOREACH ( iAgent, dAgents )
+			{
+				AgentConn_t & tAgent = dAgents[iAgent];
+				if ( tAgent.m_bBlackhole )
+					continue;
+
+				if ( tAgent.m_eState==AGENT_QUERYED || tAgent.m_eState==AGENT_REPLY || tAgent.m_eState==AGENT_PREREPLY )
+				{
+					assert ( !tAgent.m_sPath.IsEmpty() || tAgent.m_iPort>0 );
+					assert ( tAgent.m_iSock>0 );
+					dEvent.events = EPOLLIN;
+					dEvent.data.ptr = &tAgent;
+					epoll_ctl ( eid, EPOLL_CTL_ADD, tAgent.m_iSock, &dEvent );
+					++iEvents;
+					bDone = false;
+				}
+			}
+
+			if ( bDone )
+				break;
+		}
+
+
+
+		int64_t tmSelect = sphMicroTimer();
+		int64_t tmMicroLeft = tmMaxTimer - tmSelect;
+		if ( tmMicroLeft<=0 ) // FIXME? what about iTimeout==0 case?
+		{
+			bTimeout = true;
+			break;
+		}
+
+		int iSelected = ::epoll_wait ( eid, dEvents.Begin(), dEvents.GetLength(), int( tmMicroLeft/1000 ) );
+		dAgents.Begin()->m_iWaited += sphMicroTimer() - tmSelect;
+
+		if ( iSelected<=0 )
+			continue;
+
+		for ( int i=0; i<iSelected; ++i )
+		{
+			AgentConn_t & tAgent = *(AgentConn_t*)dEvents[i].data.ptr;
+			if ( tAgent.m_bBlackhole )
+				continue;
+			if (!( tAgent.m_eState==AGENT_QUERYED || tAgent.m_eState==AGENT_REPLY || tAgent.m_eState==AGENT_PREREPLY ))
+				continue;
+
+			if (!( dEvents[i].events & POLLIN ))
+				continue;
+
+			// if there was no reply yet, read reply header
+			bool bFailure = true;
+			bool bWarnings = false;
+
+			for ( ;; )
+			{
+				if ( tAgent.m_eState==AGENT_QUERYED || tAgent.m_eState==AGENT_PREREPLY )
+				{
+					if ( tAgent.m_eState==AGENT_PREREPLY )
+					{
+						tAgent.m_iWall -= sphMicroTimer();
+						tAgent.m_eState = AGENT_QUERYED;
+					}
+
+					// try to read
+					struct
+					{
+						WORD	m_iStatus;
+						WORD	m_iVer;
+						int		m_iLength;
+					} tReplyHeader;
+					STATIC_SIZE_ASSERT ( tReplyHeader, 8 );
+
+					if ( sphSockRecv ( tAgent.m_iSock, (char*)&tReplyHeader, sizeof(tReplyHeader) )!=sizeof(tReplyHeader) )
+					{
+						// bail out if failed
+						tAgent.m_sFailure.SetSprintf ( "failed to receive reply header" );
+						agent_stats_inc ( tAgent, eNetworkErrors );
+						break;
+					}
+
+					tReplyHeader.m_iStatus = ntohs ( tReplyHeader.m_iStatus );
+					tReplyHeader.m_iVer = ntohs ( tReplyHeader.m_iVer );
+					tReplyHeader.m_iLength = ntohl ( tReplyHeader.m_iLength );
+
+					// check the packet
+					if ( tReplyHeader.m_iLength<0 || tReplyHeader.m_iLength>g_iMaxPacketSize ) // FIXME! add reasonable max packet len too
+					{
+						tAgent.m_sFailure.SetSprintf ( "invalid packet size (status=%d, len=%d, max_packet_size=%d)",
+							tReplyHeader.m_iStatus, tReplyHeader.m_iLength, g_iMaxPacketSize );
+						agent_stats_inc ( tAgent, eWrongReplies );
+						break;
+					}
+
+					// header received, switch the status
+					assert ( tAgent.m_pReplyBuf==NULL );
+					tAgent.m_eState = AGENT_REPLY;
+					tAgent.m_pReplyBuf = new BYTE [ tReplyHeader.m_iLength ];
+					tAgent.m_iReplySize = tReplyHeader.m_iLength;
+					tAgent.m_iReplyRead = 0;
+					tAgent.m_iReplyStatus = tReplyHeader.m_iStatus;
+
+					if ( !tAgent.m_pReplyBuf )
+					{
+						// bail out if failed
+						tAgent.m_sFailure.SetSprintf ( "failed to alloc %d bytes for reply buffer", tAgent.m_iReplySize );
+						break;
+					}
+				}
+
+				// if we are reading reply, read another chunk
+				if ( tAgent.m_eState==AGENT_REPLY )
+				{
+					// do read
+					assert ( tAgent.m_iReplyRead<tAgent.m_iReplySize );
+					int iRes = sphSockRecv ( tAgent.m_iSock, (char*)tAgent.m_pReplyBuf+tAgent.m_iReplyRead,
+						tAgent.m_iReplySize-tAgent.m_iReplyRead );
+
+					// bail out if read failed
+					if ( iRes<0 )
+					{
+						tAgent.m_sFailure.SetSprintf ( "failed to receive reply body: %s", sphSockError() );
+						agent_stats_inc ( tAgent, eNetworkErrors );
+						break;
+					}
+
+					assert ( iRes>0 );
+					assert ( tAgent.m_iReplyRead+iRes<=tAgent.m_iReplySize );
+					tAgent.m_iReplyRead += iRes;
+				}
+
+				// if reply was fully received, parse it
+				if ( tAgent.m_eState==AGENT_REPLY && tAgent.m_iReplyRead==tAgent.m_iReplySize )
+				{
+					MemInputBuffer_c tReq ( tAgent.m_pReplyBuf, tAgent.m_iReplySize );
+
+					// absolve thy former sins
+					tAgent.m_sFailure = "";
+
+					// check for general errors/warnings first
+					if ( tAgent.m_iReplyStatus==SEARCHD_WARNING )
+					{
+						CSphString sAgentWarning = tReq.GetString ();
+						tAgent.m_sFailure.SetSprintf ( "remote warning: %s", sAgentWarning.cstr() );
+						bWarnings = true;
+
+					} else if ( tAgent.m_iReplyStatus==SEARCHD_RETRY )
+					{
+						tAgent.m_eState = AGENT_RETRY;
+						CSphString sAgentError = tReq.GetString ();
+						tAgent.m_sFailure.SetSprintf ( "remote warning: %s", sAgentError.cstr() );
+						break;
+
+					} else if ( tAgent.m_iReplyStatus!=SEARCHD_OK )
+					{
+						CSphString sAgentError = tReq.GetString ();
+						tAgent.m_sFailure.SetSprintf ( "remote error: %s", sAgentError.cstr() );
+						break;
+					}
+
+					// call parser
+					if ( !tParser.ParseReply ( tReq, tAgent ) )
+						break;
+
+					// check if there was enough data
+					if ( tReq.GetError() )
+					{
+						tAgent.m_sFailure.SetSprintf ( "incomplete reply" );
+						agent_stats_inc ( tAgent, eWrongReplies );
+						break;
+					}
+
+					epoll_ctl ( eid, EPOLL_CTL_DEL, tAgent.m_iSock, &dEvent );
+					--iEvents;
+					// all is well
+					iAgents++;
+					tAgent.Close ( false );
+					tAgent.m_bSuccess = true;
+				}
+
+				bFailure = false;
+				break;
+			}
+
+			if ( bFailure )
+			{
+				epoll_ctl ( eid, EPOLL_CTL_DEL, tAgent.m_iSock, &dEvent );
+				--iEvents;
+				tAgent.Close ();
+				tAgent.m_dResults.Reset ();
+			} else if ( tAgent.m_bSuccess )
+				agent_stats_inc ( tAgent, bWarnings ? eWarnings : eNoErrors );
+		}
+	}
+
+	close ( eid );
+
+	// close timed-out agents
 	ARRAY_FOREACH ( iAgent, dAgents )
 	{
 		AgentConn_t & tAgent = dAgents[iAgent];
 		if ( tAgent.m_bBlackhole )
-			continue;
-
-		if ( tAgent.m_eState==AGENT_QUERYED || tAgent.m_eState==AGENT_REPLY || tAgent.m_eState==AGENT_PREREPLY )
+			tAgent.Close ();
+		else if ( bTimeout && ( tAgent.m_eState==AGENT_QUERYED || tAgent.m_eState==AGENT_PREREPLY ) )
 		{
-			assert ( !tAgent.m_sPath.IsEmpty() || tAgent.m_iPort>0 );
-			assert ( tAgent.m_iSock>0 );
-			dEvent.events = EPOLLIN;
-			dEvent.data.ptr = &tAgent;
-			epoll_ctl ( eid, EPOLL_CTL_ADD, tAgent.m_iSock, &dEvent );
-			++iEvents;
-			bDone = false;
+			assert ( !tAgent.m_dResults.GetLength() );
+			assert ( !tAgent.m_bSuccess );
+			tAgent.Fail ( eTimeoutsQuery, "query timed out" );
 		}
 	}
 
-		for ( ;; )
-		{
-			bDone = iEvents==0;
-			if ( bDone )
-				break;
-
-			int64_t tmSelect = sphMicroTimer();
-			int64_t tmMicroLeft = tmMaxTimer - tmSelect;
-			if ( tmMicroLeft<=0 ) // FIXME? what about iTimeout==0 case?
-				break;
-
-			int iSelected = ::epoll_wait ( eid, dEvents.Begin(), dEvents.GetLength(), int( tmMicroLeft/1000 ) );
-			dAgents.Begin()->m_iWaited += sphMicroTimer() - tmSelect;
-
-			if ( iSelected<=0 )
-				continue;
-
-			for ( int i=0; i<iSelected; ++i )
-			{
-				AgentConn_t & tAgent = *(AgentConn_t*)dEvents[i].data.ptr;
-				if ( tAgent.m_bBlackhole )
-					continue;
-				if (!( tAgent.m_eState==AGENT_QUERYED || tAgent.m_eState==AGENT_REPLY || tAgent.m_eState==AGENT_PREREPLY ))
-					continue;
-
-				if (!( dEvents[i].events & POLLIN ))
-					continue;
-
-				// if there was no reply yet, read reply header
-				bool bFailure = true;
-				bool bWarnings = false;
-				for ( ;; )
-				{
-					if ( tAgent.m_eState==AGENT_QUERYED || tAgent.m_eState==AGENT_PREREPLY )
-					{
-						if ( tAgent.m_eState==AGENT_PREREPLY )
-						{
-							tAgent.m_iWall -= sphMicroTimer();
-							tAgent.m_eState = AGENT_QUERYED;
-						}
-
-						// try to read
-						struct
-						{
-							WORD	m_iStatus;
-							WORD	m_iVer;
-							int		m_iLength;
-						} tReplyHeader;
-						STATIC_SIZE_ASSERT ( tReplyHeader, 8 );
-
-						if ( sphSockRecv ( tAgent.m_iSock, (char*)&tReplyHeader, sizeof(tReplyHeader) )!=sizeof(tReplyHeader) )
-						{
-							// bail out if failed
-							tAgent.m_sFailure.SetSprintf ( "failed to receive reply header" );
-							agent_stats_inc ( tAgent, eNetworkErrors );
-							break;
-						}
-
-						tReplyHeader.m_iStatus = ntohs ( tReplyHeader.m_iStatus );
-						tReplyHeader.m_iVer = ntohs ( tReplyHeader.m_iVer );
-						tReplyHeader.m_iLength = ntohl ( tReplyHeader.m_iLength );
-
-						// check the packet
-						if ( tReplyHeader.m_iLength<0 || tReplyHeader.m_iLength>g_iMaxPacketSize ) // FIXME! add reasonable max packet len too
-						{
-							tAgent.m_sFailure.SetSprintf ( "invalid packet size (status=%d, len=%d, max_packet_size=%d)",
-								tReplyHeader.m_iStatus, tReplyHeader.m_iLength, g_iMaxPacketSize );
-							agent_stats_inc ( tAgent, eWrongReplies );
-							break;
-						}
-
-						// header received, switch the status
-						assert ( tAgent.m_pReplyBuf==NULL );
-						tAgent.m_eState = AGENT_REPLY;
-						tAgent.m_pReplyBuf = new BYTE [ tReplyHeader.m_iLength ];
-						tAgent.m_iReplySize = tReplyHeader.m_iLength;
-						tAgent.m_iReplyRead = 0;
-						tAgent.m_iReplyStatus = tReplyHeader.m_iStatus;
-
-						if ( !tAgent.m_pReplyBuf )
-						{
-							// bail out if failed
-							tAgent.m_sFailure.SetSprintf ( "failed to alloc %d bytes for reply buffer", tAgent.m_iReplySize );
-							break;
-						}
-					}
-
-					// if we are reading reply, read another chunk
-					if ( tAgent.m_eState==AGENT_REPLY )
-					{
-						// do read
-						assert ( tAgent.m_iReplyRead<tAgent.m_iReplySize );
-						int iRes = sphSockRecv ( tAgent.m_iSock, (char*)tAgent.m_pReplyBuf+tAgent.m_iReplyRead,
-							tAgent.m_iReplySize-tAgent.m_iReplyRead );
-
-						// bail out if read failed
-						if ( iRes<0 )
-						{
-							tAgent.m_sFailure.SetSprintf ( "failed to receive reply body: %s", sphSockError() );
-							agent_stats_inc ( tAgent, eNetworkErrors );
-							break;
-						}
-
-						assert ( iRes>0 );
-						assert ( tAgent.m_iReplyRead+iRes<=tAgent.m_iReplySize );
-						tAgent.m_iReplyRead += iRes;
-					}
-
-					// if reply was fully received, parse it
-					if ( tAgent.m_eState==AGENT_REPLY && tAgent.m_iReplyRead==tAgent.m_iReplySize )
-					{
-						MemInputBuffer_c tReq ( tAgent.m_pReplyBuf, tAgent.m_iReplySize );
-
-						// absolve thy former sins
-						tAgent.m_sFailure = "";
-
-						// check for general errors/warnings first
-						if ( tAgent.m_iReplyStatus==SEARCHD_WARNING )
-						{
-							CSphString sAgentWarning = tReq.GetString ();
-							tAgent.m_sFailure.SetSprintf ( "remote warning: %s", sAgentWarning.cstr() );
-							bWarnings = true;
-
-						} else if ( tAgent.m_iReplyStatus==SEARCHD_RETRY )
-						{
-							tAgent.m_eState = AGENT_RETRY;
-							CSphString sAgentError = tReq.GetString ();
-							tAgent.m_sFailure.SetSprintf ( "remote warning: %s", sAgentError.cstr() );
-							break;
-
-						} else if ( tAgent.m_iReplyStatus!=SEARCHD_OK )
-						{
-							CSphString sAgentError = tReq.GetString ();
-							tAgent.m_sFailure.SetSprintf ( "remote error: %s", sAgentError.cstr() );
-							break;
-						}
-
-						// call parser
-						if ( !tParser.ParseReply ( tReq, tAgent ) )
-							break;
-
-						// check if there was enough data
-						if ( tReq.GetError() )
-						{
-							tAgent.m_sFailure.SetSprintf ( "incomplete reply" );
-							agent_stats_inc ( tAgent, eWrongReplies );
-							break;
-						}
-
-						// all is well
-						iAgents++;
-						tAgent.Close ( false );
-						epoll_ctl ( eid, EPOLL_CTL_DEL, tAgent.m_iSock, &dEvent );
-						--iEvents;
-						tAgent.m_bSuccess = true;
-					}
-
-					bFailure = false;
-					break;
-				}
-
-				if ( bFailure )
-				{
-					epoll_ctl ( eid, EPOLL_CTL_DEL, tAgent.m_iSock, &dEvent );
-					--iEvents;
-					tAgent.Close ();
-					tAgent.m_dResults.Reset ();
-				} else if ( tAgent.m_bSuccess )
-					agent_stats_inc ( tAgent, bWarnings ? eWarnings : eNoErrors );
-			}
-		}
-
-		close ( eid );
-
-		// close timed-out agents
-		ARRAY_FOREACH ( iAgent, dAgents )
-		{
-			AgentConn_t & tAgent = dAgents[iAgent];
-			if ( tAgent.m_bBlackhole )
-				tAgent.Close ();
-			else if ( tAgent.m_eState==AGENT_QUERYED || tAgent.m_eState==AGENT_PREREPLY )
-			{
-				assert ( !tAgent.m_dResults.GetLength() );
-				assert ( !tAgent.m_bSuccess );
-				tAgent.Close ();
-				tAgent.m_sFailure.SetSprintf ( "query timed out" );
-				agent_stats_inc ( tAgent, eTimeoutsQuery );
-			}
-		}
-
-		return iAgents;
-	}
-
+	return iAgents;
+}
 
 #else // !HAVE_EPOLL
 
@@ -4746,10 +4747,9 @@ int RemoteQueryAgents ( AgentConnectionContext_t * pCtx )
 			assert ( tAgent.m_iSock>0 );
 			if ( tAgent.m_iSock<=0 || ( tAgent.m_sPath.IsEmpty() && tAgent.m_iPort<=0 ) )
 			{
-				tAgent.Close ();
-				tAgent.m_sFailure.SetSprintf ( "invalid agent in querying. Socket %d, Path %s, Port %d", tAgent.m_iSock, tAgent.m_sPath.cstr(), tAgent.m_iPort );
+				tAgent.Fail ( eConnectFailures, "invalid agent in querying. Socket %d, Path %s, Port %d",
+					tAgent.m_iSock, tAgent.m_sPath.cstr(), tAgent.m_iPort );
 				tAgent.m_eState = AGENT_RETRY; // do retry on connect() failures
-				agent_stats_inc ( tAgent, eConnectFailures );
 				continue;
 			}
 
@@ -4770,191 +4770,174 @@ int RemoteQueryAgents ( AgentConnectionContext_t * pCtx )
 		if ( bDone )
 			break;
 
-			// compute timeout
-			int64_t tmSelect = sphMicroTimer();
-			int64_t tmMicroLeft = tmMaxTimer - tmSelect;
-			if ( tmMicroLeft<=0 )
-				break; // FIXME? what about iTimeout==0 case?
+		// compute timeout
+		int64_t tmSelect = sphMicroTimer();
+		int64_t tmMicroLeft = tmMaxTimer - tmSelect;
+		if ( tmMicroLeft<=0 )
+			break; // FIXME? what about iTimeout==0 case?
 
-			// do poll
+		// do poll
 #if HAVE_POLL
-			int iSelected = ::poll ( fds.Begin(), fds.GetLength(), int( tmMicroLeft/1000 ) );
+		int iSelected = ::poll ( fds.Begin(), fds.GetLength(), int( tmMicroLeft/1000 ) );
 #else
-			struct timeval tvTimeout;
-			tvTimeout.tv_sec = (int)( tmMicroLeft/ 1000000 ); // full seconds
-			tvTimeout.tv_usec = (int)( tmMicroLeft % 1000000 ); // microseconds
-			int iSelected = ::select ( 1+iMax, &fdsRead, &fdsWrite, NULL, &tvTimeout ); // exceptfds are OOB only
+		struct timeval tvTimeout;
+		tvTimeout.tv_sec = (int)( tmMicroLeft/ 1000000 ); // full seconds
+		tvTimeout.tv_usec = (int)( tmMicroLeft % 1000000 ); // microseconds
+		int iSelected = ::select ( 1+iMax, &fdsRead, &fdsWrite, NULL, &tvTimeout ); // exceptfds are OOB only
 #endif
 
-			// update counters, and loop again if nothing happened
-			pCtx->m_pAgents->m_iWaited += sphMicroTimer() - tmSelect;
-			// todo: do we need to check for EINTR here? Or the fact of timeout is enough anyway?
-			if ( iSelected<=0 )
-				continue;
+		// update counters, and loop again if nothing happened
+		pCtx->m_pAgents->m_iWaited += sphMicroTimer() - tmSelect;
+		// todo: do we need to check for EINTR here? Or the fact of timeout is enough anyway?
+		if ( iSelected<=0 )
+			continue;
 
-			// ok, something did happen, so loop the agents and do them checks
-			ARRAY_FOREACH ( i, dWorkingSet )
-			{
-				AgentConn_t & tAgent = pCtx->m_pAgents[dWorkingSet[i]];
-#if HAVE_POLL
-				bool bReadable = ( fds[i].revents & POLLIN )!=0;
-				bool bWriteable = ( fds[i].revents & POLLOUT )!=0;
-#else
-				bool bReadable = FD_ISSET ( tAgent.m_iSock, &fdsRead )!=0;
-				bool bWriteable = FD_ISSET ( tAgent.m_iSock, &fdsWrite )!=0;
-#endif
-				if ( tAgent.m_eState==AGENT_CONNECTING )
-				{
-#if HAVE_POLL
-					if ( ( fds[i].revents & ( POLLERR | POLLHUP ) )!=0 )
-					{
-						int iErr = 0;
-						socklen_t iErrLen = sizeof(iErr);
-						getsockopt ( tAgent.m_iSock, SOL_SOCKET, SO_ERROR, (char*)&iErr, &iErrLen );
-						// connect() failure
-						tAgent.m_sFailure.SetSprintf ( "connect() failed: %s", sphSockError(iErr) );
-						tAgent.Close ();
-						agent_stats_inc ( tAgent, eConnectFailures );
-						continue;
-					}
-#else
-					// check if connection completed
-					// tricky part, with select, we MUST use write-set ONLY here at this check
-					// even though we can't tell connect() success from just OS send buffer availability
-					// but any check involving read-set just never ever completes, so...
-					if ( bWriteable )
-					{
-						int iErr = 0;
-						socklen_t iErrLen = sizeof(iErr);
-						getsockopt ( tAgent.m_iSock, SOL_SOCKET, SO_ERROR, (char*)&iErr, &iErrLen );
-						if ( iErr )
-						{
-							// connect() failure
-							tAgent.m_sFailure.SetSprintf ( "connect() failed: %s", sphSockError(iErr) );
-							tAgent.Close ();
-							agent_stats_inc ( tAgent, eConnectFailures );
-							continue;
-						}
-					}
-#endif
-					// connect() success
-					tAgent.m_eState = AGENT_HANDSHAKE;
-					// send the client's proto version right now to avoid w-w-r pattern.
-					NetOutputBuffer_c tOut ( tAgent.m_iSock );
-					tOut.SendDword ( SPHINX_CLIENT_VERSION );
-					bool bFlushed = tOut.Flush (); // FIXME! handle flush failure?
-					// fix #1071
-#ifdef	TCP_NODELAY
-					int bNoDelay = 1;
-					if ( bFlushed && tAgent.m_iFamily==AF_INET )
-						setsockopt ( tAgent.m_iSock, IPPROTO_TCP, TCP_NODELAY, (char*)&bNoDelay, sizeof(bNoDelay) );
-#endif
-					continue;
-				}
-
-				// check if hello was received
-				if ( tAgent.m_eState==AGENT_HANDSHAKE && bReadable )
-				{
-					// read reply
-					int iRemoteVer;
-					int iRes = sphSockRecv ( tAgent.m_iSock, (char*)&iRemoteVer, sizeof(iRemoteVer) );
-					if ( iRes!=sizeof(iRemoteVer) )
-					{
-						tAgent.Close ();
-						if ( iRes<0 )
-						{
-							// network error
-							int iErr = sphSockGetErrno();
-							tAgent.m_sFailure.SetSprintf ( "handshake failure (errno=%d, msg=%s)", iErr, sphSockError(iErr) );
-							agent_stats_inc ( tAgent, eNetworkErrors );
-
-						} else if ( iRes>0 )
-						{
-							// incomplete reply
-							tAgent.m_sFailure.SetSprintf ( "handshake failure (exp=%d, recv=%d)", (int)sizeof(iRemoteVer), iRes );
-							agent_stats_inc ( tAgent, eWrongReplies );
-
-						} else
-						{
-							// agent closed the connection
-							// this might happen in out-of-sync connect-accept case; so let's retry
-							tAgent.m_sFailure = "handshake failure (connection was closed)";
-							tAgent.m_eState = AGENT_RETRY;
-							agent_stats_inc ( tAgent, eUnexpectedClose );
-						}
-						continue;
-					}
-
-					iRemoteVer = ntohl ( iRemoteVer );
-					if (!( iRemoteVer==SPHINX_SEARCHD_PROTO || iRemoteVer==0x01000000UL ) ) // workaround for all the revisions that sent it in host order...
-					{
-						tAgent.m_sFailure.SetSprintf ( "handshake failure (unexpected protocol version=%d)", iRemoteVer );
-						agent_stats_inc ( tAgent, eWrongReplies );
-						tAgent.Close ();
-						continue;
-					}
-
-					NetOutputBuffer_c tOut ( tAgent.m_iSock );
-					// check if we need to reset the persistent connection
-					if ( tAgent.m_bFresh )
-					{
-						tOut.SendWord ( SEARCHD_COMMAND_PERSIST );
-						tOut.SendWord ( 0 ); // dummy version
-						tOut.SendInt ( 4 ); // request body length
-						tOut.SendInt ( 1 ); // set persistent to 1.
-						tOut.Flush ();
-						tAgent.m_bFresh = false;
-					}
-
-					tAgent.m_eState = AGENT_ESTABLISHED;
-					continue;
-				}
-
-				if ( tAgent.m_eState==AGENT_ESTABLISHED && bWriteable )
-				{
-					// send request
-					NetOutputBuffer_c tOut ( tAgent.m_iSock );
-					pCtx->m_pBuilder->BuildRequest ( tAgent, tOut );
-					tOut.Flush (); // FIXME! handle flush failure?
-					tAgent.m_eState = AGENT_QUERYED;
-					iAgents++;
-					continue;
-				}
-
-				// check if queried agent replied while we were querying others
-				if ( tAgent.m_eState==AGENT_QUERYED && bReadable )
-				{
-					// do not account agent wall time from here; agent is probably ready
-					tAgent.m_iWall += sphMicroTimer();
-					tAgent.m_eState = AGENT_PREREPLY;
-					continue;
-				}
-			}
-		}
-
-
-		// check if connection timed out
-		for ( int i=0; i<pCtx->m_iAgentCount; i++ )
+		// ok, something did happen, so loop the agents and do them checks
+		ARRAY_FOREACH ( i, dWorkingSet )
 		{
-			AgentConn_t & tAgent = pCtx->m_pAgents[i];
-			if ( tAgent.m_eState!=AGENT_QUERYED && tAgent.m_eState!=AGENT_UNUSED && tAgent.m_eState!=AGENT_RETRY && tAgent.m_eState!=AGENT_PREREPLY
-				&& tAgent.m_eState!=AGENT_REPLY )
+			AgentConn_t & tAgent = pCtx->m_pAgents[dWorkingSet[i]];
+#if HAVE_POLL
+			bool bReadable = ( fds[i].revents & POLLIN )!=0;
+			bool bWriteable = ( fds[i].revents & POLLOUT )!=0;
+#else
+			bool bReadable = FD_ISSET ( tAgent.m_iSock, &fdsRead )!=0;
+			bool bWriteable = FD_ISSET ( tAgent.m_iSock, &fdsWrite )!=0;
+#endif
+			if ( tAgent.m_eState==AGENT_CONNECTING )
 			{
-				// technically, we can end up here via two different routes
-				// a) connect() never finishes in given time frame
-				// b) agent actually accept()s the connection but keeps silence
-				// however, there's no way to tell the two from each other
-				// so we just account both cases as connect() failure
-				tAgent.Close ();
-				tAgent.m_sFailure.SetSprintf ( "connect() timed out" );
-				tAgent.m_eState = AGENT_RETRY; // do retry on connect() failures
-				agent_stats_inc ( tAgent, eTimeoutsConnect );
+#if HAVE_POLL
+				if ( ( fds[i].revents & ( POLLERR | POLLHUP ) )!=0 )
+				{
+					int iErr = 0;
+					socklen_t iErrLen = sizeof(iErr);
+					getsockopt ( tAgent.m_iSock, SOL_SOCKET, SO_ERROR, (char*)&iErr, &iErrLen );
+					// connect() failure
+					tAgent.Fail ( eConnectFailures, "connect() failed: %s", sphSockError(iErr) );
+					continue;
+				}
+#else
+				// check if connection completed
+				// tricky part, with select, we MUST use write-set ONLY here at this check
+				// even though we can't tell connect() success from just OS send buffer availability
+				// but any check involving read-set just never ever completes, so...
+				if ( bWriteable )
+				{
+					int iErr = 0;
+					socklen_t iErrLen = sizeof(iErr);
+					getsockopt ( tAgent.m_iSock, SOL_SOCKET, SO_ERROR, (char*)&iErr, &iErrLen );
+					if ( iErr )
+					{
+						tAgent.Fail ( eConnectFailures, "connect() failed: %s", sphSockError(iErr) );
+						continue;
+					}
+				}
+#endif
+				// connect() success
+				tAgent.m_eState = AGENT_HANDSHAKE;
+				// send the client's proto version right now to avoid w-w-r pattern.
+				NetOutputBuffer_c tOut ( tAgent.m_iSock );
+				tOut.SendDword ( SPHINX_CLIENT_VERSION );
+				bool bFlushed = tOut.Flush (); // FIXME! handle flush failure?
+				// fix #1071
+#ifdef	TCP_NODELAY
+				int bNoDelay = 1;
+				if ( bFlushed && tAgent.m_iFamily==AF_INET )
+					setsockopt ( tAgent.m_iSock, IPPROTO_TCP, TCP_NODELAY, (char*)&bNoDelay, sizeof(bNoDelay) );
+#endif
+				continue;
+			}
+
+			// check if hello was received
+			if ( tAgent.m_eState==AGENT_HANDSHAKE && bReadable )
+			{
+				// read reply
+				int iRemoteVer;
+				int iRes = sphSockRecv ( tAgent.m_iSock, (char*)&iRemoteVer, sizeof(iRemoteVer) );
+				if ( iRes!=sizeof(iRemoteVer) )
+				{
+					if ( iRes<0 )
+					{
+						int iErr = sphSockGetErrno();
+						tAgent.Fail ( eNetworkErrors, "handshake failure (errno=%d, msg=%s)", iErr, sphSockError(iErr) );
+					} else if ( iRes>0 )
+					{
+						// incomplete reply
+						tAgent.Fail ( eWrongReplies, "handshake failure (exp=%d, recv=%d)", (int)sizeof(iRemoteVer), iRes );
+					} else
+					{
+						// agent closed the connection
+						// this might happen in out-of-sync connect-accept case; so let's retry
+						tAgent.Fail ( eUnexpectedClose, "handshake failure (connection was closed)" );
+						tAgent.m_eState = AGENT_RETRY;
+					}
+					continue;
+				}
+
+				iRemoteVer = ntohl ( iRemoteVer );
+				if (!( iRemoteVer==SPHINX_SEARCHD_PROTO || iRemoteVer==0x01000000UL ) ) // workaround for all the revisions that sent it in host order...
+				{
+					tAgent.Fail ( eWrongReplies, "handshake failure (unexpected protocol version=%d)", iRemoteVer );
+					continue;
+				}
+
+				NetOutputBuffer_c tOut ( tAgent.m_iSock );
+				// check if we need to reset the persistent connection
+				if ( tAgent.m_bFresh && tAgent.m_bPersistent )
+				{
+					tOut.SendWord ( SEARCHD_COMMAND_PERSIST );
+					tOut.SendWord ( 0 ); // dummy version
+					tOut.SendInt ( 4 ); // request body length
+					tOut.SendInt ( 1 ); // set persistent to 1.
+					tOut.Flush ();
+					tAgent.m_bFresh = false;
+				}
+
+				tAgent.m_eState = AGENT_ESTABLISHED;
+				continue;
+			}
+
+			if ( tAgent.m_eState==AGENT_ESTABLISHED && bWriteable )
+			{
+				// send request
+				NetOutputBuffer_c tOut ( tAgent.m_iSock );
+				pCtx->m_pBuilder->BuildRequest ( tAgent, tOut );
+				tOut.Flush (); // FIXME! handle flush failure?
+				tAgent.m_eState = AGENT_QUERYED;
+				iAgents++;
+				continue;
+			}
+
+			// check if queried agent replied while we were querying others
+			if ( tAgent.m_eState==AGENT_QUERYED && bReadable )
+			{
+				// do not account agent wall time from here; agent is probably ready
+				tAgent.m_iWall += sphMicroTimer();
+				tAgent.m_eState = AGENT_PREREPLY;
+				continue;
 			}
 		}
-
-		return iAgents;
 	}
 
+
+	// check if connection timed out
+	for ( int i=0; i<pCtx->m_iAgentCount; i++ )
+	{
+		AgentConn_t & tAgent = pCtx->m_pAgents[i];
+		if ( tAgent.m_eState!=AGENT_QUERYED && tAgent.m_eState!=AGENT_UNUSED && tAgent.m_eState!=AGENT_RETRY && tAgent.m_eState!=AGENT_PREREPLY
+			&& tAgent.m_eState!=AGENT_REPLY )
+		{
+			// technically, we can end up here via two different routes
+			// a) connect() never finishes in given time frame
+			// b) agent actually accept()s the connection but keeps silence
+			// however, there's no way to tell the two from each other
+			// so we just account both cases as connect() failure
+			tAgent.Fail ( eTimeoutsConnect, "connect() timed out" );
+			tAgent.m_eState = AGENT_RETRY; // do retry on connect() failures
+		}
+	}
+
+	return iAgents;
+}
 
 // processing states AGENT_QUERY, AGENT_PREREPLY and AGENT_REPLY
 int RemoteWaitForAgents ( CSphVector<AgentConn_t> & dAgents, int iTimeout, IReplyParser_t & tParser )
@@ -5194,9 +5177,7 @@ int RemoteWaitForAgents ( CSphVector<AgentConn_t> & dAgents, int iTimeout, IRepl
 		{
 			assert ( !tAgent.m_dResults.GetLength() );
 			assert ( !tAgent.m_bSuccess );
-			tAgent.Close ();
-			tAgent.m_sFailure.SetSprintf ( "query timed out" );
-			agent_stats_inc ( tAgent, eTimeoutsQuery );
+			tAgent.Fail ( eTimeoutsQuery, "query timed out" );
 		}
 	}
 
@@ -5238,7 +5219,7 @@ private:
 	int m_iHead;					// ring buffer begin
 	int m_iTail;					// ring buffer end
 
-	volatile int m_iWorkersCount;			// count of works to be done
+	volatile int m_iWorksCount;			// count of works to be done
 	volatile int m_iAgentsDone;				// count of agents that finished their works
 	volatile int m_iAgentsReported;			// count of agents that reported of their work done
 
@@ -5251,7 +5232,7 @@ public:
 
 		m_iLen = iLen+1;
 		m_iTail = m_iHead = 0;
-		m_iWorkersCount = 0;
+		m_iWorksCount = 0;
 		m_iAgentsDone = m_iAgentsReported = 0;
 
 		m_dData = new AgentWorkContext_t[m_iLen];
@@ -5326,14 +5307,14 @@ public:
 		return m_iAgentsDone;
 	}
 
-	bool HasActiveWorkers () const
+	bool HasIncompleteWorks () const
 	{
-		return ( m_iWorkersCount>0 );
+		return ( m_iWorksCount>0 );
 	}
 
-	void SetWorkersCount ( int iWorkers )
+	void SetWorksCount ( int iWorkers )
 	{
-		m_iWorkersCount = iWorkers;
+		m_iWorksCount = iWorkers;
 	}
 
 	static void PoolThreadFunc ( void * pArg )
@@ -5364,7 +5345,7 @@ public:
 			{
 				CSphScopedLock<CSphMutex> tStat ( pPool->m_tStatLock );
 				pPool->m_iAgentsDone += tNext.m_iAgentsDone;
-				pPool->m_iWorkersCount -= ( tNext.m_pfn==NULL );
+				pPool->m_iWorksCount -= ( tNext.m_pfn==NULL );
 				pPool->m_tChanged.SetEvent();
 			}
 
@@ -5373,7 +5354,7 @@ public:
 			{
 				pPool->Push ( tNext );
 				tNext = AgentWorkContext_t();
-			} else if ( pPool->m_iWorkersCount>1 && iPopCount>pPool->m_iWorkersCount ) // should sleep on queue wrap
+			} else if ( pPool->m_iWorksCount>1 && iPopCount>pPool->m_iWorksCount ) // should sleep on queue wrap
 			{
 				iPopCount = 0;
 				sphSleepMsec ( 1 );
@@ -5474,9 +5455,10 @@ public:
 		tCtx.m_iRetriesMax = iRetryMax;
 		tCtx.m_iTimeout = iTimeout;
 
+
 		if ( iThreads>1 )
 		{
-			m_tWorkerPool.SetWorkersCount ( dAgents.GetLength() );
+			m_tWorkerPool.SetWorksCount ( dAgents.GetLength() );
 			ARRAY_FOREACH ( i, dAgents )
 			{
 				tCtx.m_pAgents = dAgents.Begin()+i;
@@ -5484,11 +5466,11 @@ public:
 			}
 		} else
 		{
+			m_tWorkerPool.SetWorksCount ( 1 );
 			tCtx.m_pAgents = dAgents.Begin();
 			tCtx.m_iAgentCount = dAgents.GetLength();
 			tCtx.m_pfn = ThdWorkSequental;
 			m_tWorkerPool.RawPush ( tCtx );
-			m_tWorkerPool.SetWorkersCount ( 1 );
 		}
 
 		ARRAY_FOREACH ( i, m_dThds )
@@ -5506,7 +5488,7 @@ public:
 	// check that there are no works to do
 	bool IsDone ()
 	{
-		return m_tWorkerPool.HasActiveWorkers()==0;
+		return m_tWorkerPool.HasIncompleteWorks()==0;
 	}
 
 	// block execution while there are works to do
@@ -6231,6 +6213,8 @@ void CheckQuery ( const CSphQuery & tQuery, CSphString & sError )
 
 void PrepareQueryEmulation ( CSphQuery * pQuery )
 {
+	assert ( pQuery && pQuery->m_sRawQuery.cstr() );
+
 	// sort filters
 	ARRAY_FOREACH ( i, pQuery->m_dFilters )
 		pQuery->m_dFilters[i].m_dValues.Sort();
@@ -6252,7 +6236,7 @@ void PrepareQueryEmulation ( CSphQuery * pQuery )
 		return;
 
 	const char * szQuery = pQuery->m_sRawQuery.cstr ();
-	int iQueryLen = szQuery ? strlen(szQuery) : 0;
+	int iQueryLen = strlen(szQuery);
 
 	pQuery->m_sQuery.Reserve ( iQueryLen*2+8 );
 	char * szRes = (char*) pQuery->m_sQuery.cstr ();
@@ -6319,7 +6303,7 @@ bool ParseSearchQuery ( InputBuffer_c & tReq, CSphQuery & tQuery, int iVer, int 
 	if ( iVer>=0x102 )
 	{
 		tQuery.m_sSortBy = tReq.GetString ();
-		tQuery.m_sSortBy.ToLower ();
+		sphColumnToLowercase ( const_cast<char *>( tQuery.m_sSortBy.cstr() ) );
 	}
 	tQuery.m_sRawQuery = tReq.GetString ();
 	tQuery.m_iWeights = tReq.GetDwords ( (DWORD**)&tQuery.m_pWeights, SPH_MAX_FIELDS, "invalid weight count %d (should be in 0..%d range)" );
@@ -6380,7 +6364,7 @@ bool ParseSearchQuery ( InputBuffer_c & tReq, CSphQuery & tQuery, int iVer, int 
 		{
 			CSphFilterSettings & tFilter = tQuery.m_dFilters[iFilter];
 			tFilter.m_sAttrName = tReq.GetString ();
-			tFilter.m_sAttrName.ToLower ();
+			sphColumnToLowercase ( const_cast<char *>( tFilter.m_sAttrName.cstr() ) );
 
 			snprintf ( sSetError, MAX_ERROR_SET_BUFFER
 				, "invalid attribute '%s'(%d) set length %s (should be in 0..%s range)", tFilter.m_sAttrName.cstr(), iFilter, "%d", "%d" );
@@ -6670,10 +6654,7 @@ void LogQueryPlain ( const CSphQuery & tQuery, const CSphQueryResult & tRes )
 	if ( ( !g_bQuerySyslog && g_iQueryLogFile<0 ) || !tRes.m_sError.IsEmpty() )
 		return;
 
-	const int iBufGap = 4;
-	char sBuf[2048];
-	char * p = sBuf;
-	char * pMax = sBuf+sizeof(sBuf)-iBufGap;
+	CSphStringBuilder tBuf;
 
 	// [time]
 #if USE_SYSLOG
@@ -6681,67 +6662,63 @@ void LogQueryPlain ( const CSphQuery & tQuery, const CSphQueryResult & tRes )
 	{
 #endif
 
-		*p++ = '[';
-		p += sphFormatCurrentTime ( p, pMax-p );
-		*p++ = ']';
+		char sTimeBuf[SPH_TIME_PID_MAX_SIZE];
+		sphFormatCurrentTime ( sTimeBuf, sizeof(sTimeBuf) );
+		tBuf.Appendf ( "[%s]", sTimeBuf );
 
 #if USE_SYSLOG
 	} else
-		p += snprintf ( p, pMax-p, "[query]" );
+		tBuf += "[query]";
 #endif
 
 	// querytime sec
 	int iQueryTime = Max ( tRes.m_iQueryTime, 0 );
 	int iRealTime = Max ( tRes.m_iRealQueryTime, 0 );
-	p += snprintf ( p, pMax-p, " %d.%03d sec", iRealTime/1000, iRealTime%1000 );
-	p += snprintf ( p, pMax-p, " %d.%03d sec", iQueryTime/1000, iQueryTime%1000 );
+	tBuf.Appendf ( " %d.%03d sec", iRealTime/1000, iRealTime%1000 );
+	tBuf.Appendf ( " %d.%03d sec", iQueryTime/1000, iQueryTime%1000 );
 
 	// optional multi-query multiplier
 	if ( tRes.m_iMultiplier>1 )
-		p += snprintf ( p, pMax-p, " x%d", tRes.m_iMultiplier );
+		tBuf.Appendf ( " x%d", tRes.m_iMultiplier );
 
 	// [matchmode/numfilters/sortmode matches (offset,limit)
 	static const char * sModes [ SPH_MATCH_TOTAL ] = { "all", "any", "phr", "bool", "ext", "scan", "ext2" };
 	static const char * sSort [ SPH_SORT_TOTAL ] = { "rel", "attr-", "attr+", "tsegs", "ext", "expr" };
-	p += snprintf ( p, pMax-p, " [%s/%d/%s "INT64_FMT" (%d,%d)",
+	tBuf.Appendf ( " [%s/%d/%s "INT64_FMT" (%d,%d)",
 		sModes [ tQuery.m_eMode ], tQuery.m_dFilters.GetLength(), sSort [ tQuery.m_eSort ],
 		tRes.m_iTotalMatches, tQuery.m_iOffset, tQuery.m_iLimit );
 
 	// optional groupby info
-	if ( !tQuery.m_sGroupBy.IsEmpty() && p<pMax )
-		p += snprintf ( p, pMax-p, " @%s", tQuery.m_sGroupBy.cstr() );
+	if ( !tQuery.m_sGroupBy.IsEmpty() )
+		tBuf.Appendf ( " @%s", tQuery.m_sGroupBy.cstr() );
 
 	// ] [indexes]
-	if ( p<pMax )
-	p += snprintf ( p, pMax-p, "] [%s]", tQuery.m_sIndexes.cstr() );
+	tBuf.Appendf ( "] [%s]", tQuery.m_sIndexes.cstr() );
 
 	// optional performance counters
 	if ( g_bIOStats || g_bCpuStats )
 	{
 		const CSphIOStats & IOStats = tRes.m_tIOStats;
 
-		if ( p<pMax )
-		*p++ = ' ';
+		tBuf += " [";
 
-		char * pBracket = p; // can't fill yet, will be overwritten by sprintfs
-
-		if ( g_bIOStats && p<pMax )
-			p += snprintf ( p, pMax-p, " ios=%d kb=%d.%d ioms=%d.%d",
+		if ( g_bIOStats )
+			tBuf.Appendf ( "ios=%d kb=%d.%d ioms=%d.%d",
 				IOStats.m_iReadOps, (int)( IOStats.m_iReadBytes/1024 ), (int)( IOStats.m_iReadBytes%1024 )*10/1024,
 				(int)( IOStats.m_iReadTime/1000 ), (int)( IOStats.m_iReadTime%1000 )/100 );
 
-		if ( g_bCpuStats && p<pMax )
-			p += snprintf ( p, pMax-p, " cpums=%d.%d", (int)( tRes.m_iCpuTime/1000 ), (int)( tRes.m_iCpuTime%1000 )/100 );
+		if ( g_bIOStats && g_bCpuStats )
+			tBuf += " ";
 
-		if ( pBracket<pMax )
-		*pBracket = '[';
-		if ( p<pMax )
-			*p++ = ']';
+		if ( g_bCpuStats )
+			tBuf.Appendf ( "cpums=%d.%d", (int)( tRes.m_iCpuTime/1000 ), (int)( tRes.m_iCpuTime%1000 )/100 );
+
+		tBuf += "]";
 	}
 
 	// optional query comment
-	if ( !tQuery.m_sComment.IsEmpty() && p<pMax )
-		p += snprintf ( p, pMax-p, " [%s]", tQuery.m_sComment.cstr() );
+	if ( !tQuery.m_sComment.IsEmpty() )
+		tBuf.Appendf ( " [%s]", tQuery.m_sComment.cstr() );
 
 	// query
 	// (m_sRawQuery is empty when using MySQL handler)
@@ -6751,11 +6728,8 @@ void LogQueryPlain ( const CSphQuery & tQuery, const CSphQueryResult & tRes )
 
 	if ( !sQuery.IsEmpty() )
 	{
-		if ( p<pMax )
-			*p++ = ' ';
-
-		for ( const char * q = sQuery.cstr(); p<pMax && *q; p++, q++ )
-			*p = ( *q=='\n' ) ? ' ' : *q;
+		tBuf += " ";
+		tBuf.AppendEscaped ( sQuery.cstr(), false, true );
 	}
 
 #if USE_SYSLOG
@@ -6764,151 +6738,20 @@ void LogQueryPlain ( const CSphQuery & tQuery, const CSphQueryResult & tRes )
 #endif
 
 	// line feed
-	char sGap[iBufGap] = { '\n', '\0', '\0', '\0' };
-	if ( p<pMax-1 )
-	{
-		memcpy ( p, sGap, 2 );
-	}
+	tBuf += "\n";
 
-	memcpy ( sBuf+sizeof(sBuf)-iBufGap, sGap, iBufGap );
-
-	lseek ( g_iQueryLogFile, 0, SEEK_END );
-	sphWrite ( g_iQueryLogFile, sBuf, strlen(sBuf) );
+	sphSeek ( g_iQueryLogFile, 0, SEEK_END );
+	sphWrite ( g_iQueryLogFile, tBuf.cstr(), tBuf.Length() );
 
 #if USE_SYSLOG
 	} else
 	{
-		if ( p<pMax )
-			*p++ = '\0';
-		sBuf[sizeof(sBuf)-1] = '\0';
-		syslog ( LOG_INFO, "%s", sBuf );
+		syslog ( LOG_INFO, "%s", tBuf.cstr() );
 	}
 #endif
 }
 
-
-// string buffer
-// it's usually static(2k) but could grow dynamically then necessary
-class StringBuffer_c : ISphNoncopyable
-{
-private:
-#define MAX_STATIC_BUFFER 2048
-	char m_sStatic [ MAX_STATIC_BUFFER ];
-	char * m_pDynamic;
-	char * m_pCur;
-	int m_iSize;
-
-public:
-	StringBuffer_c ()
-		: m_pDynamic ( NULL )
-		, m_iSize ( MAX_STATIC_BUFFER )
-	{
-		m_pCur = m_sStatic;
-	}
-
-	~StringBuffer_c ()
-	{
-		SafeDeleteArray ( m_pDynamic );
-	}
-
-
-	void Append ( const char * sFormat, ... ) __attribute__ ( ( format ( printf, 2, 3 ) ) )
-	{
-		if ( !sFormat || !*sFormat )
-			return;
-
-		for ( ;; )
-		{
-			int iLen = -1;
-			if ( Left()>0 )
-			{
-				va_list ap;
-				va_start ( ap, sFormat );
-				iLen = vsnprintf ( m_pCur, Left(), sFormat, ap );
-				va_end ( ap );
-			}
-
-			if ( iLen!=-1 && Length()+iLen<m_iSize )
-			{
-				m_pCur += iLen;
-				break;
-			} else
-			{
-				Grow();
-			}
-		}
-	}
-
-	void AppendEscapedFixupSpace ( const char * sText )
-	{
-		if ( !sText || !*sText )
-			return;
-
-		const char * pBuf = sText;
-		int iEsc = 0;
-		for ( ; *pBuf; )
-		{
-			char s = *pBuf++;
-			iEsc = ( s=='\\' || s=='\'' ) ? ( iEsc+1 ) : iEsc;
-		}
-
-		int iLen = pBuf-sText;
-
-		if ( Left()<iLen+iEsc )
-			Grow ( iLen+iEsc );
-
-		pBuf = sText;
-		for ( ; *pBuf; )
-		{
-			char s = *pBuf++;
-			if ( s=='\\' || s=='\'' )
-			{
-				*m_pCur++ = '\\';
-				*m_pCur++ = s;
-			} else if ( sphIsSpace ( s ) )
-			{
-				*m_pCur++ = ' ';
-			} else
-			{
-				*m_pCur++ = s;
-			}
-		}
-	}
-
-	void AppendCurrentTime ()
-	{
-		if ( Left()<64 )
-			Grow ();
-
-		int iLen = sphFormatCurrentTime ( m_pCur, Left() );
-		assert ( Length()+iLen<=m_iSize );
-		m_pCur += iLen;
-	}
-
-	int Length() const { return m_pDynamic ? ( m_pCur-m_pDynamic ) : ( m_pCur-m_sStatic ); }
-
-	const char * cstr () const { return m_pDynamic ? m_pDynamic : m_sStatic; }
-
-private:
-	int Left () const { return m_iSize-Length(); }
-
-	void Grow ( int iAdd=0 )
-	{
-		int iNewLen = m_iSize*2;
-		if ( ( m_iSize+iAdd )>( m_iSize*2 ) )
-			iNewLen = m_iSize+iAdd;
-
-		int iUsed = Length();
-		char * pDynamic = new char [iNewLen];
-		memcpy ( pDynamic, m_pDynamic ? m_pDynamic : m_sStatic, iUsed );
-		SafeDeleteArray ( m_pDynamic );
-		m_pDynamic = pDynamic;
-		m_pCur = pDynamic + iUsed;
-		m_iSize = iNewLen;
-	}
-};
-
-void FormatOrderBy ( StringBuffer_c * pBuf, const char * sPrefix, ESphSortOrder eSort, const CSphString & sSort )
+void FormatOrderBy ( CSphStringBuilder * pBuf, const char * sPrefix, ESphSortOrder eSort, const CSphString & sSort )
 {
 	assert ( pBuf );
 	if ( eSort==SPH_SORT_EXTENDED && sSort=="@weight desc" )
@@ -6920,12 +6763,12 @@ void FormatOrderBy ( StringBuffer_c * pBuf, const char * sPrefix, ESphSortOrder 
 
 	switch ( eSort )
 	{
-	case SPH_SORT_ATTR_DESC:		pBuf->Append ( " %s %s DESC", sPrefix, sSubst ); break;
-	case SPH_SORT_ATTR_ASC:			pBuf->Append ( " %s %s ASC", sPrefix, sSubst ); break;
-	case SPH_SORT_TIME_SEGMENTS:	pBuf->Append ( " %s TIME_SEGMENT(%s)", sPrefix, sSubst ); break;
-	case SPH_SORT_EXTENDED:			pBuf->Append ( " %s %s", sPrefix, sSubst ); break;
-	case SPH_SORT_EXPR:				pBuf->Append ( " %s BUILTIN_EXPR()", sPrefix ); break;
-	default:						pBuf->Append ( " %s mode-%d", sPrefix, (int)eSort ); break;
+	case SPH_SORT_ATTR_DESC:		pBuf->Appendf ( " %s %s DESC", sPrefix, sSubst ); break;
+	case SPH_SORT_ATTR_ASC:			pBuf->Appendf ( " %s %s ASC", sPrefix, sSubst ); break;
+	case SPH_SORT_TIME_SEGMENTS:	pBuf->Appendf ( " %s TIME_SEGMENT(%s)", sPrefix, sSubst ); break;
+	case SPH_SORT_EXTENDED:			pBuf->Appendf ( " %s %s", sPrefix, sSubst ); break;
+	case SPH_SORT_EXPR:				pBuf->Appendf ( " %s BUILTIN_EXPR()", sPrefix ); break;
+	default:						pBuf->Appendf ( " %s mode-%d", sPrefix, (int)eSort ); break;
 	}
 }
 
@@ -6935,7 +6778,7 @@ void LogQuerySphinxql ( const CSphQuery & q, const CSphQueryResult & tRes, const
 	if ( g_iQueryLogFile<0 )
 		return;
 
-	StringBuffer_c tBuf;
+	CSphStringBuilder tBuf;
 
 	// get connection id
 	int iCid = ( g_eWorkers!=MPM_THREADS ) ? g_iConnID : *(int*) sphThreadGet ( g_tConnKey );
@@ -6943,13 +6786,18 @@ void LogQuerySphinxql ( const CSphQuery & q, const CSphQueryResult & tRes, const
 	// time, conn id, wall, found
 	int iQueryTime = Max ( tRes.m_iQueryTime, 0 );
 	int iRealTime = Max ( tRes.m_iRealQueryTime, 0 );
-	tBuf.Append ( "/""* " );
-	tBuf.AppendCurrentTime();
+
+	char sTimeBuf[SPH_TIME_PID_MAX_SIZE];
+	sphFormatCurrentTime ( sTimeBuf, sizeof(sTimeBuf) );
+
+	tBuf += "/""* ";
+	tBuf += sTimeBuf;
+
 	if ( tRes.m_iMultiplier>1 )
-		tBuf.Append ( " conn %d real %d.%03d wall %d.%03d x%d found "INT64_FMT" *""/ ",
+		tBuf.Appendf ( " conn %d real %d.%03d wall %d.%03d x%d found "INT64_FMT" *""/ ",
 			iCid, iRealTime/1000, iRealTime%1000, iQueryTime/1000, iQueryTime%1000, tRes.m_iMultiplier, tRes.m_iTotalMatches );
 	else
-		tBuf.Append ( " conn %d real %d.%03d wall %d.%03d found "INT64_FMT" *""/ ",
+		tBuf.Appendf ( " conn %d real %d.%03d wall %d.%03d found "INT64_FMT" *""/ ",
 			iCid, iRealTime/1000, iRealTime%1000, iQueryTime/1000, iQueryTime%1000, tRes.m_iTotalMatches );
 
 	///////////////////////////////////
@@ -6957,9 +6805,9 @@ void LogQuerySphinxql ( const CSphQuery & q, const CSphQueryResult & tRes, const
 	///////////////////////////////////
 
 	if ( q.m_bHasOuter )
-		tBuf.Append ( "SELECT * FROM (" );
+		tBuf += "SELECT * FROM (";
 
-	tBuf.Append ( "SELECT %s FROM %s", q.m_sSelect.cstr(), q.m_sIndexes.cstr() );
+	tBuf.Appendf ( "SELECT %s FROM %s", q.m_sSelect.cstr(), q.m_sIndexes.cstr() );
 
 	// WHERE clause
 	// (m_sRawQuery is empty when using MySQL handler)
@@ -6968,19 +6816,19 @@ void LogQuerySphinxql ( const CSphQuery & q, const CSphQueryResult & tRes, const
 	{
 		bool bDeflowered = false;
 
-		tBuf.Append ( " WHERE" );
+		tBuf += " WHERE";
 		if ( !sQuery.IsEmpty() )
 		{
-			tBuf.Append ( " MATCH('" );
-			tBuf.AppendEscapedFixupSpace ( sQuery.cstr() );
-			tBuf.Append ( "')" );
+			tBuf += " MATCH('";
+			tBuf.AppendEscaped ( sQuery.cstr() );
+			tBuf += "')";
 			bDeflowered = true;
 		}
 
 		ARRAY_FOREACH ( i, q.m_dFilters )
 		{
 			if ( bDeflowered )
-				tBuf.Append ( " AND" );
+				tBuf += " AND";
 			bDeflowered = true;
 
 			const CSphFilterSettings & f = q.m_dFilters[i];
@@ -6990,24 +6838,24 @@ void LogQuerySphinxql ( const CSphQuery & q, const CSphQueryResult & tRes, const
 					if ( f.m_dValues.GetLength()==1 )
 					{
 						if ( f.m_bExclude )
-							tBuf.Append ( " %s!="INT64_FMT, f.m_sAttrName.cstr(), (int64_t)f.m_dValues[0] );
+							tBuf.Appendf ( " %s!="INT64_FMT, f.m_sAttrName.cstr(), (int64_t)f.m_dValues[0] );
 						else
-							tBuf.Append ( " %s="INT64_FMT, f.m_sAttrName.cstr(), (int64_t)f.m_dValues[0] );
+							tBuf.Appendf ( " %s="INT64_FMT, f.m_sAttrName.cstr(), (int64_t)f.m_dValues[0] );
 					} else
 					{
 						if ( f.m_bExclude )
-							tBuf.Append ( " %s NOT IN (", f.m_sAttrName.cstr() );
+							tBuf.Appendf ( " %s NOT IN (", f.m_sAttrName.cstr() );
 						else
-							tBuf.Append ( " %s IN (", f.m_sAttrName.cstr() );
+							tBuf.Appendf ( " %s IN (", f.m_sAttrName.cstr() );
 
 						ARRAY_FOREACH ( j, f.m_dValues )
 						{
 							if ( j )
-								tBuf.Append ( ","INT64_FMT, (int64_t)f.m_dValues[j] );
+								tBuf.Appendf ( ","INT64_FMT, (int64_t)f.m_dValues[j] );
 							else
-								tBuf.Append ( INT64_FMT, (int64_t)f.m_dValues[j] );
+								tBuf.Appendf ( INT64_FMT, (int64_t)f.m_dValues[j] );
 						}
-						tBuf.Append ( ")" );
+						tBuf += ")";
 					}
 					break;
 
@@ -7016,17 +6864,17 @@ void LogQuerySphinxql ( const CSphQuery & q, const CSphQueryResult & tRes, const
 					{
 						// no min, thus (attr<maxval)
 						const char * sOps[2][2] = { { "<", "<=" }, { ">=", ">" } };
-						tBuf.Append ( " %s%s"INT64_FMT, f.m_sAttrName.cstr(),
+						tBuf.Appendf ( " %s%s"INT64_FMT, f.m_sAttrName.cstr(),
 							sOps [ f.m_bExclude ][ f.m_bHasEqual ], f.m_iMaxValue );
 					} else if ( f.m_iMaxValue==INT64_MAX || ( f.m_iMaxValue==-1 && f.m_sAttrName=="@id" ) )
 					{
 						// mo max, thus (attr>minval)
 						const char * sOps[2][2] = { { ">", ">=" }, { "<", "<=" } };
-						tBuf.Append ( " %s%s"INT64_FMT, f.m_sAttrName.cstr(),
+						tBuf.Appendf ( " %s%s"INT64_FMT, f.m_sAttrName.cstr(),
 							sOps [ f.m_bExclude ][ f.m_bHasEqual ], f.m_iMinValue );
 					} else
 					{
-						tBuf.Append ( " %s%s BETWEEN "INT64_FMT" AND "INT64_FMT,
+						tBuf.Appendf ( " %s%s BETWEEN "INT64_FMT" AND "INT64_FMT,
 							f.m_sAttrName.cstr(), f.m_bExclude ? " NOT" : "",
 							f.m_iMinValue + !f.m_bHasEqual, f.m_iMaxValue - !f.m_bHasEqual );
 					}
@@ -7037,25 +6885,25 @@ void LogQuerySphinxql ( const CSphQuery & q, const CSphQueryResult & tRes, const
 					{
 						// no min, thus (attr<maxval)
 						const char * sOps[2][2] = { { "<", "<=" }, { ">=", ">" } };
-						tBuf.Append ( " %s%s%f", f.m_sAttrName.cstr(),
+						tBuf.Appendf ( " %s%s%f", f.m_sAttrName.cstr(),
 							sOps [ f.m_bExclude ][ f.m_bHasEqual ], f.m_fMaxValue );
 					} else if ( f.m_fMaxValue==FLT_MAX )
 					{
 						// mo max, thus (attr>minval)
 						const char * sOps[2][2] = { { ">", ">=" }, { "<", "<=" } };
-						tBuf.Append ( " %s%s%f", f.m_sAttrName.cstr(),
+						tBuf.Appendf ( " %s%s%f", f.m_sAttrName.cstr(),
 							sOps [ f.m_bExclude ][ f.m_bHasEqual ], f.m_fMinValue );
 					} else
 					{
 						// FIXME? need we handle m_bHasEqual here?
-						tBuf.Append ( " %s%s BETWEEN %f AND %f",
+						tBuf.Appendf ( " %s%s BETWEEN %f AND %f",
 							f.m_sAttrName.cstr(), f.m_bExclude ? " NOT" : "",
 							f.m_fMinValue, f.m_fMaxValue );
 					}
 					break;
 
 				default:
-					tBuf.Append ( " 1 /""* oops, unknown filter type *""/" );
+					tBuf += " 1 /""* oops, unknown filter type *""/";
 					break;
 			}
 		}
@@ -7068,7 +6916,7 @@ void LogQuerySphinxql ( const CSphQuery & q, const CSphQueryResult & tRes, const
 			FormatOrderBy ( &tBuf, " ORDER BY", q.m_eSort, q.m_sSortBy );
 	} else
 	{
-		tBuf.Append ( " GROUP BY %s", q.m_sGroupBy.cstr() );
+		tBuf.Appendf ( " GROUP BY %s", q.m_sGroupBy.cstr() );
 		FormatOrderBy ( &tBuf, "WITHIN GROUP ORDER BY", q.m_eSort, q.m_sSortBy );
 		if ( q.m_sGroupSortBy!="@group desc" )
 			FormatOrderBy ( &tBuf, "ORDER BY", SPH_SORT_EXTENDED, q.m_sGroupSortBy );
@@ -7076,21 +6924,21 @@ void LogQuerySphinxql ( const CSphQuery & q, const CSphQueryResult & tRes, const
 
 	// LIMIT clause
 	if ( q.m_iOffset!=0 || q.m_iLimit!=20 )
-		tBuf.Append ( " LIMIT %d,%d", q.m_iOffset, q.m_iLimit );
+		tBuf.Appendf ( " LIMIT %d,%d", q.m_iOffset, q.m_iLimit );
 
 	// OPTION clause
 	int iOpts = 0;
 
 	if ( q.m_iMaxMatches!=1000 )
 	{
-		tBuf.Append ( iOpts++ ? ", " : " OPTION " );
-		tBuf.Append ( "max_matches=%d", q.m_iMaxMatches );
+		tBuf.Appendf ( iOpts++ ? ", " : " OPTION " );
+		tBuf.Appendf ( "max_matches=%d", q.m_iMaxMatches );
 	}
 
 	if ( !q.m_sComment.IsEmpty() )
 	{
-		tBuf.Append ( iOpts++ ? ", " : " OPTION " );
-		tBuf.Append ( "comment='%s'", q.m_sComment.cstr() ); // FIXME! escape, replace newlines..
+		tBuf.Appendf ( iOpts++ ? ", " : " OPTION " );
+		tBuf.Appendf ( "comment='%s'", q.m_sComment.cstr() ); // FIXME! escape, replace newlines..
 	}
 
 	if ( q.m_eRanker!=SPH_RANK_DEFAULT )
@@ -7110,24 +6958,24 @@ void LogQuerySphinxql ( const CSphQuery & q, const CSphQueryResult & tRes, const
 			default:					break;
 		}
 
-		tBuf.Append ( iOpts++ ? ", " : " OPTION " );
-		tBuf.Append ( "ranker=%s", sRanker );
+		tBuf.Appendf ( iOpts++ ? ", " : " OPTION " );
+		tBuf.Appendf ( "ranker=%s", sRanker );
 	}
 
 	// outer order by, limit
 	if ( q.m_bHasOuter )
 	{
-		tBuf.Append ( ")" );
+		tBuf += ")";
 		if ( !q.m_sOuterOrderBy.IsEmpty() )
-			tBuf.Append ( " ORDER BY %s", q.m_sOuterOrderBy.cstr() );
+			tBuf.Appendf ( " ORDER BY %s", q.m_sOuterOrderBy.cstr() );
 		if ( q.m_iOuterOffset>0 )
-			tBuf.Append ( " LIMIT %d, %d", q.m_iOuterOffset, q.m_iOuterLimit );
+			tBuf.Appendf ( " LIMIT %d, %d", q.m_iOuterOffset, q.m_iOuterLimit );
 		else if ( q.m_iOuterLimit>0 )
-			tBuf.Append ( " LIMIT %d", q.m_iOuterLimit );
+			tBuf.Appendf ( " LIMIT %d", q.m_iOuterLimit );
 	}
 
 	// finish SQL statement
-	tBuf.Append ( ";" );
+	tBuf += ";";
 
 	///////////////
 	// query stats
@@ -7136,12 +6984,12 @@ void LogQuerySphinxql ( const CSphQuery & q, const CSphQueryResult & tRes, const
 	if ( !tRes.m_sError.IsEmpty() )
 	{
 		// all we have is an error
-		tBuf.Append ( " /""* error=%s */", tRes.m_sError.cstr() );
+		tBuf.Appendf ( " /""* error=%s */", tRes.m_sError.cstr() );
 
 	} else if ( g_bIOStats || g_bCpuStats || dAgentTimes.GetLength() || !tRes.m_sWarning.IsEmpty() )
 	{
 		// got some extra data, add a comment
-		tBuf.Append ( " /""*" );
+		tBuf += " /""*";
 
 		// performance counters
 		if ( g_bIOStats || g_bCpuStats )
@@ -7149,38 +6997,38 @@ void LogQuerySphinxql ( const CSphQuery & q, const CSphQueryResult & tRes, const
 			const CSphIOStats & IOStats = tRes.m_tIOStats;
 
 			if ( g_bIOStats )
-				tBuf.Append ( " ios=%d kb=%d.%d ioms=%d.%d",
+				tBuf.Appendf ( " ios=%d kb=%d.%d ioms=%d.%d",
 				IOStats.m_iReadOps, (int)( IOStats.m_iReadBytes/1024 ), (int)( IOStats.m_iReadBytes%1024 )*10/1024,
 				(int)( IOStats.m_iReadTime/1000 ), (int)( IOStats.m_iReadTime%1000 )/100 );
 
 			if ( g_bCpuStats )
-				tBuf.Append ( " cpums=%d.%d", (int)( tRes.m_iCpuTime/1000 ), (int)( tRes.m_iCpuTime%1000 )/100 );
+				tBuf.Appendf ( " cpums=%d.%d", (int)( tRes.m_iCpuTime/1000 ), (int)( tRes.m_iCpuTime%1000 )/100 );
 		}
 
 		// per-agent times
 		if ( dAgentTimes.GetLength() )
 		{
-			tBuf.Append ( " agents=(" );
+			tBuf += " agents=(";
 			ARRAY_FOREACH ( i, dAgentTimes )
-				tBuf.Append ( i ? ", %d.%03d" : "%d.%03d",
+				tBuf.Appendf ( i ? ", %d.%03d" : "%d.%03d",
 					(int)(dAgentTimes[i]/1000),
 					(int)(dAgentTimes[i]%1000) );
 
-			tBuf.Append ( ")" );
+			tBuf += ")";
 		}
 
 		// warning
 		if ( !tRes.m_sWarning.IsEmpty() )
-			tBuf.Append ( " warning=%s", tRes.m_sWarning.cstr() );
+			tBuf.Appendf ( " warning=%s", tRes.m_sWarning.cstr() );
 
 		// close the comment
-		tBuf.Append ( " */" );
+		tBuf += " */";
 	}
 
 	// line feed
-	tBuf.Append ( "\n" );
+	tBuf += "\n";
 
-	lseek ( g_iQueryLogFile, 0, SEEK_END );
+	sphSeek ( g_iQueryLogFile, 0, SEEK_END );
 	sphWrite ( g_iQueryLogFile, tBuf.cstr(), tBuf.Length() );
 }
 
@@ -7201,14 +7049,18 @@ void LogSphinxqlError ( const char * sStmt, const char * sError )
 		return;
 
 	// time, conn id, query, error
-	StringBuffer_c tBuf;
+	CSphStringBuilder tBuf;
+
 	int iCid = ( g_eWorkers!=MPM_THREADS ) ? g_iConnID : *(int*) sphThreadGet ( g_tConnKey );
 
-	tBuf.Append ( "/""* " );
-	tBuf.AppendCurrentTime();
-	tBuf.Append ( " conn %d *""/ %s # error=%s\n", iCid, sStmt, sError );
+	char sTimeBuf[SPH_TIME_PID_MAX_SIZE];
+	sphFormatCurrentTime ( sTimeBuf, sizeof(sTimeBuf) );
 
-	lseek ( g_iQueryLogFile, 0, SEEK_END );
+	tBuf += "/""* ";
+	tBuf += sTimeBuf;
+	tBuf.Appendf ( " conn %d *""/ %s # error=%s\n", iCid, sStmt, sError );
+
+	sphSeek ( g_iQueryLogFile, 0, SEEK_END );
 	sphWrite ( g_iQueryLogFile, tBuf.cstr(), tBuf.Length() );
 }
 
@@ -7230,9 +7082,28 @@ static int SendGetAttrCount ( const CSphSchema & tSchema )
 	return iCount;
 }
 
+
+class CSphTaggedVector : public CSphVector<PoolPtrs_t>
+{
+public:
+	const PoolPtrs_t & operator [] ( int iTag ) const
+	{
+		int iIndex = iTag & 0x7FFFFFF;
+		assert ( iIndex>=0 && iIndex<m_iLength );
+		return m_pData [ iIndex ];
+	}
+	PoolPtrs_t & operator [] ( int iTag )
+	{
+		int iIndex = iTag & 0x7FFFFFF;
+		assert ( iIndex>=0 && iIndex<m_iLength );
+		return m_pData [ iIndex ];
+	}
+};
+
+
 static char g_sJsonNull[] = "{}";
 
-int CalcResultLength ( int iVer, const CSphQueryResult * pRes, const CSphVector<PoolPtrs_t> & dTag2Pools, bool bAgentMode, int iMasterVer )
+int CalcResultLength ( int iVer, const CSphQueryResult * pRes, const CSphTaggedVector & dTag2Pools, bool bAgentMode, int iMasterVer )
 {
 	int iRespLen = 0;
 
@@ -7474,7 +7345,7 @@ int CalcResultLength ( int iVer, const CSphQueryResult * pRes, const CSphVector<
 				{
 					// to client send as string
 					dJson.Resize ( 0 );
-					sphJsonFieldFormat ( dJson, pStrings+uOff, eJson );
+					sphJsonFieldFormat ( dJson, pStrings+uOff, eJson, false );
 					iRespLen += dJson.GetLength();
 				}
 			}
@@ -7500,7 +7371,7 @@ int CalcResultLength ( int iVer, const CSphQueryResult * pRes, const CSphVector<
 
 
 void SendResult ( int iVer, NetOutputBuffer_c & tOut, const CSphQueryResult * pRes,
-	const CSphVector<PoolPtrs_t> & dTag2Pools, bool bAgentMode, bool bLimitedMatches, int iMasterVer )
+	const CSphTaggedVector & dTag2Pools, bool bAgentMode, bool bLimitedMatches, int iMasterVer )
 {
 	// status
 	if ( iVer>=0x10D )
@@ -7614,136 +7485,167 @@ void SendResult ( int iVer, NetOutputBuffer_c & tOut, const CSphQueryResult * pR
 			for ( int j=0; j<iAttrsCount; j++ )
 			{
 				const CSphColumnInfo & tAttr = pRes->m_tSchema.GetAttr(j);
-				if ( tAttr.m_eAttrType==SPH_ATTR_UINT32SET || tAttr.m_eAttrType==SPH_ATTR_INT64SET )
+				switch ( tAttr.m_eAttrType )
 				{
-					assert ( tMatch.GetAttr ( tAttr.m_tLocator )==0 || pMvaPool );
-					const DWORD * pValues = tMatch.GetAttrMVA ( tAttr.m_tLocator, pMvaPool );
-					if ( iVer<0x10C || !pValues )
+				case SPH_ATTR_UINT32SET:
+				case SPH_ATTR_INT64SET:
 					{
-						// for older clients, fixups column value to 0
-						// for newer clients, means that there are 0 values
-						tOut.SendDword ( 0 );
-					} else
-					{
-						// send MVA values
-						int iValues = *pValues++;
-						tOut.SendDword ( iValues );
-						if ( tAttr.m_eAttrType==SPH_ATTR_INT64SET )
+						assert ( tMatch.GetAttr ( tAttr.m_tLocator )==0 || pMvaPool );
+						const DWORD * pValues = tMatch.GetAttrMVA ( tAttr.m_tLocator, pMvaPool );
+						if ( iVer<0x10C || !pValues )
 						{
-							assert ( ( iValues%2 )==0 );
-							while ( iValues )
-							{
-								uint64_t uVal = (uint64_t)MVA_UPSIZE ( pValues );
-								tOut.SendUint64 ( uVal );
-								pValues += 2;
-								iValues -= 2;
-							}
+							// for older clients, fixups column value to 0
+							// for newer clients, means that there are 0 values
+							tOut.SendDword ( 0 );
 						} else
 						{
-							while ( iValues-- )
-								tOut.SendDword ( *pValues++ );
+							// send MVA values
+							int iValues = *pValues++;
+							tOut.SendDword ( iValues );
+							if ( tAttr.m_eAttrType==SPH_ATTR_INT64SET )
+							{
+								assert ( ( iValues%2 )==0 );
+								while ( iValues )
+								{
+									uint64_t uVal = (uint64_t)MVA_UPSIZE ( pValues );
+									tOut.SendUint64 ( uVal );
+									pValues += 2;
+									iValues -= 2;
+								}
+							} else
+							{
+								while ( iValues-- )
+									tOut.SendDword ( *pValues++ );
+							}
 						}
+						break;
 					}
-				} else if ( iVer<0x117 && ( tAttr.m_eAttrType==SPH_ATTR_STRING || tAttr.m_eAttrType==SPH_ATTR_STRINGPTR ||
-					tAttr.m_eAttrType==SPH_ATTR_JSON || tAttr.m_eAttrType==SPH_ATTR_JSON_FIELD ) )
-				{
-					// for older clients, just send int value of 0
-					tOut.SendDword ( 0 );
-
-				} else if ( tAttr.m_eAttrType==SPH_ATTR_STRING || ( tAttr.m_eAttrType==SPH_ATTR_JSON && bSendJson ) )
-				{
-					// for newer clients, send binary string either STRING or JSON attribute
-					DWORD uOffset = (DWORD) tMatch.GetAttr ( tAttr.m_tLocator );
-					if ( !uOffset ) // magic zero
+				case SPH_ATTR_JSON:
 					{
-						tOut.SendDword ( 0 ); // null string
-					} else
-					{
-						const BYTE * pStr;
-						assert ( pStrings );
-						int iLen = sphUnpackStr ( pStrings+uOffset, &pStr );
-						tOut.SendDword ( iLen );
-						tOut.SendBytes ( pStr, iLen );
-					}
-
-				} else if ( tAttr.m_eAttrType==SPH_ATTR_STRINGPTR )
-				{
-					// for newer clients, send binary string
-					const char* pString = (const char*) tMatch.GetAttr ( tAttr.m_tLocator );
-					if ( !pString ) // magic zero
-					{
-						tOut.SendDword ( 0 ); // null string
-					} else
-					{
-						int iLen = strlen ( pString );
-						tOut.SendDword ( iLen );
-						tOut.SendBytes ( pString, iLen );
-					}
-				} else if ( tAttr.m_eAttrType==SPH_ATTR_JSON )
-				{
-					// formatted string to client
-					DWORD uOffset = (DWORD) tMatch.GetAttr ( tAttr.m_tLocator );
-					assert ( !uOffset || pStrings );
-					if ( !uOffset ) // magic zero
-					{
-							tOut.SendDword ( sizeof(g_sJsonNull)-1 );
-							tOut.SendBytes ( g_sJsonNull, sizeof(g_sJsonNull)-1 );
-					} else
-					{
-						dJson.Resize ( 0 );
-						const BYTE * pStr = NULL;
-						sphUnpackStr ( pStrings + uOffset, &pStr );
-						sphJsonFormat ( dJson, pStr );
-
-						tOut.SendDword ( dJson.GetLength() );
-						tOut.SendBytes ( dJson.Begin(), dJson.GetLength() );
-					}
-
-				} else if ( tAttr.m_eAttrType==SPH_ATTR_JSON_FIELD )
-				{
-					uint64_t uTypeOffset = tMatch.GetAttr ( tAttr.m_tLocator );
-					ESphJsonType eJson = ESphJsonType ( uTypeOffset>>32 );
-					DWORD uOff = (DWORD)uTypeOffset;
-					assert ( !uOff || pStrings );
-					if ( !uOff )
-					{
-						// no key found - NULL value
-						if ( bSendJsonField )
-							tOut.SendByte ( JSON_EOF );
-						else
-							tOut.SendDword ( 0 );
-
-					} else if ( bSendJsonField )
-					{
-						// to master send packed data
-						tOut.SendByte ( (BYTE)eJson );
-
-						const BYTE * pData = pStrings+uOff;
-						int iLen = ( eJson==JSON_INT64 || eJson==JSON_DOUBLE ? 8 : 4 );
-
-						if ( eJson==JSON_STRING || eJson==JSON_STRING_VECTOR )
+						if ( iVer<0x117 )
 						{
-							const BYTE * pPacked = pData;
-							iLen = sphJsonUnpackInt ( &pPacked ); // string(s) data len
-							iLen += pPacked-pData; // packed length
+							tOut.SendDword ( 0 );
+							break;
+						}
+						if ( !bSendJson )
+						{
+							// formatted string to client
+							DWORD uOffset = (DWORD) tMatch.GetAttr ( tAttr.m_tLocator );
+							assert ( !uOffset || pStrings );
+							if ( !uOffset ) // magic zero
+							{
+								tOut.SendDword ( sizeof(g_sJsonNull)-1 );
+								tOut.SendBytes ( g_sJsonNull, sizeof(g_sJsonNull)-1 );
+							} else
+							{
+								dJson.Resize ( 0 );
+								const BYTE * pStr = NULL;
+								sphUnpackStr ( pStrings + uOffset, &pStr );
+								sphJsonFormat ( dJson, pStr );
+
+								tOut.SendDword ( dJson.GetLength() );
+								tOut.SendBytes ( dJson.Begin(), dJson.GetLength() );
+							}
+							break;
+						}
+						// no break at the end, pass to SPH_ATTR_STRING
+					}
+				case SPH_ATTR_STRING:
+					{
+						if ( iVer<0x117 )
+						{
+							tOut.SendDword ( 0 );
+							break;
+						}
+						// for newer clients, send binary string either STRING or JSON attribute
+						DWORD uOffset = (DWORD) tMatch.GetAttr ( tAttr.m_tLocator );
+						if ( !uOffset ) // magic zero
+						{
+							tOut.SendDword ( 0 ); // null string
+						} else
+						{
+							const BYTE * pStr;
+							assert ( pStrings );
+							int iLen = sphUnpackStr ( pStrings+uOffset, &pStr );
 							tOut.SendDword ( iLen );
+							tOut.SendBytes ( pStr, iLen );
+						}
+						break;
+					}
+				case SPH_ATTR_STRINGPTR:
+					{
+						if ( iVer<0x117 )
+						{
+							tOut.SendDword ( 0 );
+							break;
+						}
+						// for newer clients, send binary string
+						const char* pString = (const char*) tMatch.GetAttr ( tAttr.m_tLocator );
+						if ( !pString ) // magic zero
+						{
+							tOut.SendDword ( 0 ); // null string
+						} else
+						{
+							int iLen = strlen ( pString );
+							tOut.SendDword ( iLen );
+							tOut.SendBytes ( pString, iLen );
+						}
+						break;
+					}
+				case SPH_ATTR_JSON_FIELD:
+					{
+						if ( iVer<0x117 )
+						{
+							tOut.SendDword ( 0 );
+							break;
 						}
 
-						tOut.SendBytes ( pData, iLen );
-					} else
-					{
-						// to client send data as string
-						dJson.Resize ( 0 );
-						sphJsonFieldFormat ( dJson, pStrings+uOff, eJson );
-						tOut.SendDword ( dJson.GetLength() );
-						tOut.SendBytes ( dJson.Begin(), dJson.GetLength() );
+						uint64_t uTypeOffset = tMatch.GetAttr ( tAttr.m_tLocator );
+						ESphJsonType eJson = ESphJsonType ( uTypeOffset>>32 );
+						DWORD uOff = (DWORD)uTypeOffset;
+						assert ( !uOff || pStrings );
+						if ( !uOff )
+						{
+							// no key found - NULL value
+							if ( bSendJsonField )
+								tOut.SendByte ( JSON_EOF );
+							else
+								tOut.SendDword ( 0 );
+
+						} else if ( bSendJsonField )
+						{
+							// to master send packed data
+							tOut.SendByte ( (BYTE)eJson );
+
+							const BYTE * pData = pStrings+uOff;
+							int iLen = ( eJson==JSON_INT64 || eJson==JSON_DOUBLE ? 8 : 4 );
+
+							if ( eJson==JSON_STRING || eJson==JSON_STRING_VECTOR )
+							{
+								const BYTE * pPacked = pData;
+								iLen = sphJsonUnpackInt ( &pPacked ); // string(s) data len
+								iLen += pPacked-pData; // packed length
+								tOut.SendDword ( iLen );
+							}
+
+							tOut.SendBytes ( pData, iLen );
+						} else
+						{
+							// to client send data as string
+							dJson.Resize ( 0 );
+							sphJsonFieldFormat ( dJson, pStrings+uOff, eJson, false );
+							tOut.SendDword ( dJson.GetLength() );
+							tOut.SendBytes ( dJson.Begin(), dJson.GetLength() );
+						}
+						break;
 					}
-				} else if ( tAttr.m_eAttrType==SPH_ATTR_FACTORS )
-				{
-					if ( iVer<0x11C )
-						tOut.SendDword ( 0 );
-					else
+				case SPH_ATTR_FACTORS:
 					{
+						if ( iVer<0x11C )
+						{
+							tOut.SendDword ( 0 );
+							break;
+						}
 						BYTE * pData = (BYTE*) tMatch.GetAttr ( tAttr.m_tLocator );
 						if ( !pData )
 							tOut.SendDword ( 0 );
@@ -7753,20 +7655,25 @@ void SendResult ( int iVer, NetOutputBuffer_c & tOut, const CSphQueryResult * pR
 							tOut.SendDword ( uLength );
 							tOut.SendBytes ( pData+sizeof(DWORD), uLength-sizeof(DWORD) );
 						}
+						break;
 					}
-				} else
-				{
-					// send plain attr
-					if ( tAttr.m_eAttrType==SPH_ATTR_FLOAT )
-						tOut.SendFloat ( tMatch.GetAttrFloat ( tAttr.m_tLocator ) );
-					else if ( iVer>=0x114 && tAttr.m_eAttrType==SPH_ATTR_BIGINT )
+				case SPH_ATTR_FLOAT:
+					tOut.SendFloat ( tMatch.GetAttrFloat ( tAttr.m_tLocator ) );
+					break;
+				case SPH_ATTR_BIGINT:
+					if ( iVer>=0x114 )
+					{
 						tOut.SendUint64 ( tMatch.GetAttr ( tAttr.m_tLocator ) );
-					else
-						tOut.SendDword ( (DWORD)tMatch.GetAttr ( tAttr.m_tLocator ) );
-				}
-			}
-		}
-	}
+						break;
+					}
+					// no break here
+				default:
+					tOut.SendDword ( (DWORD)tMatch.GetAttr ( tAttr.m_tLocator ) );
+					break;
+				} /// end switch ( tAttr.m_eAttrType )
+			} /// end for ( int j=0; j<iAttrsCount; j++ )
+		} /// end else if ( iVer<=0x101 )
+	} /// end for ( int i=0; i<pRes->m_iCount; i++ )
 	if ( bLimitedMatches )
 		tOut.SendInt ( pRes->m_iCount );
 	else
@@ -7815,16 +7722,15 @@ void SendResult ( int iVer, NetOutputBuffer_c & tOut, const CSphQueryResult * pR
 
 /////////////////////////////////////////////////////////////////////////////
 
+
 struct AggrResult_t : CSphQueryResult
 {
-	int								m_iTag;				///< current tag
 	CSphVector<CSphSchema>			m_dSchemas;			///< aggregated resultsets schemas (for schema minimization)
 	CSphVector<int>					m_dMatchCounts;		///< aggregated resultsets lengths (for schema minimization)
 	CSphVector<const CSphIndex*>	m_dLockedAttrs;		///< indexes which are hold in the memory untill sending result
-	CSphVector<PoolPtrs_t>			m_dTag2Pools;		///< tag to MVA and strings storage pools mapping
+	CSphTaggedVector				m_dTag2Pools;		///< tag to MVA and strings storage pools mapping
 
 	AggrResult_t()
-		: m_iTag ( -1 )
 	{}
 
 	void ClampMatches ( int iLimit, bool bCommonSchema )
@@ -7867,7 +7773,11 @@ struct TaggedMatchSorter_fn : public SphAccessor_T<CSphMatch>
 
 	bool IsLess ( const CSphMatch & a, const CSphMatch & b ) const
 	{
-		return ( a.m_iDocID < b.m_iDocID ) || ( a.m_iDocID==b.m_iDocID && a.m_iTag > b.m_iTag );
+		bool bDistA = ( ( a.m_iTag & 0x80000000 )==0x80000000 );
+		bool bDistB = ( ( b.m_iTag & 0x80000000 )==0x80000000 );
+		// sort by doc_id, dist_tag, tag
+		return ( a.m_iDocID < b.m_iDocID ) ||
+			( a.m_iDocID==b.m_iDocID && ( ( !bDistA && bDistB ) || ( ( a.m_iTag & 0x7FFFFFFF )>( b.m_iTag & 0x7FFFFFFF ) ) ) );
 	}
 
 	// inherited swap does not work on gcc
@@ -7883,12 +7793,45 @@ class CVirtualSchema : public CSphSchema
 {
 public:
 	inline CSphColumnInfo & LastColumn() { return m_dAttrs.Last(); }
-	inline CSphColumnInfo &	GetWAttr ( int iIndex ) { return m_dAttrs[iIndex]; }
-	inline CSphVector<CSphColumnInfo> & GetWAttrs () { return m_dAttrs; }
+	inline CSphColumnInfo & GetWAttr ( int iIndex ) { return m_dAttrs[iIndex]; }
+
+	inline void RemoveAttrPlain ( int iIdx )
+	{
+		// hash delete
+		if ( m_dAttrs.GetLength()>HASH_THRESH )
+		{
+			WORD & uPos = GetBucketPos ( m_dAttrs [ iIdx ].m_sName.cstr() );
+			while ( m_dAttrs [ uPos ].m_sName!=m_dAttrs [ iIdx ].m_sName )
+				uPos = m_dAttrs [ uPos ].m_uNext;
+			uPos = m_dAttrs [ uPos ].m_uNext;
+		}
+
+		m_dAttrs.Remove ( iIdx );
+
+		UpdateHash ( iIdx, -1 );
+	}
+
 	inline void AlignSizes ( const CSphSchema& tProof )
 	{
 		m_dDynamicUsed.Resize ( tProof.GetDynamicSize() );
 		m_iStaticSize = tProof.GetStaticSize();
+	}
+
+	void InsertAttr ( int iIdx, const CSphColumnInfo & tCol )
+	{
+		UpdateHash ( iIdx-1, 1 );
+
+		m_dAttrs.Insert ( iIdx, tCol );
+
+		// hash add
+		if ( m_dAttrs.GetLength()==HASH_THRESH )
+			RebuildHash();
+		else if ( m_dAttrs.GetLength()>HASH_THRESH )
+		{
+			WORD & uPos = GetBucketPos ( m_dAttrs [ iIdx ].m_sName.cstr() );
+			m_dAttrs [ iIdx ].m_uNext = uPos;
+			uPos = iIdx;
+		}
 	}
 };
 
@@ -7909,7 +7852,7 @@ void AddIDAttribute ( CVirtualSchema * pSchema )
 
 	CSphColumnInfo tId;
 	MkIdAttribute ( &tId );
-	pSchema->GetWAttrs().Insert ( 0, tId );
+	pSchema->InsertAttr ( 0, tId );
 }
 
 inline bool IsIDAttribute ( const CSphColumnInfo & tTarget )
@@ -8168,52 +8111,6 @@ static void RecoverAggregateFunctions ( const CSphQuery & tQuery, const AggrResu
 }
 
 
-struct MatchSortAccessor_t
-{
-	typedef CSphMatch T;
-	typedef CSphMatch * MEDIAN_TYPE;
-
-	CSphMatch m_tMedian;
-
-	MatchSortAccessor_t () {}
-	MatchSortAccessor_t ( const MatchSortAccessor_t & ) {}
-
-	~MatchSortAccessor_t()
-	{
-		m_tMedian.m_pDynamic = NULL; // not yours
-	}
-
-	MEDIAN_TYPE Key ( CSphMatch * a ) const
-	{
-		return a;
-	}
-
-	void CopyKey ( MEDIAN_TYPE * pMed, CSphMatch * pVal )
-	{
-		*pMed = &m_tMedian;
-		m_tMedian.m_iDocID = pVal->m_iDocID;
-		m_tMedian.m_iWeight = pVal->m_iWeight;
-		m_tMedian.m_pStatic = pVal->m_pStatic;
-		m_tMedian.m_pDynamic = pVal->m_pDynamic;
-	}
-
-	void Swap ( T * a, T * b ) const
-	{
-		::Swap ( *a, *b );
-	}
-
-	T * Add ( T * p, int i ) const
-	{
-		return p+i;
-	}
-
-	int Sub ( T * b, T * a ) const
-	{
-		return (int)(b-a);
-	}
-};
-
-
 struct GenericMatchSort_fn : public CSphMatchComparatorState
 {
 	bool IsLess ( const CSphMatch * a, const CSphMatch * b ) const
@@ -8292,7 +8189,6 @@ bool MinimizeAggrResult ( AggrResult_t & tRes, CSphQuery & tQuery, int iLocals, 
 	bool bAllEqual = true;
 	bool bAgent = tQuery.m_bAgent;
 	bool bUsualApi = !( bAgent || bFromSphinxql );
-	bool bRemapped = false;
 
 	for ( int i=1; i<tRes.m_dSchemas.GetLength(); i++ )
 	{
@@ -8323,7 +8219,11 @@ bool MinimizeAggrResult ( AggrResult_t & tRes, CSphQuery & tQuery, int iLocals, 
 	CVirtualSchema tInternalSchema;
 	// truly virtual schema for final result returning
 	CVirtualSchema tFrontendSchema;
-	tFrontendSchema.GetWAttrs().Resize ( pSelectItems->GetLength() );
+	CSphColumnInfo tEmpty;
+	tEmpty.m_sName = "";
+	// beware of incorrect hash inside of tFrontendSchema!
+	ARRAY_FOREACH ( i, (*pSelectItems) )
+		tFrontendSchema.InsertAttr ( i, tEmpty );
 
 	CSphVector<int> dKnownItems;
 	int iKnownItems = 0;
@@ -8337,20 +8237,30 @@ bool MinimizeAggrResult ( AggrResult_t & tRes, CSphQuery & tQuery, int iLocals, 
 				if ( *tCol.m_sName.cstr()=='@' )
 				{
 					ARRAY_FOREACH ( j, (*pSelectItems) )
-						if ( tFrontendSchema.GetAttr(j).m_iIndex<0
-							&& ( (*pSelectItems)[j].m_sExpr.cstr() && (*pSelectItems)[j].m_sExpr==tCol.m_sName ) )
+					{
+						const CSphQueryItem & tQueryItem = (*pSelectItems)[j];
+						const char * sExpr = tQueryItem.m_sExpr.cstr();
+						if ( tQueryItem.m_sExpr=="count(*)" )
+							sExpr = sCount;
+						else if ( tQueryItem.m_sExpr=="weight()" )
+							sExpr = sWeight;
+
+						if ( tFrontendSchema.GetAttr(j).m_iIndex<0 && sExpr && tCol.m_sName==sExpr )
 						{
 							CSphColumnInfo & tItem = tFrontendSchema.GetWAttr(j);
 							tItem.m_iIndex = tInternalSchema.GetAttrsCount();
-							tItem.m_sName = (*pSelectItems)[j].m_sAlias;
+							tItem.m_sName = tQueryItem.m_sAlias;
 							dKnownItems.Add(j);
 							++iKnownItems;
 						}
+					}
+					tFrontendSchema.RebuildHash();
 					if ( tFrontendSchema.GetAttr ( tCol.m_sName.cstr() )==NULL )
 					{
-						CSphColumnInfo & tItem = tFrontendSchema.GetWAttrs().Add();
+						CSphColumnInfo tItem;
 						tItem.m_iIndex = tInternalSchema.GetAttrsCount();
 						tItem.m_sName = tCol.m_sName;
+						tFrontendSchema.InsertAttr ( tFrontendSchema.GetAttrsCount(), tItem );
 					}
 				} else
 					ARRAY_FOREACH ( j, (*pSelectItems) )
@@ -8377,9 +8287,17 @@ bool MinimizeAggrResult ( AggrResult_t & tRes, CSphQuery & tQuery, int iLocals, 
 					else if ( tQueryItem.m_sExpr=="groupby()" )
 						sExpr = sGroupby;
 
-					if ( tFrontendSchema.GetAttr(j).m_iIndex<0
-						&& ( ( sExpr && tCol.m_sName==sExpr && tQueryItem.m_eAggrFunc==SPH_AGGR_NONE )
-						|| ( tQueryItem.m_sAlias.cstr() && tQueryItem.m_sAlias==tCol.m_sName ) ) )
+					if ( tFrontendSchema.GetAttr(j).m_iIndex>=0 )
+						continue;
+
+					if ( ( sExpr && tCol.m_sName==sExpr && tQueryItem.m_eAggrFunc==SPH_AGGR_NONE )
+							|| ( tQueryItem.m_sAlias.cstr() && tQueryItem.m_sAlias==tCol.m_sName
+								// do not add attr2 to frontend schema in cases like this
+								// attr1 AS attr2
+								&& ( tRes.m_tSchema.GetAttrIndex ( sExpr )==-1
+								// but add attr2, not attr1 in cases like this
+								// MIN(attr1) AS attr2
+								|| tQueryItem.m_eAggrFunc!=SPH_AGGR_NONE ) ) )
 					{
 						bAdd = true;
 						dKnownItems.Add(j);
@@ -8392,7 +8310,7 @@ bool MinimizeAggrResult ( AggrResult_t & tRes, CSphQuery & tQuery, int iLocals, 
 								tItem.m_sName = tQueryItem.m_sAlias;
 							else
 								tItem.m_sName = tQueryItem.m_sExpr;
-						};
+						}
 					}
 				}
 				if ( !bAdd && pExtraSchema!=NULL )
@@ -8437,6 +8355,8 @@ bool MinimizeAggrResult ( AggrResult_t & tRes, CSphQuery & tQuery, int iLocals, 
 		bAllEqual &= ( tRes.m_tSchema.GetAttrsCount()==tInternalSchema.GetAttrsCount() );
 	}
 
+	tFrontendSchema.RebuildHash();
+
 	// check if we actually have all required columns already
 	if ( iKnownItems<pSelectItems->GetLength() )
 	{
@@ -8463,7 +8383,7 @@ bool MinimizeAggrResult ( AggrResult_t & tRes, CSphQuery & tQuery, int iLocals, 
 	// and set up the locators for the fields
 	if ( !bAgent )
 	{
-		ARRAY_FOREACH ( i, tFrontendSchema.GetWAttrs() )
+		for ( int i=0; i<tFrontendSchema.GetAttrsCount(); i++ )
 		{
 			CSphColumnInfo & tCol = tFrontendSchema.GetWAttr(i);
 			const CSphColumnInfo & tSource = tInternalSchema.GetAttr ( tCol.m_iIndex );
@@ -8552,7 +8472,6 @@ bool MinimizeAggrResult ( AggrResult_t & tRes, CSphQuery & tQuery, int iLocals, 
 		if ( !bAllEqual )
 			RemapResult ( &tRes.m_tSchema, &tRes );
 		RemapStrings ( pSorter, tRes );
-		bRemapped = true;
 
 		// do the sort work!
 		tRes.m_iTotalMatches -= KillAllDupes ( pSorter, tRes, tQuery );
@@ -8619,8 +8538,9 @@ bool MinimizeAggrResult ( AggrResult_t & tRes, CSphQuery & tQuery, int iLocals, 
 		for ( int i=iFrom; i<iTo; i++ )
 		{
 			CSphMatch & tMatch = tRes.m_dMatches[i];
-			if ( !tMatch.m_iTag )
-				continue; // 0 tag == remote match == everything is already computed
+			// remote match (tag highest bit 1) == everything is already computed
+			if ( tMatch.m_iTag & 0x80000000 )
+				continue;
 
 			ARRAY_FOREACH ( j, dPostlimit )
 			{
@@ -8700,7 +8620,7 @@ bool MinimizeAggrResultCompat ( AggrResult_t & tRes, const CSphQuery & tQuery, b
 	if ( bStar && !bHadLocalIndexes && tRes.m_tSchema.GetAttr(iStar).m_sName=="id" )
 	{
 		CVirtualSchema * pSchema = (CVirtualSchema *)&tRes.m_tSchema;
-		pSchema->GetWAttrs().Remove(iStar);
+		pSchema->RemoveAttrPlain ( iStar );
 	}
 
 	if ( !bStar && tQuery.m_dItems.GetLength() )
@@ -8713,9 +8633,9 @@ bool MinimizeAggrResultCompat ( AggrResult_t & tRes, const CSphQuery & tQuery, b
 			{
 				bool bAdd = false;
 
-				ARRAY_FOREACH ( i, tQuery.m_dItems )
+				ARRAY_FOREACH ( j, tQuery.m_dItems )
 				{
-					const CSphQueryItem & tQueryItem = tQuery.m_dItems[i];
+					const CSphQueryItem & tQueryItem = tQuery.m_dItems[j];
 					if ( ( tQueryItem.m_sExpr.cstr() && tQueryItem.m_sExpr==tCol.m_sName )
 						|| ( tQueryItem.m_sAlias.cstr() && tQueryItem.m_sAlias==tCol.m_sName ) )
 					{
@@ -9053,6 +8973,8 @@ public:
 	CSphVector<SearchFailuresLog_c>	m_dFailuresSet;					///< failure logs for each query
 	CSphVector < CSphVector<int64_t> >	m_dAgentTimes;				///< per-agent time stats
 	CSphQueryProfile *				m_pProfile;
+	CSphVector<DWORD *>				m_dMva2Free;
+	CSphVector<BYTE *>				m_dString2Free;
 
 protected:
 	void							RunSubset ( int iStart, int iEnd );	///< run queries against index(es) from first query in the subset
@@ -9060,9 +8982,6 @@ protected:
 	void							RunLocalSearchesMT ();
 	bool							RunLocalSearch ( int iLocal, ISphMatchSorter ** ppSorters, CSphQueryResult ** pResults, bool * pMulti ) const;
 	bool							HasExpresions ( int iStart, int iEnd ) const;
-
-	CSphVector<DWORD>				m_dMvaStorage;
-	CSphVector<BYTE>				m_dStringsStorage;
 
 	int								m_iStart;		///< subset start
 	int								m_iEnd;			///< subset end
@@ -9101,17 +9020,6 @@ SearchHandler_c::SearchHandler_c ( int iQueries, bool bSphinxql )
 	m_bSphinxql = bSphinxql;
 	m_pUpdates = NULL;
 
-	m_dMvaStorage.Reserve ( 1024 );
-	m_dMvaStorage.Add ( 0 ); // dummy value
-	m_dStringsStorage.Reserve ( 1024 );
-	m_dStringsStorage.Add ( 0 ); // dummy value
-
-	ARRAY_FOREACH ( i, m_dResults )
-	{
-		m_dResults[i].m_iTag = 1; // first avail tag for local storage ptrs
-		m_dResults[i].m_dTag2Pools.Add (); // reserved index 0 for remote mva storage ptr; we'll fix this up later
-	}
-
 	m_pProfile = NULL;
 	m_tHook.m_pProfiler = NULL;
 }
@@ -9126,6 +9034,11 @@ SearchHandler_c::~SearchHandler_c ()
 		if ( m_hUsed.IterateGet()>0 )
 			g_pLocalIndexes->GetUnlockedEntry ( m_hUsed.IterateGetKey() ).Unlock();
 	}
+
+	ARRAY_FOREACH ( i, m_dMva2Free )
+		SafeDeleteArray ( m_dMva2Free[i] );
+	ARRAY_FOREACH ( i, m_dString2Free )
+		SafeDeleteArray ( m_dString2Free[i] );
 }
 
 
@@ -9217,13 +9130,13 @@ void SearchHandler_c::RunUpdates ( const CSphQuery & tQuery, const CSphString & 
 
 	if ( !tRes.m_iSuccesses )
 	{
-		StrBuf_t sFailures;
+		CSphStringBuilder sFailures;
 		m_dFailuresSet[0].BuildReport ( sFailures );
 		*pUpdates->m_pError = sFailures.cstr();
 
 	} else if ( !tRes.m_sError.IsEmpty() )
 	{
-		StrBuf_t sFailures;
+		CSphStringBuilder sFailures;
 		m_dFailuresSet[0].BuildReport ( sFailures );
 		tRes.m_sWarning = sFailures.cstr(); // FIXME!!! commit warnings too
 	}
@@ -9247,45 +9160,23 @@ void SearchHandler_c::RunUpdates ( const CSphQuery & tQuery, const CSphString & 
 
 void SearchHandler_c::RunQueries()
 {
-	///////////////////////////////
-	// choose path and run queries
-	///////////////////////////////
-
 	// check if all queries are to the same index
-	bool bSameIndex = false;
-	if ( m_dQueries.GetLength()>1 )
-	{
-		bSameIndex = true;
-		ARRAY_FOREACH ( i, m_dQueries )
-			if ( m_dQueries[i].m_sIndexes!=m_dQueries[0].m_sIndexes )
-		{
-			bSameIndex = false;
-			break;
-		}
-	}
-
+	bool bSameIndex = ARRAY_ALL ( bSameIndex, m_dQueries, m_dQueries[_all].m_sIndexes==m_dQueries[0].m_sIndexes );
 	if ( bSameIndex )
 	{
-		///////////////////////////////
 		// batch queries to same index
-		///////////////////////////////
 		RunSubset ( 0, m_dQueries.GetLength()-1 );
 		ARRAY_FOREACH ( i, m_dQueries )
 			LogQuery ( m_dQueries[i], m_dResults[i], m_dAgentTimes[i] );
-
 	} else
 	{
-		/////////////////////////////////////////////
 		// fallback; just work each query separately
-		/////////////////////////////////////////////
-
 		ARRAY_FOREACH ( i, m_dQueries )
 		{
 			RunSubset ( i, i );
 			LogQuery ( m_dQueries[i], m_dResults[i], m_dAgentTimes[i] );
 		}
 	}
-
 	OnRunFinished();
 }
 
@@ -9295,8 +9186,6 @@ void SearchHandler_c::OnRunFinished()
 {
 	ARRAY_FOREACH ( i, m_dResults )
 	{
-		m_dResults[i].m_dTag2Pools[0].m_pMva = m_dMvaStorage.Begin();
-		m_dResults[i].m_dTag2Pools[0].m_pStrings = m_dStringsStorage.Begin();
 		m_dResults[i].m_iMatches = m_dResults[i].m_dMatches.GetLength();
 	}
 }
@@ -9381,6 +9270,7 @@ static void MergeWordStats ( CSphQueryResultMeta & tDstResult,
 	}
 
 	hSrc.IterateStart();
+	CSphStringBuilder tDifferWords;
 	while ( hSrc.IterateNext() )
 	{
 		const CSphQueryResultMeta::WordStat_t * pDstStat = tDstResult.m_hWordStats ( hSrc.IterateGetKey() );
@@ -9389,11 +9279,17 @@ static void MergeWordStats ( CSphQueryResultMeta & tDstResult,
 		// all indexes should produce same words from the query
 		if ( !pDstStat && !tSrcStat.m_bExpanded )
 		{
-			pLog->SubmitEx ( sIndex, "query words mismatch '%s'", hSrc.IterateGetKey().cstr() );
+			if ( !tDifferWords.Length() )
+				tDifferWords += hSrc.IterateGetKey().cstr();
+			else
+				tDifferWords.Appendf ( ", %s", hSrc.IterateGetKey().cstr() );
 		}
 
 		tDstResult.AddStat ( hSrc.IterateGetKey(), tSrcStat.m_iDocs, tSrcStat.m_iHits, tSrcStat.m_bExpanded );
 	}
+
+	if ( tDifferWords.Length() )
+		pLog->SubmitEx ( sIndex, "query word(s) mismatch: %s", tDifferWords.cstr() );
 }
 
 
@@ -9405,10 +9301,11 @@ static void FlattenToRes ( ISphMatchSorter * pSorter, AggrResult_t & tRes )
 	{
 		tRes.m_dMatchCounts.Add ( pSorter->GetLength() );
 		tRes.m_dSchemas.Add ( tRes.m_tSchema );
+		int iTag = tRes.m_dTag2Pools.GetLength();
 		PoolPtrs_t & tPoolPtrs = tRes.m_dTag2Pools.Add ();
 		tPoolPtrs.m_pMva = tRes.m_pMva;
 		tPoolPtrs.m_pStrings = tRes.m_pStrings;
-		sphFlattenQueue ( pSorter, &tRes, tRes.m_iTag++ );
+		sphFlattenQueue ( pSorter, &tRes, iTag );
 
 		// clean up for next index search
 		tRes.m_pMva = NULL;
@@ -9700,9 +9597,9 @@ void SearchHandler_c::RunLocalSearches ( ISphMatchSorter * pLocalSorter, const c
 
 				// create queue
 				m_tHook.m_pIndex = pServed->m_pIndex;
-				bool bFactors = false;
-				pSorter = sphCreateQueue ( &tQuery, pServed->m_pIndex->GetMatchSchema(), sError, m_pProfile, true, pExtraSchema, m_pUpdates, &tQuery.m_bZSlist, &bFactors, &m_tHook );
-				bNeedFactors |= bFactors;
+				bool bQueueFactors = false;
+				pSorter = sphCreateQueue ( &tQuery, pServed->m_pIndex->GetMatchSchema(), sError, m_pProfile, true, pExtraSchema, m_pUpdates, &tQuery.m_bZSlist, &bQueueFactors, &m_tHook );
+				bNeedFactors |= bQueueFactors;
 				if ( !pSorter )
 				{
 					m_dFailuresSet[iQuery].Submit ( sLocal, sError.cstr() );
@@ -9727,21 +9624,18 @@ void SearchHandler_c::RunLocalSearches ( ISphMatchSorter * pLocalSorter, const c
 
 		// me shortcuts
 		AggrResult_t tStats;
-		CSphQuery * pQuery = &m_dQueries[m_iStart];
+		CSphVector<CSphFilterSettings> dKlists;
 
 		// set kill-list
-		int iNumFilters = pQuery->m_dFilters.GetLength ();
 		for ( int i=iLocal+1; i<m_dLocal.GetLength (); i++ )
 		{
-			const ServedIndex_t * pServed = UseIndex ( i );
-			if ( !pServed )
+			const ServedIndex_t * pLocServed = UseIndex ( i );
+			if ( !pLocServed )
 				continue;
 
-			if ( pServed->m_pIndex->GetKillListSize () )
+			if ( pLocServed->m_pIndex->GetKillListSize () )
 			{
-				CSphFilterSettings tKillListFilter;
-				SetupKillListFilter ( tKillListFilter, pServed->m_pIndex->GetKillList (), pServed->m_pIndex->GetKillListSize () );
-				pQuery->m_dFilters.Add ( tKillListFilter );
+				SetupKillListFilter ( dKlists.Add(), pLocServed->m_pIndex->GetKillList (), pLocServed->m_pIndex->GetKillListSize () );
 				dLocked.Add ( i );
 			} else
 			{
@@ -9756,7 +9650,7 @@ void SearchHandler_c::RunLocalSearches ( ISphMatchSorter * pLocalSorter, const c
 		{
 			tStats.m_tIOStats.Start();
 			bResult = pServed->m_pIndex->MultiQuery ( &m_dQueries[m_iStart], &tStats,
-				dSorters.GetLength(), dSorters.Begin(), NULL, 0, bNeedFactors );
+				dSorters.GetLength(), dSorters.Begin(), &dKlists, 0, bNeedFactors );
 			tStats.m_tIOStats.Stop();
 		} else
 		{
@@ -9767,7 +9661,7 @@ void SearchHandler_c::RunLocalSearches ( ISphMatchSorter * pLocalSorter, const c
 			dResults[m_iStart]->m_tIOStats.Start();
 
 			bResult = pServed->m_pIndex->MultiQueryEx ( dSorters.GetLength(),
-				&m_dQueries[m_iStart], &dResults[m_iStart], &dSorters[0], NULL, 0, bNeedFactors );
+				&m_dQueries[m_iStart], &dResults[m_iStart], &dSorters[0], &dKlists, 0, bNeedFactors );
 
 			dResults[m_iStart]->m_tIOStats.Stop();
 		}
@@ -9791,6 +9685,9 @@ void SearchHandler_c::RunLocalSearches ( ISphMatchSorter * pLocalSorter, const c
 
 				// this one seems OK
 				AggrResult_t & tRes = m_dResults[iQuery];
+				// this is a temporal hack
+				if ( m_dQueries [ iQuery ].m_sSortBy=="@custom" )
+					tRes.m_sWarning = "@custom is deprecated and will be removed soon";
 				// multi-queue only returned one result set meta, so we need to replicate it
 				if ( m_bMultiQueue )
 				{
@@ -9819,9 +9716,6 @@ void SearchHandler_c::RunLocalSearches ( ISphMatchSorter * pLocalSorter, const c
 				tStats.LeakStorages ( tRes );
 			}
 		}
-
-		// cleanup kill-list
-		pQuery->m_dFilters.Resize ( iNumFilters );
 
 		ARRAY_FOREACH ( i, dLocked )
 			ReleaseIndex ( dLocked[i] );
@@ -10111,13 +10005,13 @@ void SearchHandler_c::RunSubset ( int iStart, int iEnd )
 		tFirst.m_iRetryCount = 0;
 
 	// connect to remote agents and query them, if required
-	if ( m_pProfile )
-		m_pProfile->Switch ( SPH_QSTATE_DIST_CONNECT );
-
 	CSphScopedPtr<SearchRequestBuilder_t> tReqBuilder ( NULL );
 	CSphScopedPtr<CSphRemoteAgentsController> tDistCtrl ( NULL );
 	if ( bDist && dAgents.GetLength() )
 	{
+		if ( m_pProfile )
+			m_pProfile->Switch ( SPH_QSTATE_DIST_CONNECT );
+
 		tReqBuilder = new SearchRequestBuilder_t ( m_dQueries, iStart, iEnd, iDivideLimits );
 		tDistCtrl = new CSphRemoteAgentsController ( g_iDistThreads, dAgents,
 			*tReqBuilder.Ptr(), iAgentConnectTimeout, tFirst.m_iRetryCount, tFirst.m_iRetryDelay );
@@ -10140,12 +10034,12 @@ void SearchHandler_c::RunSubset ( int iStart, int iEnd )
 	// poll remote queries
 	///////////////////////
 
-	if ( m_pProfile )
-		m_pProfile->Switch ( SPH_QSTATE_DIST_WAIT );
-
 	bool bDistDone = false;
 	if ( bDist && dAgents.GetLength() )
 	{
+		if ( m_pProfile )
+			m_pProfile->Switch ( SPH_QSTATE_DIST_WAIT );
+
 		while ( !bDistDone )
 		{
 			// don't forget to check incoming replies after send was over
@@ -10154,63 +10048,82 @@ void SearchHandler_c::RunSubset ( int iStart, int iEnd )
 			// wait for remote queries to complete
 			if ( tDistCtrl->HasReadyAgents() )
 			{
-				SearchReplyParser_t tParser ( iStart, iEnd, m_dMvaStorage, m_dStringsStorage );
+				CSphVector<DWORD> dMvaStorage;
+				CSphVector<BYTE> dStringStorage;
+				dMvaStorage.Add ( 0 );
+				dStringStorage.Add ( 0 );
+				SearchReplyParser_t tParser ( iStart, iEnd, dMvaStorage, dStringStorage );
 				int iMsecLeft = iAgentQueryTimeout - (int)( tmLocal/1000 );
 				int iReplys = RemoteWaitForAgents ( dAgents, Max ( iMsecLeft, 0 ), tParser );
 				// check if there were valid (though might be 0-matches) replies, and merge them
 				if ( iReplys )
-					ARRAY_FOREACH ( iAgent, dAgents )
 				{
-					AgentConn_t & tAgent = dAgents[iAgent];
-					if ( !tAgent.m_bSuccess )
-						continue;
+					DWORD * pMva = dMvaStorage.Begin();
+					BYTE * pString = dStringStorage.Begin();
 
-					// merge this agent's results
-					for ( int iRes=iStart; iRes<=iEnd; iRes++ )
+					ARRAY_FOREACH ( iAgent, dAgents )
 					{
-						const CSphQueryResult & tRemoteResult = tAgent.m_dResults[iRes-iStart];
-
-						// copy errors or warnings
-						if ( !tRemoteResult.m_sError.IsEmpty() )
-							m_dFailuresSet[iRes].SubmitEx ( tFirst.m_sIndexes.cstr(),
-								"agent %s: remote query error: %s",
-								tAgent.GetName().cstr(), tRemoteResult.m_sError.cstr() );
-						if ( !tRemoteResult.m_sWarning.IsEmpty() )
-							m_dFailuresSet[iRes].SubmitEx ( tFirst.m_sIndexes.cstr(),
-								"agent %s: remote query warning: %s",
-								tAgent.GetName().cstr(), tRemoteResult.m_sWarning.cstr() );
-
-						if ( tRemoteResult.m_iSuccesses<=0 )
+						AgentConn_t & tAgent = dAgents[iAgent];
+						if ( !tAgent.m_bSuccess )
 							continue;
 
-						AggrResult_t & tRes = m_dResults[iRes];
-						tRes.m_iSuccesses++;
-
-						ARRAY_FOREACH ( i, tRemoteResult.m_dMatches )
+						// merge this agent's results
+						for ( int iRes=iStart; iRes<=iEnd; iRes++ )
 						{
-							tRes.m_dMatches.Add();
-							tRemoteResult.m_tSchema.CloneWholeMatch ( &tRes.m_dMatches.Last(), tRemoteResult.m_dMatches[i] );
-							tRes.m_dMatches.Last().m_iTag = 0; // all remote MVA values go to special pool which is at index 0
+							const CSphQueryResult & tRemoteResult = tAgent.m_dResults[iRes-iStart];
+
+							// copy errors or warnings
+							if ( !tRemoteResult.m_sError.IsEmpty() )
+								m_dFailuresSet[iRes].SubmitEx ( tFirst.m_sIndexes.cstr(),
+									"agent %s: remote query error: %s",
+									tAgent.GetName().cstr(), tRemoteResult.m_sError.cstr() );
+							if ( !tRemoteResult.m_sWarning.IsEmpty() )
+								m_dFailuresSet[iRes].SubmitEx ( tFirst.m_sIndexes.cstr(),
+									"agent %s: remote query warning: %s",
+									tAgent.GetName().cstr(), tRemoteResult.m_sWarning.cstr() );
+
+							if ( tRemoteResult.m_iSuccesses<=0 )
+								continue;
+
+							AggrResult_t & tRes = m_dResults[iRes];
+							tRes.m_iSuccesses++;
+
+							tRes.m_dMatches.Reserve ( tRemoteResult.m_dMatches.GetLength() );
+							ARRAY_FOREACH ( i, tRemoteResult.m_dMatches )
+							{
+								tRes.m_dMatches.Add();
+								tRemoteResult.m_tSchema.CloneWholeMatch ( &tRes.m_dMatches.Last(), tRemoteResult.m_dMatches[i] );
+								tRes.m_dMatches.Last().m_iTag = tRes.m_dTag2Pools.GetLength() | 0x80000000;
+							}
+
+							tRes.m_pMva = pMva;
+							tRes.m_pStrings = pString;
+							tRes.m_dTag2Pools.Add();
+							tRes.m_dTag2Pools.Last().m_pMva = pMva;
+							tRes.m_dTag2Pools.Last().m_pStrings = pString;
+
+							tRes.m_dMatchCounts.Add ( tRemoteResult.m_dMatches.GetLength() );
+							tRes.m_dSchemas.Add ( tRemoteResult.m_tSchema );
+							// note how we do NOT add per-index weight here; remote agents are all tagged 0 (which contains weight 1)
+
+							// merge this agent's stats
+							tRes.m_iTotalMatches += tRemoteResult.m_iTotalMatches;
+							tRes.m_iQueryTime += tRemoteResult.m_iQueryTime;
+							tRes.m_iAgentCpuTime += tRemoteResult.m_iCpuTime;
+							tRes.m_tAgentIOStats.Add ( tRemoteResult.m_tIOStats );
+
+							// merge this agent's words
+							MergeWordStats ( tRes, tRemoteResult.m_hWordStats, &m_dFailuresSet[iRes], tFirst.m_sIndexes.cstr() );
 						}
 
-						tRes.m_dMatchCounts.Add ( tRemoteResult.m_dMatches.GetLength() );
-						tRes.m_dSchemas.Add ( tRemoteResult.m_tSchema );
-						// note how we do NOT add per-index weight here; remote agents are all tagged 0 (which contains weight 1)
-
-						// merge this agent's stats
-						tRes.m_iTotalMatches += tRemoteResult.m_iTotalMatches;
-						tRes.m_iQueryTime += tRemoteResult.m_iQueryTime;
-						tRes.m_iAgentCpuTime += tRemoteResult.m_iCpuTime;
-						tRes.m_tAgentIOStats.Add ( tRemoteResult.m_tIOStats );
-
-						// merge this agent's words
-						MergeWordStats ( tRes, tRemoteResult.m_hWordStats, &m_dFailuresSet[iRes], tFirst.m_sIndexes.cstr() );
+						// dismissed
+						tAgent.m_dResults.Reset ();
+						tAgent.m_bSuccess = false;
+						tAgent.m_sFailure = "";
 					}
 
-					// dismissed
-					tAgent.m_dResults.Reset ();
-					tAgent.m_bSuccess = false;
-					tAgent.m_sFailure = "";
+					m_dMva2Free.Add ( dMvaStorage.LeakData() );
+					m_dString2Free.Add ( dStringStorage.LeakData() );
 				}
 			}
 
@@ -10243,9 +10156,6 @@ void SearchHandler_c::RunSubset ( int iStart, int iEnd )
 		}
 	}
 
-	ARRAY_FOREACH ( i, m_dResults )
-		assert ( m_dResults[i].m_iTag==m_dResults[i].m_dTag2Pools.GetLength() );
-
 	// cleanup
 	bool bWasLocalSorter = pLocalSorter!=NULL;
 	SafeDelete ( pLocalSorter );
@@ -10266,14 +10176,12 @@ void SearchHandler_c::RunSubset ( int iStart, int iEnd )
 		CSphSchemaMT * pExtraSchema = tQuery.m_bAgent ? m_dExtraSchemas.Begin() + ( bWasLocalSorter ? 0 : iRes ) : NULL;
 
 		// minimize sorters needs these pointers
-		tRes.m_dTag2Pools[0].m_pMva = m_dMvaStorage.Begin();
-		tRes.m_dTag2Pools[0].m_pStrings = m_dStringsStorage.Begin();
 		tIO.Add ( tRes.m_tIOStats );
 
 		// if there were no successful searches at all, this is an error
 		if ( !tRes.m_iSuccesses )
 		{
-			StrBuf_t sFailures;
+			CSphStringBuilder sFailures;
 			m_dFailuresSet[iRes].BuildReport ( sFailures );
 
 			tRes.m_sError = sFailures.cstr();
@@ -10307,7 +10215,7 @@ void SearchHandler_c::RunSubset ( int iStart, int iEnd )
 
 		if ( !m_dFailuresSet[iRes].IsEmpty() )
 		{
-			StrBuf_t sFailures;
+			CSphStringBuilder sFailures;
 			m_dFailuresSet[iRes].BuildReport ( sFailures );
 			tRes.m_sWarning = sFailures.cstr();
 		}
@@ -10529,6 +10437,7 @@ enum SqlStmt_e
 	STMT_DROP_FUNCTION,
 	STMT_ATTACH_INDEX,
 	STMT_FLUSH_RTINDEX,
+	STMT_FLUSH_RAMCHUNK,
 	STMT_SHOW_VARIABLES,
 	STMT_TRUNCATE_RTINDEX,
 	STMT_SELECT_SYSVAR,
@@ -10538,18 +10447,22 @@ enum SqlStmt_e
 	STMT_SHOW_AGENT_STATUS,
 	STMT_SHOW_INDEX_STATUS,
 	STMT_SHOW_PROFILE,
+	STMT_SHOW_PLAN,
+	STMT_SELECT_DUAL,
 
 	STMT_TOTAL
 };
 
 
+// FIXME? verify or generate these automatically somehow?
 static const char * g_dSqlStmts[STMT_TOTAL] =
 {
 	"parse_error", "dummy", "select", "insert", "replace", "delete", "show_warnings",
 	"show_status", "show_meta", "set", "begin", "commit", "rollback", "call",
 	"desc", "show_tables", "update", "create_func", "drop_func", "attach_index",
-	"flush_rtindex", "show_variables", "truncate_rtindex", "select_sysvar",
-	"show_collation", "optimize_index", "show_agent_status"
+	"flush_rtindex", "flush_ramchunk", "show_variables", "truncate_rtindex", "select_sysvar",
+	"show_collation", "show_character_set", "optimize_index", "show_agent_status",
+	"show_index_status", "show_profile", "show_plan"
 };
 
 
@@ -10663,6 +10576,7 @@ struct SqlStmt_t
 		, m_bSetNull ( false )
 		, m_iListStart ( -1 )
 		, m_iListEnd ( -1 )
+		, m_eUdfType ( SPH_ATTR_NONE )
 	{
 		m_tQuery.m_eMode = SPH_MATCH_EXTENDED2; // only new and shiny matching and sorting
 		m_tQuery.m_eSort = SPH_SORT_EXTENDED;
@@ -10750,7 +10664,7 @@ public:
 	bool			AddIntFilterGreater ( const CSphString & sAttr, int64_t iVal, bool bHasEqual );
 	bool			AddIntFilterLesser ( const CSphString & sAttr, int64_t iVal, bool bHasEqual );
 	bool			AddUservarFilter ( const CSphString & sCol, const CSphString & sVar, bool bExclude );
-	void			SetGroupBy ( const CSphString & sGroupBy );
+	void			AddGroupBy ( const CSphString & sGroupBy );
 	bool			AddDistinct ( SqlNode_t * pNewExpr, SqlNode_t * pStart, SqlNode_t * pEnd );
 	CSphFilterSettings *	AddFilter ( const CSphString & sCol, ESphFilter eType );
 	bool			AddStringFilter ( const CSphString & sCol, const CSphString & sVal, bool bExclude );
@@ -10885,6 +10799,7 @@ public:
 		{
 			case SPH_ATTR_INTEGER:
 			case SPH_ATTR_TIMESTAMP:
+			case SPH_ATTR_BOOL:
 				CSphMatch::SetAttr ( tLoc, ToInt(tVal) );
 				break;
 			case SPH_ATTR_BIGINT:
@@ -11028,7 +10943,7 @@ bool SqlParser_c::AddOption ( const SqlNode_t& tIdent, const SqlNode_t& tValue )
 
 	} else if ( sOpt=="max_predicted_time" )
 	{
-		m_pQuery->m_iMaxPredictedMsec = (int)tValue.m_iValue;
+		m_pQuery->m_iMaxPredictedMsec = int ( tValue.m_iValue > INT_MAX ? INT_MAX : tValue.m_iValue );
 
 	} else if ( sOpt=="boolean_simplify" )
 	{
@@ -11047,7 +10962,7 @@ bool SqlParser_c::AddOption ( const SqlNode_t& tIdent, const SqlNode_t& tValue )
 		}
 	} else if ( sOpt=="global_idf" )
 	{
-		m_pQuery->m_bGlobalIDF = true;
+		m_pQuery->m_bGlobalIDF = ( tValue.m_iValue!=0 );
 
 	} else if ( sOpt=="ignore_nonexistent_indexes" )
 	{
@@ -11151,11 +11066,20 @@ bool SqlParser_c::AddItem ( const char * pToken, SqlNode_t * pStart, SqlNode_t *
 	return SetNewSyntax();
 }
 
-void SqlParser_c::SetGroupBy ( const CSphString & sGroupBy )
+void SqlParser_c::AddGroupBy ( const CSphString & sGroupBy )
 {
-	m_pQuery->m_eGroupFunc = SPH_GROUPBY_ATTR;
-	m_pQuery->m_sGroupBy = sGroupBy;
-	sphColumnToLowercase ( const_cast<char *>( m_pQuery->m_sGroupBy.cstr() ) );
+	if ( m_pQuery->m_sGroupBy.IsEmpty() )
+	{
+		m_pQuery->m_eGroupFunc = SPH_GROUPBY_ATTR;
+		m_pQuery->m_sGroupBy = sGroupBy;
+		sphColumnToLowercase ( const_cast<char *>( m_pQuery->m_sGroupBy.cstr() ) );
+	} else
+	{
+		m_pQuery->m_eGroupFunc = SPH_GROUPBY_MULTIPLE;
+		CSphString sTmp = sGroupBy;
+		sphColumnToLowercase ( const_cast<char *>( sTmp.cstr() ) );
+		m_pQuery->m_sGroupBy.SetSprintf ( "%s, %s", m_pQuery->m_sGroupBy.cstr(), sTmp.cstr() );
+	}
 }
 
 bool SqlParser_c::AddDistinct ( SqlNode_t * pNewExpr, SqlNode_t * pStart, SqlNode_t * pEnd )
@@ -11341,7 +11265,7 @@ bool SqlParser_c::AddIntFilterLesser ( const CSphString & sAttr, int64_t iVal, b
 
 bool SqlParser_c::AddUservarFilter ( const CSphString & sCol, const CSphString & sVar, bool bExclude )
 {
-	CSphScopedLock<CSphMutex> tLock ( g_tUservarsMutex );
+	CSphScopedLock<StaticThreadsOnlyMutex_t> tLock ( g_tUservarsMutex );
 	Uservar_t * pVar = g_hUservars ( sVar );
 	if ( !pVar )
 	{
@@ -11421,6 +11345,8 @@ void SqlParser_c::FreeNamedVec ( int )
 
 bool ParseSqlQuery ( const char * sQuery, int iLen, CSphVector<SqlStmt_t> & dStmt, CSphString & sError, ESphCollation eCollation )
 {
+	assert ( sQuery );
+
 	SqlParser_c tParser ( dStmt, eCollation );
 	tParser.m_pBuf = sQuery;
 	tParser.m_pLastTokenStart = NULL;
@@ -11624,7 +11550,7 @@ struct SnippetReplyParser_t : public IReplyParser_t
 	virtual bool ParseReply ( MemInputBuffer_c & tReq, AgentConn_t & ) const;
 
 private:
-	SnippetsRemote_t * m_pWorker;
+	const SnippetsRemote_t * m_pWorker;
 };
 
 
@@ -12305,7 +12231,37 @@ void UpdateRequestBuilder_t::BuildRequest ( AgentConn_t & tAgent, NetOutputBuffe
 	ARRAY_FOREACH ( i, m_tUpd.m_dAttrs )
 		iReqSize += 8 + strlen ( m_tUpd.m_dAttrs[i].m_sName.cstr() );
 	iReqSize += 4; // number of updates
-	iReqSize += 8*m_tUpd.m_dDocids.GetLength() + 4*m_tUpd.m_dPool.GetLength(); // 64bit ids, 32bit values
+	iReqSize += 8 * m_tUpd.m_dDocids.GetLength() + 4 * m_tUpd.m_dPool.GetLength(); // 64bit ids, 32bit values
+
+	bool bMva = false;
+	ARRAY_FOREACH ( i, m_tUpd.m_dAttrs )
+	{
+		assert ( m_tUpd.m_dAttrs[i].m_eAttrType!=SPH_ATTR_INT64SET ); // mva64 goes only via SphinxQL (SphinxqlRequestBuilder_t)
+		bMva |= ( m_tUpd.m_dAttrs[i].m_eAttrType==SPH_ATTR_UINT32SET );
+	}
+
+	if ( bMva )
+	{
+		int iMvaCount = 0;
+		ARRAY_FOREACH ( iDoc, m_tUpd.m_dDocids )
+		{
+			const DWORD * pPool = m_tUpd.m_dPool.Begin() + m_tUpd.m_dRowOffset[iDoc];
+			ARRAY_FOREACH ( iAttr, m_tUpd.m_dAttrs )
+			{
+				if ( m_tUpd.m_dAttrs[iAttr].m_eAttrType==SPH_ATTR_UINT32SET )
+				{
+					DWORD uVal = *pPool++;
+					iMvaCount += uVal;
+					pPool += uVal;
+				} else
+				{
+					pPool++;
+				}
+			}
+		}
+
+		iReqSize -= ( iMvaCount * 4 / 2 ); // mva64 only via SphinxQL
+	}
 
 	// header
 	tOut.SendWord ( SEARCHD_COMMAND_UPDATE );
@@ -12318,18 +12274,53 @@ void UpdateRequestBuilder_t::BuildRequest ( AgentConn_t & tAgent, NetOutputBuffe
 	ARRAY_FOREACH ( i, m_tUpd.m_dAttrs )
 	{
 		tOut.SendString ( m_tUpd.m_dAttrs[i].m_sName.cstr() );
-		tOut.SendInt ( ( m_tUpd.m_dAttrs[i].m_eAttrType==SPH_ATTR_UINT32SET || m_tUpd.m_dAttrs[i].m_eAttrType==SPH_ATTR_INT64SET ) ? 1 : 0 );
+		tOut.SendInt ( ( m_tUpd.m_dAttrs[i].m_eAttrType==SPH_ATTR_UINT32SET ) ? 1 : 0 );
 	}
 	tOut.SendInt ( m_tUpd.m_dDocids.GetLength() );
 
-	ARRAY_FOREACH ( i, m_tUpd.m_dDocids )
+	if ( !bMva )
 	{
-		int iHead = m_tUpd.m_dRowOffset[i];
-		int iTail = ( (i+1)<m_tUpd.m_dDocids.GetLength() ) ? m_tUpd.m_dRowOffset[i+1] : m_tUpd.m_dPool.GetLength ();
+		ARRAY_FOREACH ( iDoc, m_tUpd.m_dDocids )
+		{
+			tOut.SendUint64 ( m_tUpd.m_dDocids[iDoc] );
+			int iHead = m_tUpd.m_dRowOffset[iDoc];
+			int iTail = m_tUpd.m_dPool.GetLength ();
+			if ( (iDoc+1)<m_tUpd.m_dDocids.GetLength() )
+				iTail = m_tUpd.m_dRowOffset[iDoc+1];
 
-		tOut.SendUint64 ( m_tUpd.m_dDocids[i] );
-		for ( int j=iHead; j<iTail; j++ )
-			tOut.SendDword ( m_tUpd.m_dPool[j] );
+			for ( int j=iHead; j<iTail; j++ )
+				tOut.SendDword ( m_tUpd.m_dPool[j] );
+		}
+	} else
+	{
+		// size down in case of MVA
+		// MVA stored as mva64 in pool but API could handle only mva32 due to HandleCommandUpdate
+		// SphinxQL only could work either mva32 or mva64 and only SphinxQL could receive mva64 updates
+		// SphinxQL master communicate to agent via SphinxqlRequestBuilder_t
+
+		ARRAY_FOREACH ( iDoc, m_tUpd.m_dDocids )
+		{
+			tOut.SendUint64 ( m_tUpd.m_dDocids[iDoc] );
+
+			const DWORD * pPool = m_tUpd.m_dPool.Begin() + m_tUpd.m_dRowOffset[iDoc];
+			ARRAY_FOREACH ( iAttr, m_tUpd.m_dAttrs )
+			{
+				DWORD uVal = *pPool++;
+				if ( m_tUpd.m_dAttrs[iAttr].m_eAttrType!=SPH_ATTR_UINT32SET )
+				{
+					tOut.SendDword ( uVal );
+				} else
+				{
+					const DWORD * pEnd = pPool + uVal;
+					tOut.SendDword ( uVal/2 );
+					while ( pPool<pEnd )
+					{
+						tOut.SendDword ( *pPool );
+						pPool += 2;
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -12492,6 +12483,8 @@ void HandleCommandUpdate ( int iSock, int iVer, InputBuffer_c & tReq )
 	SearchFailuresLog_c dFails;
 	int iSuccesses = 0;
 	int iUpdated = 0;
+	tUpd.m_dRows.Resize ( tUpd.m_dDocids.GetLength() );
+	ARRAY_FOREACH ( i, tUpd.m_dRows ) tUpd.m_dRows[i] = NULL;
 
 	ARRAY_FOREACH ( iIdx, dIndexNames )
 	{
@@ -12537,7 +12530,7 @@ void HandleCommandUpdate ( int iSock, int iVer, InputBuffer_c & tReq )
 	}
 
 	// serve reply to client
-	StrBuf_t sReport;
+	CSphStringBuilder sReport;
 	dFails.BuildReport ( sReport );
 
 	if ( !iSuccesses )
@@ -12717,9 +12710,9 @@ void BuildStatus ( VectorLike & dStatus )
 				continue;
 
 			AgentStats_t & tStats = g_pStats->m_dAgentStats.m_dItemStats[iIndex];
-			for ( int j=0; j<eMaxStat; ++j )
-				if ( dStatus.MatchAddVa ( "ag_%s_%d_%s", sIdx, i, tStats.m_sNames[j] ) )
-					dStatus.Add().SetSprintf ( FMT64, tStats.m_iStats[j] );
+			for ( int k=0; k<eMaxStat; ++k )
+				if ( dStatus.MatchAddVa ( "ag_%s_%d_%s", sIdx, i, tStats.m_sNames[k] ) )
+					dStatus.Add().SetSprintf ( FMT64, tStats.m_iStats[k] );
 		}
 	}
 	g_tDistLock.Unlock();
@@ -13392,7 +13385,7 @@ void SendMysqlFieldPacket ( NetOutputBuffer_c & tOut, BYTE uPacketID, const char
 	tOut.SendMysqlString ( sCol ); // org_name
 
 	tOut.SendByte ( 12 ); // filler, must be 12 (following pseudo-string length)
-	tOut.SendByte ( 8 ); // charset_nr, 8 is latin1
+	tOut.SendByte ( 0x21 ); // charset_nr, 0x21 is utf8
 	tOut.SendByte ( 0 ); // charset_nr
 	tOut.SendLSBDword ( iColLen ); // length
 	tOut.SendByte ( BYTE(eType) ); // type (0=decimal)
@@ -13574,6 +13567,8 @@ public:
 
 	void PutString ( const char * sMsg )
 	{
+		assert ( sMsg );
+
 		int iLen = sMsg ? strlen ( sMsg ) : 0;
 		Reserve ( 1+iLen );
 		char * pBegin = Get();
@@ -13632,8 +13627,8 @@ public:
 	// Header of the table with defined num of columns
 	inline void HeadBegin ( int iColumns )
 	{
-		m_tOut.SendLSBDword ( ((m_uPacketID++)<<24) + 2 );
-		m_tOut.SendByte ( (BYTE)iColumns ); // colunn count
+		m_tOut.SendLSBDword ( ((m_uPacketID++)<<24) + MysqlPackedLen ( iColumns ) + 1 );
+		m_tOut.SendMysqlInt ( iColumns );
 		m_tOut.SendByte ( 0 ); // extra
 		m_iSize = iColumns;
 	}
@@ -13690,7 +13685,6 @@ private:
 	char * m_pBuf;
 	int m_iLen;
 	int m_iLimit;
-	bool m_bMoreResults;
 
 private:
 	BYTE & m_uPacketID;
@@ -13917,7 +13911,7 @@ void HandleMysqlInsert ( SqlRowBuffer_c & tOut, const SqlStmt_t & tStmt,
 			if ( iQuerySchemaIdx < 0 )
 			{
 				bResult = tDoc.SetDefaultAttr ( tLoc, tCol.m_eAttrType );
-				if ( tCol.m_eAttrType==SPH_ATTR_STRING )
+				if ( tCol.m_eAttrType==SPH_ATTR_STRING || tCol.m_eAttrType==SPH_ATTR_JSON )
 					dStrings.Add ( NULL );
 				if ( tCol.m_eAttrType==SPH_ATTR_UINT32SET || tCol.m_eAttrType==SPH_ATTR_INT64SET )
 					dMvas.Add ( 0 );
@@ -14242,6 +14236,8 @@ void HandleMysqlCallKeywords ( SqlRowBuffer_c & tOut, SqlStmt_t & tStmt )
 	const ServedIndex_t * pServed = g_pLocalIndexes->GetRlockedEntry ( tStmt.m_dInsertValues[1].m_sVal );
 	if ( !pServed || !pServed->m_bEnabled || !pServed->m_pIndex )
 	{
+		if ( pServed )
+			pServed->Unlock();
 		sError.SetSprintf ( "no such index %s", tStmt.m_dInsertValues[1].m_sVal.cstr() );
 		tOut.Error ( tStmt.m_sStmt, sError.cstr() );
 		return;
@@ -14299,6 +14295,9 @@ void HandleMysqlDescribe ( SqlRowBuffer_c & tOut, SqlStmt_t & tStmt )
 	DistributedIndex_t * pDistr = NULL;
 	if ( !pServed || !pServed->m_bEnabled || !pServed->m_pIndex )
 	{
+		if ( pServed )
+			pServed->Unlock();
+
 		g_tDistLock.Lock();
 		pDistr = g_hDistIndexes ( tStmt.m_sIndex );
 		g_tDistLock.Unlock();
@@ -14537,34 +14536,29 @@ struct SphinxqlReplyParser_t : public IReplyParser_t
 
 	virtual bool ParseReply ( MemInputBuffer_c & tReq, AgentConn_t & ) const
 	{
-		DWORD uSize = ( tReq.GetLSBDword() & 0x00FFFFFF ) - 1;
+		DWORD uSize = ( tReq.GetLSBDword() & 0x00ffffff ) - 1;
 		BYTE uCommand = tReq.GetByte();
-		int iAffected = 0;
-		CSphString sMessage;
-		switch ( uCommand )
+
+		if ( uCommand==0 ) // ok packet
 		{
-		case 0: // ok packet
-			iAffected = MysqlUnpack ( tReq, &uSize );
+			*m_pUpdated += MysqlUnpack ( tReq, &uSize );
 			MysqlUnpack ( tReq, &uSize ); ///< int Insert_id (don't used).
-			tReq.GetLSBDword(); ///< num of warnings, but we don't use it for now.
+			*m_pWarns += tReq.GetLSBDword(); ///< num of warnings
 			uSize -= 4;
 			if ( uSize )
-				sMessage = tReq.GetRawString ( uSize );
-			break;
-
-		case 0xff: // error packet
+				tReq.GetRawString ( uSize );
+			return true;
+		}
+		if ( uCommand==0xff ) // error packet
+		{
 			tReq.GetByte();
 			tReq.GetByte(); ///< num of errors (2 bytes), we don't use it for now.
 			uSize -= 2;
 			if ( uSize )
-				sMessage = tReq.GetRawString ( uSize );
-			break;
-		default:
-			break;
+				tReq.GetRawString ( uSize );
 		}
 
-		*m_pUpdated += iAffected;
-		return true;
+		return false;
 	}
 
 protected:
@@ -14734,7 +14728,7 @@ void HandleMysqlUpdate ( SqlRowBuffer_c & tOut, const SqlStmt_t & tStmt, const C
 		}
 	}
 
-	StrBuf_t sReport;
+	CSphStringBuilder sReport;
 	dFails.BuildReport ( sReport );
 
 	if ( !iSuccesses )
@@ -14851,14 +14845,6 @@ void SendMysqlSelectResult ( SqlRowBuffer_c & dRows, const AggrResult_t & tRes, 
 		iAttrsCount = iSchemaAttrsCount;
 		if ( g_bCompatResults )
 			iAttrsCount += 2;
-	}
-	if ( iAttrsCount>=251 )
-	{
-		// this will show up as success in query log, as the query itself was ok
-		// but we need some kind of a notice anyway, to nail down issues based on logs only
-		sphWarning ( "selecting more than 250 columns is not supported yet" );
-		dRows.Error ( NULL, "selecting more than 250 columns is not supported yet" );
-		return;
 	}
 
 	// result set header packet. We will attach EOF manually at the end.
@@ -15080,7 +15066,7 @@ void SendMysqlSelectResult ( SqlRowBuffer_c & dRows, const AggrResult_t & tRes, 
 						// send string to client
 						dTmp.Resize ( 0 );
 						const BYTE * pStrings = tRes.m_dTag2Pools [ tMatch.m_iTag ].m_pStrings;
-						sphJsonFieldFormat ( dTmp, pStrings+uOff, eJson );
+						sphJsonFieldFormat ( dTmp, pStrings+uOff, eJson, false );
 
 						// send length
 						int iLen = dTmp.GetLength();
@@ -15296,7 +15282,7 @@ void HandleMysqlDelete ( SqlRowBuffer_c & tOut, const SqlStmt_t & tStmt, const C
 
 	if ( !dErrors.IsEmpty() )
 	{
-		StrBuf_t sReport;
+		CSphStringBuilder sReport;
 		dErrors.BuildReport ( sReport );
 		tOut.Error ( tStmt.m_sStmt, sReport.cstr() );
 		return;
@@ -15315,11 +15301,7 @@ void HandleMysqlMultiStmt ( const CSphVector<SqlStmt_t> & dStmt, CSphQueryResult
 		if ( dStmt[i].m_eStmt==STMT_SELECT )
 			iSelect++;
 
-	if ( !iSelect )
-	{
-		tLastMeta = CSphQueryResultMeta();
-		return;
-	}
+	CSphQueryResultMeta tPrevMeta = tLastMeta;
 
 	if ( pThd )
 		pThd->m_sCommand = g_dSqlStmts[STMT_SELECT];
@@ -15336,11 +15318,14 @@ void HandleMysqlMultiStmt ( const CSphVector<SqlStmt_t> & dStmt, CSphQueryResult
 	}
 
 	// do search
-	bool bSearchOK = HandleMysqlSelect ( dRows, tHandler );
+	bool bSearchOK = true;
+	if ( iSelect )
+	{
+		bSearchOK = HandleMysqlSelect ( dRows, tHandler );
 
-	// save meta for SHOW *
-	CSphQueryResultMeta tPrevMeta = tLastMeta;
-	tLastMeta = tHandler.m_dResults.Last();
+		// save meta for SHOW *
+		tLastMeta = tHandler.m_dResults.Last();
+	}
 
 	if ( !bSearchOK )
 		return;
@@ -15631,7 +15616,7 @@ void HandleMysqlAttach ( SqlRowBuffer_c & tOut, const SqlStmt_t & tStmt )
 }
 
 
-void HandleMysqlFlush ( SqlRowBuffer_c & tOut, const SqlStmt_t & tStmt )
+void HandleMysqlFlushRtindex ( SqlRowBuffer_c & tOut, const SqlStmt_t & tStmt )
 {
 	CSphString sError;
 	const ServedIndex_t * pIndex = g_pLocalIndexes->GetRlockedEntry ( tStmt.m_sIndex );
@@ -15648,6 +15633,28 @@ void HandleMysqlFlush ( SqlRowBuffer_c & tOut, const SqlStmt_t & tStmt )
 	assert ( pRt );
 
 	pRt->ForceRamFlush();
+	pIndex->Unlock();
+	tOut.Ok();
+}
+
+
+void HandleMysqlFlushRamchunk ( SqlRowBuffer_c & tOut, const SqlStmt_t & tStmt )
+{
+	CSphString sError;
+	const ServedIndex_t * pIndex = g_pLocalIndexes->GetRlockedEntry ( tStmt.m_sIndex );
+
+	if ( !pIndex || !pIndex->m_bEnabled || !pIndex->m_bRT )
+	{
+		if ( pIndex )
+			pIndex->Unlock();
+		tOut.Error ( tStmt.m_sStmt, "FLUSH RAMCHUNK requires an existing RT index" );
+		return;
+	}
+
+	ISphRtIndex * pRt = dynamic_cast<ISphRtIndex*> ( pIndex->m_pIndex );
+	assert ( pRt );
+
+	pRt->ForceDiskChunk();
 	pIndex->Unlock();
 	tOut.Ok();
 }
@@ -15726,6 +15733,52 @@ void HandleMysqlSelectSysvar ( SqlRowBuffer_c & tOut, const SqlStmt_t & tStmt )
 	}
 }
 
+
+void HandleMysqlSelectDual ( SqlRowBuffer_c & tOut, const SqlStmt_t & tStmt )
+{
+	CSphString sVar = tStmt.m_tQuery.m_sQuery;
+	CSphSchema	tSchema;
+	ESphAttr eAttrType;
+	CSphString sError;
+
+	ISphExpr * pExpr = sphExprParse ( sVar.cstr(), tSchema, &eAttrType, NULL, sError, NULL );
+
+	if ( !pExpr )
+	{
+		tOut.Error ( tStmt.m_sStmt, sError.cstr() );
+		return;
+	}
+
+	tOut.HeadBegin(1);
+	tOut.HeadColumn ( sVar.cstr(), MYSQL_COL_STRING );
+	tOut.HeadEnd();
+
+	CSphMatch tMatch;
+	const BYTE * pStr = NULL;
+
+	switch ( eAttrType )
+	{
+	case SPH_ATTR_STRINGPTR:
+		pExpr->StringEval ( tMatch, &pStr );
+		tOut.PutString ( (const char*)pStr );
+		SafeDelete ( pStr );
+		break;
+	case SPH_ATTR_INTEGER:	tOut.PutNumeric<int> ( "%d", pExpr->IntEval ( tMatch ) ); break;
+	case SPH_ATTR_BIGINT:	tOut.PutNumeric<SphAttr_t> ( INT64_FMT, pExpr->Int64Eval ( tMatch ) ); break;
+	case SPH_ATTR_FLOAT:	tOut.PutNumeric<float> ( "%f", pExpr->Eval ( tMatch ) ); break;
+	default:
+		tOut.PutNULL();
+		break;
+	}
+
+	SafeDelete ( pExpr );
+
+	// done
+	tOut.Commit();
+	tOut.Eof();
+}
+
+
 void HandleMysqlShowCollations ( SqlRowBuffer_c & tOut )
 {
 	// MySQL Connector/J really expects an answer here
@@ -15741,7 +15794,7 @@ void HandleMysqlShowCollations ( SqlRowBuffer_c & tOut )
 
 	// data packets
 	tOut.PutString ( "utf8_general_ci" );
-	tOut.PutString ( "utf-8" );
+	tOut.PutString ( "utf8" );
 	tOut.PutString ( "33" );
 	tOut.PutString ( "Yes" );
 	tOut.PutString ( "Yes" );
@@ -15816,6 +15869,8 @@ void HandleMysqlShowVariables ( SqlRowBuffer_c & tOut, SessionVars_t & tVars )
 	tOut.DataTuplet ( "query_log_format", g_eLogFormat==LOG_FORMAT_PLAIN ? "plain" : "sphinxql" );
 	tOut.DataTuplet ( "log_level", LogLevelName ( g_eLogLevel ) );
 	tOut.DataTuplet ( "max_allowed_packet", g_iMaxPacketSize );
+	tOut.DataTuplet ( "character_set_client", "utf8" );
+	tOut.DataTuplet ( "character_set_connection", "utf8" );
 
 	// cleanup
 	tOut.Eof();
@@ -15889,6 +15944,20 @@ void HandleMysqlShowProfile ( SqlRowBuffer_c & tOut, const CSphQueryProfile & p 
 }
 
 
+void HandleMysqlShowPlan ( SqlRowBuffer_c & tOut, const CSphQueryProfile & p )
+{
+	tOut.HeadBegin ( 2 );
+	tOut.HeadColumn ( "Variable" );
+	tOut.HeadColumn ( "Value" );
+	tOut.HeadEnd();
+
+	tOut.PutString ( "transformed_tree" );
+	tOut.PutString ( p.m_sTransformedTree.cstr() );
+	tOut.Commit();
+
+	tOut.Eof();
+}
+
 //////////////////////////////////////////////////////////////////////////
 
 class CSphinxqlSession : public ISphNoncopyable
@@ -15954,6 +16023,7 @@ public:
 		// handle multi SQL query
 		if ( bParsedOK && dStmt.GetLength()>1 )
 		{
+			m_sError = "";
 			HandleMysqlMultiStmt ( dStmt, m_tLastMeta, tOut, pThd, m_sError );
 			return true; // FIXME? how does this work with profiling?
 		}
@@ -16107,7 +16177,11 @@ public:
 			return true;
 
 		case STMT_FLUSH_RTINDEX:
-			HandleMysqlFlush ( tOut, *pStmt );
+			HandleMysqlFlushRtindex ( tOut, *pStmt );
+			return true;
+
+		case STMT_FLUSH_RAMCHUNK:
+			HandleMysqlFlushRamchunk ( tOut, *pStmt );
 			return true;
 
 		case STMT_SHOW_VARIABLES:
@@ -16140,7 +16214,15 @@ public:
 
 		case STMT_SHOW_PROFILE:
 			HandleMysqlShowProfile ( tOut, m_tLastProfile );
-			return false;
+			return false; // do not profile this call, keep last query profile
+
+		case STMT_SHOW_PLAN:
+			HandleMysqlShowPlan ( tOut, m_tLastProfile );
+			return false; // do not profile this call, keep last query profile
+
+		case STMT_SELECT_DUAL:
+			HandleMysqlSelectDual ( tOut, *pStmt );
+			return true;
 
 		default:
 			m_sError.SetSprintf ( "internal error: unhandled statement type (value=%d)", eStmt );
@@ -16285,6 +16367,11 @@ void HandleClientMySQL ( int iSock, const char * sClientIP, ThdDesc_t * pThd )
 			} while ( iAddonLen==MAX_PACKET_LEN );
 			if ( iAddonLen<0 )
 				break;
+			if ( iPacketLen<0 || iPacketLen>g_iMaxPacketSize )
+			{
+				sphWarning ( "ill-formed client request (length=%d out of bounds)", iPacketLen );
+				break;
+			}
 		}
 
 		// handle auth packet
@@ -16322,6 +16409,7 @@ void HandleClientMySQL ( int iSock, const char * sClientIP, ThdDesc_t * pThd )
 				// handle query packet
 				assert ( uMysqlCmd==MYSQL_COM_QUERY );
 				sQuery = tIn.GetRawString ( iPacketLen-1 );
+				assert ( !tIn.GetError() );
 				bKeepProfile = tSession.Execute ( sQuery, tOut, uPacketID, pThd );
 				break;
 
@@ -16406,7 +16494,7 @@ bool HasFiles ( const ServedIndex_t & tIndex, const char ** dExts )
 	char sFile [ SPH_MAX_FILENAME_LEN ];
 	const char * sPath = tIndex.m_sIndexPath.cstr();
 
-	for ( int i=0; i<EXT_COUNT; i++ )
+	for ( int i=0; i<sphGetExtCount(); i++ )
 	{
 		snprintf ( sFile, sizeof(sFile), "%s%s", sPath, dExts[i] );
 		if ( !sphIsReadable ( sFile ) )
@@ -16423,10 +16511,18 @@ bool RotateIndexGreedy ( ServedIndex_t & tIndex, const char * sIndex )
 	char sFile [ SPH_MAX_FILENAME_LEN ];
 	const char * sPath = tIndex.m_sIndexPath.cstr();
 
+	CSphString sError;
+	DWORD uVersion = ReadVersion ( sPath, sError );
 
-	for ( int i=0; i<EXT_COUNT; i++ )
+	if ( !sError.IsEmpty() )
 	{
-		snprintf ( sFile, sizeof(sFile), "%s%s", sPath, g_dNewExts[i] );
+		// no files - no rotation
+		return false;
+	}
+
+	for ( int i=0; i<sphGetExtCount ( uVersion ); i++ )
+	{
+		snprintf ( sFile, sizeof(sFile), "%s%s", sPath, sphGetExts ( SPH_EXT_NEW, uVersion )[i]);
 		if ( !sphIsReadable ( sFile ) )
 		{
 			if ( i>0 )
@@ -16444,15 +16540,15 @@ bool RotateIndexGreedy ( ServedIndex_t & tIndex, const char * sIndex )
 	if ( !tIndex.m_bOnlyNew )
 	{
 		// rename current to old
-		for ( int i=0; i<EXT_COUNT; i++ )
+		for ( int i=0; i<sphGetExtCount ( uVersion ); i++ )
 		{
-			snprintf ( sFile, sizeof(sFile), "%s%s", sPath, g_dCurExts[i] );
-			if ( !sphIsReadable ( sFile ) || TryRename ( sIndex, sPath, g_dCurExts[i], g_dOldExts[i], false ) )
+			snprintf ( sFile, sizeof(sFile), "%s%s", sPath, sphGetExts ( SPH_EXT_CUR, uVersion )[i] );
+			if ( !sphIsReadable ( sFile ) || TryRename ( sIndex, sPath, sphGetExts ( SPH_EXT_CUR, uVersion )[i], sphGetExts ( SPH_EXT_OLD, uVersion )[i], false ) )
 				continue;
 
 			// rollback
 			for ( int j=0; j<i; j++ )
-				TryRename ( sIndex, sPath, g_dOldExts[j], g_dCurExts[j], true );
+				TryRename ( sIndex, sPath, sphGetExts ( SPH_EXT_OLD, uVersion )[j], sphGetExts ( SPH_EXT_CUR, uVersion )[j], true );
 
 			sphWarning ( "rotating index '%s': rename to .old failed; using old index", sIndex );
 			return false;
@@ -16462,7 +16558,7 @@ bool RotateIndexGreedy ( ServedIndex_t & tIndex, const char * sIndex )
 		for ( ;; )
 		{
 			char sBuf [ SPH_MAX_FILENAME_LEN ];
-			snprintf ( sBuf, sizeof(sBuf), "%s%s", sPath, g_dCurExts[EXT_MVP] );
+			snprintf ( sBuf, sizeof(sBuf), "%s%s", sPath, sphGetCurMvp() );
 
 			CSphString sFakeError;
 			CSphAutofile fdTest ( sBuf, SPH_O_READ, sFakeError );
@@ -16471,12 +16567,12 @@ bool RotateIndexGreedy ( ServedIndex_t & tIndex, const char * sIndex )
 			if ( bNoMVP )
 				break; ///< no file, nothing to hold
 
-			if ( TryRename ( sIndex, sPath, g_dCurExts[EXT_MVP], g_dOldExts[EXT_MVP], false, false ) )
+			if ( TryRename ( sIndex, sPath, sphGetCurMvp(), sphGetOldMvp(), false, false ) )
 				break;
 
 			// rollback
-			for ( int j=0; j<EXT_COUNT; j++ )
-				TryRename ( sIndex, sPath, g_dOldExts[j], g_dCurExts[j], true );
+			for ( int j=0; j<sphGetExtCount ( uVersion ); j++ )
+				TryRename ( sIndex, sPath, sphGetExts ( SPH_EXT_OLD, uVersion )[j], sphGetExts ( SPH_EXT_CUR, uVersion )[j], true );
 
 			break;
 		}
@@ -16484,19 +16580,19 @@ bool RotateIndexGreedy ( ServedIndex_t & tIndex, const char * sIndex )
 	}
 
 	// rename new to current
-	for ( int i=0; i<EXT_COUNT; i++ )
+	for ( int i=0; i<sphGetExtCount ( uVersion ); i++ )
 	{
-		if ( TryRename ( sIndex, sPath, g_dNewExts[i], g_dCurExts[i], false ) )
+		if ( TryRename ( sIndex, sPath, sphGetExts ( SPH_EXT_NEW, uVersion )[i], sphGetExts ( SPH_EXT_CUR, uVersion )[i], false ) )
 			continue;
 
 		// rollback new ones we already renamed
 		for ( int j=0; j<i; j++ )
-			TryRename ( sIndex, sPath, g_dCurExts[j], g_dNewExts[j], true );
+			TryRename ( sIndex, sPath, sphGetExts ( SPH_EXT_CUR, uVersion )[j], sphGetExts ( SPH_EXT_NEW, uVersion )[j], true );
 
 		// rollback old ones
 		if ( !tIndex.m_bOnlyNew )
-			for ( int j=0; j<=EXT_COUNT; j++ ) ///< <=, not <, since we have the .mvp at the end of these lists
-				TryRename ( sIndex, sPath, g_dOldExts[j], g_dCurExts[j], true );
+			for ( int j=0; j<=sphGetExtCount ( uVersion ); j++ ) ///< <=, not <, since we have the .mvp at the end of these lists
+				TryRename ( sIndex, sPath, sphGetExts ( SPH_EXT_OLD, uVersion )[j], sphGetExts ( SPH_EXT_CUR, uVersion )[j], true );
 
 		return false;
 	}
@@ -16522,12 +16618,12 @@ bool RotateIndexGreedy ( ServedIndex_t & tIndex, const char * sIndex )
 			sphWarning ( "rotating index '%s': .new preload failed: %s", sIndex, tIndex.m_pIndex->GetLastError().cstr() );
 
 			// try to recover
-			for ( int j=0; j<EXT_COUNT; j++ )
+			for ( int j=0; j<sphGetExtCount ( uVersion ); j++ )
 			{
-				TryRename ( sIndex, sPath, g_dCurExts[j], g_dNewExts[j], true );
-				TryRename ( sIndex, sPath, g_dOldExts[j], g_dCurExts[j], true );
+				TryRename ( sIndex, sPath, sphGetExts ( SPH_EXT_CUR, uVersion )[j], sphGetExts ( SPH_EXT_NEW, uVersion )[j], true );
+				TryRename ( sIndex, sPath, sphGetExts ( SPH_EXT_OLD, uVersion )[j], sphGetExts ( SPH_EXT_CUR, uVersion )[j], true );
 			}
-			TryRename ( sIndex, sPath, g_dOldExts[EXT_MVP], g_dCurExts[EXT_MVP], false, false );
+			TryRename ( sIndex, sPath, sphGetOldMvp(), sphGetCurMvp(), false, false );
 			sphLogDebug ( "RotateIndexGreedy: has recovered" );
 
 			if ( !tIndex.m_pIndex->Prealloc ( tIndex.m_bMlock, g_bStripPath, sWarning ) || !tIndex.m_pIndex->Preread() )
@@ -16692,7 +16788,7 @@ void CheckLeaks ()
 
 	if ( g_dThd.GetLength()==0 && !g_iRotateCount && iHeadAllocs!=sphAllocsCount() )
 	{
-		lseek ( g_iLogFile, 0, SEEK_END );
+		sphSeek ( g_iLogFile, 0, SEEK_END );
 		sphAllocsDump ( g_iLogFile, iHeadCheckpoint );
 
 		iHeadAllocs = sphAllocsCount ();
@@ -16827,6 +16923,7 @@ static void RotateIndexMT ( const CSphString & sIndex )
 	tNewIndex.m_pIndex = sphCreateIndexPhrase ( sIndex.cstr(), NULL );
 	tNewIndex.m_pIndex->SetEnableStar ( pRotating->m_bStar );
 	tNewIndex.m_pIndex->m_bExpandKeywords = pRotating->m_bExpand;
+	tNewIndex.m_pIndex->m_iExpansionLimit = g_iExpansionLimit;
 	tNewIndex.m_pIndex->SetPreopen ( pRotating->m_bPreopen || g_bPreopenIndexes );
 	tNewIndex.m_pIndex->SetWordlistPreload ( !pRotating->m_bOnDiskDict && !g_bOnDiskDicts );
 	tNewIndex.m_pIndex->SetGlobalIDFPath ( pRotating->m_sGlobalIDFPath );
@@ -16941,7 +17038,7 @@ static void RotateIndexMT ( const CSphString & sIndex )
 			pServed->m_bEnabled = true;
 
 			// rename current MVP to old one to unlink it
-			TryRename ( sIndex.cstr(), pServed->m_sIndexPath.cstr(), g_dCurExts[EXT_MVP], g_dOldExts[EXT_MVP], false, false );
+			TryRename ( sIndex.cstr(), pServed->m_sIndexPath.cstr(), sphGetCurMvp(), sphGetOldMvp(), false, false );
 			// unlink .old
 			sphLogDebug ( "unlink .old" );
 			if ( !pServed->m_bOnlyNew )
@@ -17037,6 +17134,7 @@ void SeamlessTryToForkPrereader ()
 
 	g_pPrereading->SetEnableStar ( tServed.m_bStar );
 	g_pPrereading->m_bExpandKeywords = tServed.m_bExpand;
+	g_pPrereading->m_iExpansionLimit = g_iExpansionLimit;
 	g_pPrereading->SetPreopen ( tServed.m_bPreopen || g_bPreopenIndexes );
 	g_pPrereading->SetWordlistPreload ( !tServed.m_bOnDiskDict && !g_bOnDiskDicts );
 	g_pPrereading->SetGlobalIDFPath ( tServed.m_sGlobalIDFPath );
@@ -17203,11 +17301,11 @@ static void SphinxqlStateThreadFunc ( void * )
 		{
 			const CSphVector<SphAttr_t> & dVals = *dUservars[i].m_pVal;
 			int iLen = snprintf ( dBuf, sizeof ( dBuf ), "SET GLOBAL %s = ( "INT64_FMT, dUservars[i].m_sName.cstr(), dVals[0] );
-			for ( int i=1; i<dVals.GetLength(); i++ )
+			for ( int j=1; j<dVals.GetLength(); j++ )
 			{
-				iLen += snprintf ( dBuf+iLen, sizeof ( dBuf ), ", "INT64_FMT, dVals[i] );
+				iLen += snprintf ( dBuf+iLen, sizeof ( dBuf ), ", "INT64_FMT, dVals[j] );
 
-				if ( iLen>=iMaxString && i<dVals.GetLength()-1 )
+				if ( iLen>=iMaxString && j<dVals.GetLength()-1 )
 				{
 					iLen += snprintf ( dBuf+iLen, sizeof ( dBuf ), " \\\n" );
 					tWriter.PutBytes ( dBuf, iLen );
@@ -17551,7 +17649,7 @@ void HandlePipePreread ( PipeReader_t & tPipe, bool bFailure )
 				tServed.m_bEnabled = true;
 
 				// rename current MVP to old one to unlink it
-				TryRename ( sPrereading, tServed.m_sIndexPath.cstr(), g_dCurExts[EXT_MVP], g_dOldExts[EXT_MVP], false, false );
+				TryRename ( sPrereading, tServed.m_sIndexPath.cstr(), sphGetCurMvp(), sphGetOldMvp(), false, false );
 				// unlink .old
 				if ( !tServed.m_bOnlyNew )
 				{
@@ -18203,7 +18301,35 @@ bool CheckConfigChanges ()
 		memset ( &tStat, 0, sizeof ( tStat ) );
 
 	DWORD uCRC32 = 0;
+
+#if !USE_WINDOWS
+	char sBuf [ 8192 ];
+	FILE * fp = NULL;
+
+	fp = fopen ( g_sConfigFile.cstr (), "rb" );
+	if ( !fp )
+		return true;
+	fgets ( sBuf, sizeof(sBuf), fp );
+	fclose ( fp );
+
+	char * p = sBuf;
+	while ( isspace(*p) )
+		p++;
+	if ( p[0]=='#' && p[1]=='!' )
+	{
+		p += 2;
+
+		CSphVector<char> dContent;
+		char sError [ 1024 ];
+		if ( !TryToExec ( p, g_sConfigFile.cstr(), dContent, sError, sizeof(sError) ) )
+			return true;
+
+		uCRC32 = sphCRC32 ( (const BYTE*)dContent.Begin(), dContent.GetLength() );
+	} else
+		sphCalcFileCRC32 ( g_sConfigFile.cstr (), uCRC32 );
+#else
 	sphCalcFileCRC32 ( g_sConfigFile.cstr (), uCRC32 );
+#endif
 
 	if ( g_uCfgCRC32==uCRC32 && tStat.st_size==g_tCfgStat.st_size
 		&& tStat.st_mtime==g_tCfgStat.st_mtime && tStat.st_ctime==g_tCfgStat.st_ctime )
@@ -18319,13 +18445,29 @@ void ReloadIndexSettings ( CSphConfigParser & tCP )
 
 			nChecked++;
 
-		} else if ( AddIndex ( sIndexName, hIndex )==ADD_LOCAL )
+		} else
 		{
-			ServedIndex_t * pIndex = g_pLocalIndexes->GetWlockedEntry ( sIndexName );
-			if ( pIndex )
+			ESphAddIndex eType = AddIndex ( sIndexName, hIndex );
+			if ( eType==ADD_LOCAL )
 			{
-				pIndex->m_bOnlyNew = true;
-				pIndex->Unlock();
+				ServedIndex_t * pIndex = g_pLocalIndexes->GetWlockedEntry ( sIndexName );
+
+				if ( pIndex )
+				{
+					pIndex->m_bOnlyNew = true;
+					pIndex->Unlock();
+				}
+			} else if ( eType==ADD_RT )
+			{
+				ServedIndex_t & tIndex = g_pLocalIndexes->GetUnlockedEntry ( sIndexName );
+
+				tIndex.m_bOnlyNew = false;
+				if ( PrereadNewIndex ( tIndex, hIndex, sIndexName ) )
+					tIndex.m_bEnabled = true;
+
+				CSphString sError;
+				if ( tIndex.m_bEnabled && !CheckIndex ( tIndex.m_pIndex, sError ) )
+					tIndex.m_bEnabled = false;
 			}
 		}
 	}
@@ -18439,6 +18581,12 @@ void CheckRotate ()
 			const char * sIndex = it.GetKey().cstr();
 			assert ( tIndex.m_pIndex );
 
+			if ( tIndex.m_bRT )
+			{
+				tIndex.Unlock();
+				continue;
+			}
+
 			bool bWasAdded = tIndex.m_bOnlyNew;
 			RotateIndexGreedy ( tIndex, sIndex );
 			if ( bWasAdded && tIndex.m_bEnabled )
@@ -18522,6 +18670,8 @@ void CheckRotate ()
 	{
 		g_iRotateCount = Max ( 0, g_iRotateCount-1 );
 		sphWarning ( "nothing to rotate after SIGHUP ( in queue=%d )", g_iRotateCount );
+	} else
+	{
 		g_bInvokeRotationService = true;
 	}
 
@@ -18577,31 +18727,12 @@ void CheckReopen ()
 }
 
 
-static void SaveIndexes ()
-{
-	CSphString sError;
-	for ( IndexHashIterator_c it ( g_pLocalIndexes ); it.Next(); )
-	{
-		const ServedIndex_t & tServed = it.Get();
-		tServed.ReadLock();
-		if ( tServed.m_bEnabled )
-		{
-			if ( !tServed.m_pIndex->SaveAttributes ( sError ) )
-				sphWarning ( "index %s: attrs save failed: %s", it.GetKey().cstr(), sError.cstr() );
-		}
-		tServed.Unlock();
-	}
-}
-
-
 static void ThdSaveIndexes ( void * )
 {
 	SaveIndexes ();
 
 	// we're no more flushing
-	g_tFlushMutex.Lock();
 	g_pFlush->m_bFlushing = false;
-	g_tFlushMutex.Unlock();
 }
 
 #if !USE_WINDOWS
@@ -19107,9 +19238,9 @@ bool SetWatchDog ( int iDevNull )
 			if ( WIFEXITED ( iStatus ) )
 			{
 				int iExit = WEXITSTATUS ( iStatus );
-				if ( iExit==2 ) // really crash
+				if ( iExit==2 || iExit==6 ) // really crash
 				{
-					sphInfo ( "Child process %d has been finished by CRASH_EXIT (exit code 2), %s", iPid, sWillRestart );
+					sphInfo ( "Child process %d has been finished by CRASH_EXIT (exit code %d), %s", iPid, iExit, sWillRestart );
 					iReincarnate = -1;
 				} else
 				{
@@ -19940,9 +20071,9 @@ void ConfigureAndPreload ( const CSphConfig & hConf, const CSphVector<const char
 			fflush ( stdout );
 			tIndex.m_pIndex->SetProgressCallback ( ShowProgress );
 
-			if ( HasFiles ( tIndex, g_dNewExts ) )
+			if ( HasFiles ( tIndex, sphGetExts ( SPH_EXT_NEW ) ) )
 			{
-				tIndex.m_bOnlyNew = !HasFiles ( tIndex, g_dCurExts );
+				tIndex.m_bOnlyNew = !HasFiles ( tIndex, sphGetExts ( SPH_EXT_CUR ) );
 				if ( RotateIndexGreedy ( tIndex, sIndexName ) )
 				{
 					CSphString sError;
@@ -20109,7 +20240,7 @@ int WINAPI ServiceMain ( int argc, char **argv )
 		// handle no-arg options
 		OPT ( "-h", "--help" )		{ ShowHelp(); return 0; }
 		OPT ( "-?", "--?" )			{ ShowHelp(); return 0; }
-		OPT1 ( "--console" )		{ g_eWorkers = MPM_NONE; g_bOptNoLock = true; g_bOptNoDetach = true; }
+		OPT1 ( "--console" )		{ g_eWorkers = MPM_NONE; g_bOptNoLock = true; g_bOptNoDetach = true; bTestMode = true; }
 		OPT1 ( "--stop" )			bOptStop = true;
 		OPT1 ( "--stopwait" )		{ bOptStop = true; bOptStopWait = true; }
 		OPT1 ( "--status" )			bOptStatus = true;
@@ -20460,7 +20591,7 @@ int WINAPI ServiceMain ( int argc, char **argv )
 	const CSphConfigSection & hSearchd = hConf["searchd"]["searchd"];
 
 	// handle my signals
-	SetSignalHandlers ();
+	SetSignalHandlers ( g_bOptNoDetach );
 
 	// create logs
 	if ( !g_bOptNoLock )
@@ -20579,7 +20710,7 @@ int WINAPI ServiceMain ( int argc, char **argv )
 	///////////
 
 	if ( g_eWorkers==MPM_THREADS )
-		sphRTInit();
+		sphRTInit ( hSearchd, bTestMode );
 
 	if ( hSearchd.Exists ( "snippets_file_prefix" ) )
 		g_sSnippetsFilePrefix = hSearchd["snippets_file_prefix"].cstr();
@@ -20662,7 +20793,7 @@ int WINAPI ServiceMain ( int argc, char **argv )
 		snprintf ( sPid, sizeof(sPid), "%d\n", (int)getpid() );
 		int iPidLen = strlen(sPid);
 
-		lseek ( g_iPidFD, 0, SEEK_SET );
+		sphSeek ( g_iPidFD, 0, SEEK_SET );
 		if ( !sphWrite ( g_iPidFD, sPid, iPidLen ) )
 			sphFatal ( "failed to write to pid file '%s' (errno=%d, msg=%s)", g_sPidFile,
 				errno, strerror(errno) );
@@ -20759,9 +20890,6 @@ int WINAPI ServiceMain ( int argc, char **argv )
 	}
 #endif
 
-	if ( !g_tRotateQueueMutex.Init() || !g_tRotateConfigMutex.Init() )
-		sphDie ( "failed to init rotations mutexes" );
-
 	// in threaded mode, create a dedicated rotation thread
 	if ( g_eWorkers==MPM_THREADS )
 	{
@@ -20770,8 +20898,6 @@ int WINAPI ServiceMain ( int argc, char **argv )
 
 		// reserving max to keep memory consumption constant between frames
 		g_dThd.Reserve ( Max ( g_iMaxChildren*2, 64 ) );
-
-		g_tFlushMutex.Init();
 	}
 
 	// replay last binlog
@@ -20786,6 +20912,9 @@ int WINAPI ServiceMain ( int argc, char **argv )
 	if ( !g_bOptNoDetach )
 		g_bLogStdout = false;
 
+	if ( g_bIOStats && !sphInitIOStats () )
+		sphWarning ( "unable to init IO statistics" );
+
 	// threads mode
 	// create optimize and flush threads, and load saved sphinxql state
 	if ( g_eWorkers==MPM_THREADS )
@@ -20793,15 +20922,10 @@ int WINAPI ServiceMain ( int argc, char **argv )
 		if ( !sphThreadCreate ( &g_tRtFlushThread, RtFlushThreadFunc, 0 ) )
 			sphDie ( "failed to create rt-flush thread" );
 
-	if ( g_bIOStats && !sphInitIOStats () )
-		sphWarning ( "unable to init IO statistics" );
-
 		if ( !sphThreadCreate ( &g_tOptimizeThread, OptimizeThreadFunc, 0 ) )
 			sphDie ( "failed to create optimize thread" );
 
 		g_tOptimizeQueueMutex.Init();
-
-		g_tUservarsMutex.Init();
 
 		g_sSphinxqlState = hSearchd.GetStr ( "sphinxql_state" );
 		if ( !g_sSphinxqlState.IsEmpty() )
@@ -20840,8 +20964,8 @@ int WINAPI ServiceMain ( int argc, char **argv )
 
 	// almost ready, time to start listening
 	int iBacklog = hSearchd.GetInt ( "listen_backlog", SEARCHD_BACKLOG );
-	ARRAY_FOREACH ( i, g_dListeners )
-		if ( listen ( g_dListeners[i].m_iSock, iBacklog )==-1 )
+	ARRAY_FOREACH ( j, g_dListeners )
+		if ( listen ( g_dListeners[j].m_iSock, iBacklog )==-1 )
 			sphFatal ( "listen() failed: %s", sphSockError() );
 
 	sphInfo ( "accepting connections" );
@@ -20868,7 +20992,7 @@ extern UservarIntSet_c * ( *g_pUservarsHook )( const CSphString & sUservar );
 
 UservarIntSet_c * UservarsHook ( const CSphString & sUservar )
 {
-	CSphScopedLock<CSphMutex> tLock ( g_tUservarsMutex );
+	CSphScopedLock<StaticThreadsOnlyMutex_t> tLock ( g_tUservarsMutex );
 
 	Uservar_t * pVar = g_hUservars ( sUservar );
 	if ( !pVar )
@@ -20928,8 +21052,6 @@ int main ( int argc, char **argv )
 	return ServiceMain ( argc, argv );
 }
 
-
-
 //
-// $Id: searchd.cpp 3701 2013-02-20 18:10:18Z deogar $
+// $Id: searchd.cpp 4357 2013-11-22 07:17:37Z kevg $
 //

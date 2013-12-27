@@ -1,5 +1,5 @@
 //
-// $Id: sphinxstd.cpp 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxstd.cpp 4048 2013-07-31 15:31:59Z kevg $
 //
 
 //
@@ -992,8 +992,8 @@ struct ThreadCall_t
 #endif
 	ThreadCall_t *	m_pNext;
 };
-SphThreadKey_t g_tThreadCleanupKey;
-SphThreadKey_t g_tMyThreadStack;
+static SphThreadKey_t g_tThreadCleanupKey;
+static SphThreadKey_t g_tMyThreadStack;
 
 
 #if USE_WINDOWS
@@ -1732,5 +1732,5 @@ DWORD sphCRC32 ( const BYTE * pString, int iLen, DWORD uPrevCRC )
 }
 
 //
-// $Id: sphinxstd.cpp 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxstd.cpp 4048 2013-07-31 15:31:59Z kevg $
 //

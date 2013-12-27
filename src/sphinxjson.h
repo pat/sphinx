@@ -3,8 +3,8 @@
 //
 
 //
-// Copyright (c) 2011, Andrew Aksyonoff
-// Copyright (c) 2011, Sphinx Technologies Inc
+// Copyright (c) 2011-2013, Andrew Aksyonoff
+// Copyright (c) 2011-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -27,6 +27,8 @@ enum ESphJsonType
 	JSON_DOUBLE			= 3,
 	JSON_STRING			= 4,
 	JSON_STRING_VECTOR	= 5,
+
+	JSON_TOTAL
 };
 
 
@@ -91,7 +93,7 @@ bool sphJsonParse ( CSphVector<BYTE> & dData, char * sData, bool bAutoconv, bool
 void sphJsonFormat ( CSphVector<BYTE> & dOut, const BYTE * pData );
 
 /// convert SphinxBSON blob back to JSON document
-const BYTE * sphJsonFieldFormat ( CSphVector<BYTE> & dOut, const BYTE * pData, ESphJsonType eType );
+const BYTE * sphJsonFieldFormat ( CSphVector<BYTE> & dOut, const BYTE * pData, ESphJsonType eType, bool bQuoteString=true );
 
 /// compute key mask (for Bloom filtering) from the key name
 DWORD sphJsonKeyMask ( const char * sKey );

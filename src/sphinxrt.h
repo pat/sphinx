@@ -1,5 +1,5 @@
 //
-// $Id: sphinxrt.h 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxrt.h 3737 2013-03-14 14:09:23Z klirichek $
 //
 
 //
@@ -67,7 +67,7 @@ public:
 
 /// initialize subsystem
 class CSphConfigSection;
-void sphRTInit ();
+void sphRTInit ( const CSphConfigSection & hSearchd, bool bTestMode );
 void sphRTConfigure ( const CSphConfigSection & hSearchd, bool bTestMode );
 bool sphRTSchemaConfigure ( const CSphConfigSection & hIndex, CSphSchema * pSchema, CSphString * pError );
 
@@ -95,5 +95,5 @@ void sphReplayBinlog ( const SmallStringHash_T<CSphIndex*> & hIndexes, DWORD uRe
 #endif // _sphinxrt_
 
 //
-// $Id: sphinxrt.h 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxrt.h 3737 2013-03-14 14:09:23Z klirichek $
 //

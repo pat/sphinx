@@ -1,5 +1,5 @@
 //
-// $Id: indexer.cpp 3701 2013-02-20 18:10:18Z deogar $
+// $Id: indexer.cpp 4396 2013-12-08 06:52:38Z tomat $
 //
 
 //
@@ -34,28 +34,30 @@
 
 /////////////////////////////////////////////////////////////////////////////
 
-bool			g_bQuiet		= false;
-bool			g_bProgress		= true;
-bool			g_bPrintQueries	= false;
-bool			g_bKeepAttrs	= false;
+static bool			g_bQuiet		= false;
+static bool			g_bProgress		= true;
+static bool			g_bPrintQueries	= false;
+static bool			g_bKeepAttrs	= false;
 
-const char *	g_sBuildStops	= NULL;
-int				g_iTopStops		= 100;
-bool			g_bRotate		= false;
-bool			g_bRotateEach	= false;
-bool			g_bBuildFreqs	= false;
+static const char *	g_sBuildStops	= NULL;
+static int				g_iTopStops		= 100;
+static bool			g_bRotate		= false;
+static bool			g_bRotateEach	= false;
+static bool			g_bBuildFreqs	= false;
 
-int				g_iMemLimit				= 32*1024*1024;
-int				g_iMaxXmlpipe2Field		= 0;
-int				g_iWriteBuffer			= 0;
-int				g_iMaxFileFieldBuffer	= 1024*1024;
+static int				g_iMemLimit				= 32*1024*1024;
+static int				g_iMaxXmlpipe2Field		= 0;
+static int				g_iWriteBuffer			= 0;
+static int				g_iMaxFileFieldBuffer	= 1024*1024;
 
-ESphOnFileFieldError	g_eOnFileFieldError = FFE_IGNORE_FIELD;
+static ESphOnFileFieldError	g_eOnFileFieldError = FFE_IGNORE_FIELD;
 
-const int		EXT_COUNT = 9;
-const char *	g_dExt[EXT_COUNT] = { "sph", "spa", "spi", "spd", "spp", "spm", "spk", "sps", "spe" };
+static const int		EXT_COUNT = 9;
+static const char *	g_dExt[EXT_COUNT] = { "sph", "spa", "spi", "spd", "spp", "spm", "spk", "sps", "spe" };
 
-char			g_sMinidump[256];
+#if USE_WINDOWS
+static char			g_sMinidump[256];
+#endif
 
 #define			ROTATE_MIN_INTERVAL 100000 // rotate interval 100 ms
 
@@ -434,7 +436,7 @@ void SqlAttrsConfigure ( CSphSourceParams_SQL & tParams, const CSphVariant * pHe
 
 
 #if USE_ZLIB
-bool ConfigureUnpack ( CSphVariant * pHead, ESphUnpackFormat eFormat, CSphSourceParams_SQL & tParams, const char * sSourceName )
+bool ConfigureUnpack ( CSphVariant * pHead, ESphUnpackFormat eFormat, CSphSourceParams_SQL & tParams, const char * )
 {
 	for ( CSphVariant * pVal = pHead; pVal; pVal = pVal->m_pNext )
 	{
@@ -601,7 +603,7 @@ bool SqlParamsConfigure ( CSphSourceParams_SQL & tParams, const CSphConfigSectio
 	SqlAttrsConfigure ( tParams,	hSource("sql_attr_str2wordcount"),	SPH_ATTR_WORDCOUNT,	sSourceName );
 
 	SqlAttrsConfigure ( tParams,	hSource("sql_field_string"),		SPH_ATTR_STRING,	sSourceName, true );
-	SqlAttrsConfigure ( tParams,	hSource("sql_field_str2wordcount"),	SPH_ATTR_STRING,	sSourceName, true );
+	SqlAttrsConfigure ( tParams,	hSource("sql_field_str2wordcount"),	SPH_ATTR_WORDCOUNT,	sSourceName, true );
 
 	LOC_GETA ( tParams.m_dFileFields,			"sql_file_field" );
 
@@ -734,6 +736,7 @@ CSphSource * SpawnSourceMSSQL ( const CSphConfigSection & hSource, const char * 
 	LOC_GETB ( tParams.m_bWinAuth, "mssql_winauth" );
 	LOC_GETB ( tParams.m_bUnicode, "mssql_unicode" );
 	LOC_GETS ( tParams.m_sColBuffers, "sql_column_buffers" );
+	LOC_GETS ( tParams.m_sOdbcDSN, "odbc_dsn" ); // a shortcut, may be used instead of other specific combination
 
 	CSphSource_MSSQL * pSrc = new CSphSource_MSSQL ( sSourceName );
 	if ( !pSrc->Setup ( tParams ) )
@@ -748,7 +751,11 @@ CSphSource * SpawnSourceXMLPipe ( const CSphConfigSection & hSource, const char 
 {
 	assert ( hSource["type"]=="xmlpipe" || hSource["type"]=="xmlpipe2" );
 
-	LOC_CHECK ( hSource, "xmlpipe_command", "in source '%s'.", sSourceName );
+	if (! ( hSource.Exists ( "xmlpipe_command" ) ))
+	{
+		fprintf ( stdout, "ERROR: key 'xmlpipe_command' not found in source '%s'\n", sSourceName );
+		return NULL;
+	}
 
 	CSphSource * pSrcXML = NULL;
 
@@ -958,7 +965,7 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName,
 
 		// aot filter
 		if ( tSettings.m_bAotFilter )
-			pTokenizer = sphAotCreateFilter ( pTokenizer, pDict );
+			pTokenizer = sphAotCreateFilter ( pTokenizer, pDict, tSettings.m_bIndexExactWords );
 	}
 
 	ISphFieldFilter * pFieldFilter = NULL;
@@ -1052,7 +1059,6 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName,
 			bGotAttrs = true;
 
 		// strip_html, index_html_attrs
-		CSphString sError;
 		if ( bStripOverride )
 		{
 			// apply per-index overrides
@@ -1115,7 +1121,6 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName,
 		CSphStopwordBuilderDict tDict;
 		ARRAY_FOREACH ( i, dSources )
 		{
-			CSphString sError;
 			dSources[i]->SetDict ( &tDict );
 			if ( !dSources[i]->Connect ( sError ) || !dSources[i]->IterateStart ( sError ) )
 			{
@@ -1167,13 +1172,14 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName,
 
 		tSettings.m_bVerbose = bVerbose;
 
-		if ( tSettings.m_bIndexExactWords && !pDict->HasMorphology () )
+		bool bNeedExact = ( pDict->HasMorphology() || pDict->GetWordformsFileInfos().GetLength() );
+		if ( tSettings.m_bIndexExactWords && !bNeedExact )
 		{
 			tSettings.m_bIndexExactWords = false;
-			fprintf ( stdout, "WARNING: index '%s': no morphology, index_exact_words=1 has no effect, ignoring\n", sIndexName );
+			fprintf ( stdout, "WARNING: index '%s': no morphology or wordforms, index_exact_words=1 has no effect, ignoring\n", sIndexName );
 		}
 
-		if ( tDictSettings.m_bWordDict && pDict->HasMorphology() && tSettings.m_iMinPrefixLen && !tSettings.m_bIndexExactWords )
+		if ( tDictSettings.m_bWordDict && pDict->HasMorphology() && ( tSettings.m_iMinPrefixLen || tSettings.m_iMinInfixLen ) && !tSettings.m_bIndexExactWords )
 		{
 			tSettings.m_bIndexExactWords = true;
 			fprintf ( stdout, "WARNING: index '%s': dict=keywords and prefixes and morphology enabled, forcing index_exact_words=1\n", sIndexName );
@@ -1835,9 +1841,9 @@ int main ( int argc, char ** argv )
 	hConf["index"].IterateStart();
 	while ( hConf["index"].IterateNext() )
 	{
-		ARRAY_FOREACH ( i, dWildIndexes )
+		ARRAY_FOREACH ( j, dWildIndexes )
 		{
-			if ( sphWildcardMatch ( hConf["index"].IterateGetKey().cstr(), dWildIndexes[i] ) )
+			if ( sphWildcardMatch ( hConf["index"].IterateGetKey().cstr(), dWildIndexes[j] ) )
 			{
 				dIndexes.Add ( hConf["index"].IterateGetKey().cstr() );
 				// do not add index twice
@@ -1879,13 +1885,13 @@ int main ( int argc, char ** argv )
 	} else
 	{
 		uint64_t tmRotated = sphMicroTimer();
-		ARRAY_FOREACH ( i, dIndexes )
+		ARRAY_FOREACH ( j, dIndexes )
 		{
-			if ( !hConf["index"](dIndexes[i]) )
-				fprintf ( stdout, "WARNING: no such index '%s', skipping.\n", dIndexes[i] );
+			if ( !hConf["index"](dIndexes[j]) )
+				fprintf ( stdout, "WARNING: no such index '%s', skipping.\n", dIndexes[j] );
 			else
 			{
-				bool bLastOk = DoIndex ( hConf["index"][dIndexes[i]], dIndexes[i], hConf["source"], bVerbose, fpDumpRows );
+				bool bLastOk = DoIndex ( hConf["index"][dIndexes[j]], dIndexes[j], hConf["source"], bVerbose, fpDumpRows );
 				bIndexedOk |= bLastOk;
 				if ( bLastOk && ( sphMicroTimer() - tmRotated > ROTATE_MIN_INTERVAL ) && SendRotate ( hConf, false ) )
 					tmRotated = sphMicroTimer();
@@ -1922,5 +1928,5 @@ int main ( int argc, char ** argv )
 }
 
 //
-// $Id: indexer.cpp 3701 2013-02-20 18:10:18Z deogar $
+// $Id: indexer.cpp 4396 2013-12-08 06:52:38Z tomat $
 //

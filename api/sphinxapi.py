@@ -1,5 +1,5 @@
 #
-# $Id: sphinxapi.py 3701 2013-02-20 18:10:18Z deogar $
+# $Id: sphinxapi.py 4362 2013-11-25 07:12:52Z tomat $
 #
 # Python version of Sphinx searchd client (Python API)
 #
@@ -1169,7 +1169,7 @@ class SphinxClient:
 		self._socket = None
 	
 	def EscapeString(self, string):
-		return re.sub(r"([=\(\)|\-!@~\"&/\\\^\$\=])", r"\\\1", string)
+		return re.sub(r"([=\(\)|\-!@~\"&/\\\^\$\=\<])", r"\\\1", string)
 
 
 	def FlushAttributes(self):
@@ -1207,5 +1207,5 @@ def SetBit ( flag, bit, on ):
 
 	
 #
-# $Id: sphinxapi.py 3701 2013-02-20 18:10:18Z deogar $
+# $Id: sphinxapi.py 4362 2013-11-25 07:12:52Z tomat $
 #

@@ -1,5 +1,5 @@
 //
-// $Id: sphinxint.h 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxint.h 4368 2013-11-26 14:38:35Z tomat $
 //
 
 //
@@ -107,6 +107,7 @@ struct CSphQueryStats
 	SPH_QUERY_STATE ( IO,			"io" ) \
 	SPH_QUERY_STATE ( DIST_CONNECT,	"dist_connect" ) \
 	SPH_QUERY_STATE ( SQL_PARSE,	"sql_parse" ) \
+	SPH_QUERY_STATE ( FULLSCAN,		"fullscan" ) \
 	SPH_QUERY_STATE ( DICT_SETUP,	"dict_setup" ) \
 	SPH_QUERY_STATE ( PARSE,		"parse" ) \
 	SPH_QUERY_STATE ( TRANSFORMS,	"transforms" ) \
@@ -153,6 +154,8 @@ public:
 	int64_t			m_tmTotal [ SPH_QSTATE_TOTAL+1 ];	///< total time spent per state
 	CSphQueryStats	m_tStats;							///< query prediction counters
 	bool			m_bHasPrediction;					///< is prediction counters set?
+
+	CSphStringBuilder	m_sTransformedTree;					///< transformed query tree
 
 public:
 	/// create empty and stopped profile
@@ -376,6 +379,38 @@ public:
 };
 
 //////////////////////////////////////////////////////////////////////////
+
+/// generic COM-like uids
+enum ExtraData_e
+{
+	EXTRA_GET_DATA_ZONESPANS,
+	EXTRA_GET_DATA_ZONESPANLIST,
+	EXTRA_GET_DATA_RANKFACTORS,
+	EXTRA_GET_DATA_PACKEDFACTORS,
+	EXTRA_GET_DATA_RANKER_STATE,
+	EXTRA_SET_MVAPOOL,
+	EXTRA_SET_STRINGPOOL,
+	EXTRA_SET_MAXMATCHES,
+	EXTRA_SET_MATCHPUSHED,
+	EXTRA_SET_MATCHPOPPED
+};
+
+/// generic COM-like interface
+class ISphExtra
+{
+public:
+	virtual						~ISphExtra () {}
+	inline bool					ExtraData	( ExtraData_e eType, void** ppData )
+	{
+		return ExtraDataImpl ( eType, ppData );
+	}
+private:
+	virtual bool ExtraDataImpl ( ExtraData_e, void** )
+	{
+		return false;
+	}
+};
+
 
 /// per-query search context
 /// everything that index needs to compute/create to process the query
@@ -628,9 +663,9 @@ void AttrIndexBuilder_t<DOCID>::FlushComputed ()
 {
 	assert ( m_pOutBuffer );
 	DWORD * pMinEntry = m_pOutBuffer + 2 * m_uElements * m_uStride;
-	DWORD * pMinAttrs = DOCINFO2ATTRS ( pMinEntry );
 	DWORD * pMaxEntry = pMinEntry + m_uStride;
-	DWORD * pMaxAttrs = pMinAttrs + m_uStride;
+	CSphRowitem * pMinAttrs = DOCINFO2ATTRS_T<DOCID> ( pMinEntry );
+	CSphRowitem * pMaxAttrs = pMinAttrs + m_uStride;
 
 	assert ( pMaxEntry+m_uStride<=m_pOutMax );
 	assert ( pMaxAttrs+m_uStride-DOCINFO_IDSIZE<=m_pOutMax );
@@ -698,6 +733,7 @@ AttrIndexBuilder_t<DOCID>::AttrIndexBuilder_t ( const CSphSchema & tSchema )
 		case SPH_ATTR_TIMESTAMP:
 		case SPH_ATTR_BOOL:
 		case SPH_ATTR_BIGINT:
+		case SPH_ATTR_TOKENCOUNT:
 			m_dIntAttrs.Add ( tCol.m_tLocator );
 			break;
 
@@ -742,6 +778,8 @@ void AttrIndexBuilder_t<DOCID>::Prepare ( DWORD * pOutBuffer, DWORD * pOutMax )
 {
 	m_pOutBuffer = pOutBuffer;
 	m_pOutMax = pOutMax;
+	memset ( pOutBuffer, 0, ( pOutMax-pOutBuffer )*sizeof(DWORD) );
+
 	m_uElements = 0;
 	m_uIndexStart = m_uIndexLast = 0;
 	ARRAY_FOREACH ( i, m_dIntIndexMin )
@@ -866,8 +904,8 @@ void AttrIndexBuilder_t<DOCID>::FinishCollect ()
 	DWORD * pMinEntry = m_pOutBuffer + 2 * m_uElements * m_uStride;
 	DWORD * pMaxEntry = pMinEntry + m_uStride;
 	CSphRowitem * pMinAttrs = DOCINFO2ATTRS_T<DOCID> ( pMinEntry );
-	CSphRowitem * pMaxAttrs = DOCINFO2ATTRS_T<DOCID> ( pMaxEntry );
-
+	CSphRowitem * pMaxAttrs = pMinAttrs + m_uStride;
+	
 	assert ( pMaxEntry+m_uStride<=m_pOutMax );
 	assert ( pMaxAttrs+m_uStride-DWSIZEOF(DOCID)<=m_pOutMax );
 
@@ -977,6 +1015,8 @@ inline int FindBit ( DWORD uValue )
 // INLINES, UTF-8 TOOLS
 //////////////////////////////////////////////////////////////////////////
 
+#define SPH_MAX_UTF8_BYTES 4
+
 /// decode UTF-8 codepoint
 /// advances buffer ptr in all cases but end of buffer
 ///
@@ -1003,7 +1043,7 @@ inline int sphUTF8Decode ( BYTE * & pBuf )
 	}
 
 	// check for valid number of bytes
-	if ( iBytes<2 || iBytes>4 )
+	if ( iBytes<2 || iBytes>SPH_MAX_UTF8_BYTES )
 		return -1;
 
 	int iCode = ( v >> iBytes );
@@ -1036,7 +1076,7 @@ inline int sphUTF8Decode ( BYTE * & pBuf )
 		_ptr[0] = (BYTE)( ( ((_code)>>6) & 0x1F ) | 0xC0 ); \
 		_ptr[1] = (BYTE)( ( (_code) & 0x3F ) | 0x80 ); \
 		_ptr += 2; \
-	} else if ( (_code)<0x8000 )\
+	} else if ( (_code)<0x10000 )\
 	{ \
 		_ptr[0] = (BYTE)( ( ((_code)>>12) & 0x0F ) | 0xE0 ); \
 		_ptr[1] = (BYTE)( ( ((_code)>>6) & 0x3F ) | 0x80 ); \
@@ -1067,7 +1107,7 @@ inline int sphUTF8Encode ( BYTE * pBuf, int iCode )
 		pBuf[1] = (BYTE)( ( iCode & 0x3F ) | 0x80 );
 		return 2;
 
-	} else if ( iCode<0x8000 )
+	} else if ( iCode<0x10000 )
 	{
 		pBuf[0] = (BYTE)( ( (iCode>>12) & 0x0F ) | 0xE0 );
 		pBuf[1] = (BYTE)( ( (iCode>>6) & 0x3F ) | 0x80 );
@@ -1147,6 +1187,84 @@ public:
 	virtual ~ISphZoneCheck () {}
 	virtual SphZoneHit_e IsInZone ( int iZone, const ExtHit_t * pHit, int * pLastSpan=0 ) = 0;
 };
+
+
+struct SphFactorHashEntry_t
+{
+	SphDocID_t				m_iId;
+	int						m_iRefCount;
+	BYTE *					m_pData;
+	SphFactorHashEntry_t *	m_pPrev;
+	SphFactorHashEntry_t *	m_pNext;
+};
+
+typedef CSphTightVector<SphFactorHashEntry_t *> SphFactorHash_t;
+
+
+struct SphExtraDataRankerState_t
+{
+	const CSphSchema *	m_pSchema;
+	const int64_t *		m_pFieldLens;
+	CSphAttrLocator		m_tFieldLensLoc;
+	int64_t				m_iTotalDocuments;
+	int					m_iFields;
+	int					m_iMaxQpos;
+	SphExtraDataRankerState_t ()
+		: m_pSchema ( NULL )
+		, m_pFieldLens ( NULL )
+		, m_iTotalDocuments ( 0 )
+		, m_iFields ( 0 )
+		, m_iMaxQpos ( 0 )
+	{ }
+};
+
+
+struct MatchSortAccessor_t
+{
+	typedef CSphMatch T;
+	typedef CSphMatch * MEDIAN_TYPE;
+
+	CSphMatch m_tMedian;
+
+	MatchSortAccessor_t () {}
+	MatchSortAccessor_t ( const MatchSortAccessor_t & ) {}
+
+	virtual ~MatchSortAccessor_t()
+	{
+		m_tMedian.m_pDynamic = NULL; // not yours
+	}
+
+	MEDIAN_TYPE Key ( CSphMatch * a ) const
+	{
+		return a;
+	}
+
+	void CopyKey ( MEDIAN_TYPE * pMed, CSphMatch * pVal )
+	{
+		*pMed = &m_tMedian;
+		m_tMedian.m_iDocID = pVal->m_iDocID;
+		m_tMedian.m_iWeight = pVal->m_iWeight;
+		m_tMedian.m_pStatic = pVal->m_pStatic;
+		m_tMedian.m_pDynamic = pVal->m_pDynamic;
+		m_tMedian.m_iTag = pVal->m_iTag;
+	}
+
+	void Swap ( T * a, T * b ) const
+	{
+		::Swap ( *a, *b );
+	}
+
+	T * Add ( T * p, int i ) const
+	{
+		return p+i;
+	}
+
+	int Sub ( T * b, T * a ) const
+	{
+		return (int)(b-a);
+	}
+};
+
 
 //////////////////////////////////////////////////////////////////////////
 // INLINES, MISC
@@ -1278,12 +1396,14 @@ public:
 	virtual int			SetMorphology ( const char * szMorph, bool bUseUTF8, CSphString & sMessage ) { return m_pDict->SetMorphology ( szMorph, bUseUTF8, sMessage ); }
 
 	virtual SphWordID_t	GetWordID ( const BYTE * pWord, int iLen, bool bFilterStops ) { return m_pDict->GetWordID ( pWord, iLen, bFilterStops ); }
+	virtual SphWordID_t GetWordID ( BYTE * ) { assert ( 0 && "not implemented" ); return 0; }
 
 	virtual void		Setup ( const CSphDictSettings & ) {}
 	virtual const CSphDictSettings & GetSettings () const { return m_pDict->GetSettings (); }
 	virtual const CSphVector <CSphSavedFile> & GetStopwordsFileInfos () { return m_pDict->GetStopwordsFileInfos (); }
 	virtual const CSphVector <CSphSavedFile> & GetWordformsFileInfos () { return m_pDict->GetWordformsFileInfos (); }
 	virtual const CSphMultiformContainer * GetMultiWordforms () const { return m_pDict->GetMultiWordforms (); }
+	virtual const CSphWordforms * GetWordforms() { return m_pDict->GetWordforms(); }
 
 	virtual bool IsStopWord ( const BYTE * pWord ) const { return m_pDict->IsStopWord ( pWord ); }
 
@@ -1423,15 +1543,15 @@ bool			sphIsSortStringInternal ( const char * sColumnName );
 /// make string lowercase but keep case of JSON.field
 void			sphColumnToLowercase ( char * sVal );
 
-void			sphCheckWordStats ( const SmallStringHash_T<CSphQueryResultMeta::WordStat_t> & hDst, const SmallStringHash_T<CSphQueryResultMeta::WordStat_t> & hSrc, const char * sIndex, CSphString & sWarning );
 bool			sphCheckQueryHeight ( const struct XQNode_t * pRoot, CSphString & sError );
 void			sphTransformExtendedQuery ( XQNode_t ** ppNode, const CSphIndexSettings & tSettings, bool bHasBooleanOptimization, const ISphKeywordsStat * pKeywords );
-void			TransformAotFilter ( XQNode_t * pNode, bool bUtf8, const CSphWordforms * pWordforms );
-bool			sphMerge ( const CSphIndex * pDst, const CSphIndex * pSrc, ISphFilter * pFilter, CSphString & sError, CSphIndexProgress & tProgress, ThrottleState_t * pThrottle );
+void			TransformAotFilter ( XQNode_t * pNode, bool bUtf8, const CSphWordforms * pWordforms, const CSphIndexSettings& tSettings );
+bool			sphMerge ( const CSphIndex * pDst, const CSphIndex * pSrc, ISphFilter * pFilter, CSphString & sError, CSphIndexProgress & tProgress, ThrottleState_t * pThrottle, volatile bool * pForceTerminate );
 CSphString		sphReconstructNode ( const XQNode_t * pNode, const CSphSchema * pSchema );
 
 void			sphSetUnlinkOld ( bool bUnlink );
 void			sphUnlinkIndex ( const char * sName, bool bForce );
+void			sphSetDebugCheck ();
 
 void			WriteSchema ( CSphWriter & fdInfo, const CSphSchema & tSchema );
 void			ReadSchema ( CSphReader & rdInfo, CSphSchema & m_tSchema, DWORD uVersion, bool bDynamic );
@@ -1443,6 +1563,33 @@ void			SaveDictionarySettings ( CSphWriter & tWriter, CSphDict * pDict, bool bFo
 void			LoadDictionarySettings ( CSphReader & tReader, CSphDictSettings & tSettings, CSphEmbeddedFiles & tEmbeddedFiles, DWORD uVersion, CSphString & sWarning );
 void			SaveFieldFilterSettings ( CSphWriter & tWriter, ISphFieldFilter * pFieldFilter );
 
+DWORD ReadVersion ( const char * sPath, CSphString & sError );
+
+// all indexes should produce same terms for same query
+struct SphWordStatChecker_t
+{
+	SphWordStatChecker_t () {}
+	void Set ( const SmallStringHash_T<CSphQueryResultMeta::WordStat_t> & hStat );
+	void DumpDiffer ( const SmallStringHash_T<CSphQueryResultMeta::WordStat_t> & hStat, const char * sIndex, CSphString & sWarning );
+
+	CSphVector<uint64_t> m_dSrcWords;
+};
+
+
+enum ESphExtType
+{
+	SPH_EXT_CUR,
+	SPH_EXT_NEW,
+	SPH_EXT_OLD,
+	SPH_EXT_LOC
+};
+
+const char ** sphGetExts ( ESphExtType eType, DWORD uVersion=INDEX_FORMAT_VERSION );
+
+int sphGetExtCount ( DWORD uVersion=INDEX_FORMAT_VERSION );
+
+const char * sphGetCurMvp();
+const char * sphGetOldMvp();
 
 int sphDictCmp ( const char * pStr1, int iLen1, const char * pStr2, int iLen2 );
 int sphDictCmpStrictly ( const char * pStr1, int iLen1, const char * pStr2, int iLen2 );
@@ -1623,6 +1770,7 @@ const char *		sphArenaInit ( int iMaxBytes );
 
 #if USE_WINDOWS
 void localtime_r ( const time_t * clock, struct tm * res );
+void gmtime_r ( const time_t * clock, struct tm * res );
 #endif
 
 struct InfixBlock_t
@@ -1821,5 +1969,5 @@ public:
 #endif // _sphinxint_
 
 //
-// $Id: sphinxint.h 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxint.h 4368 2013-11-26 14:38:35Z tomat $
 //

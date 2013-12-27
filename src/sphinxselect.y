@@ -17,6 +17,8 @@
 %token SEL_MAX
 %token SEL_MIN
 %token SEL_SUM
+%token SEL_GROUP_CONCAT
+%token SEL_GROUPBY
 %token SEL_COUNT
 %token SEL_WEIGHT
 %token SEL_DISTINCT
@@ -24,6 +26,8 @@
 %token SEL_COMMENT_OPEN
 %token SEL_COMMENT_CLOSE
 
+%token TOK_DIV
+%token TOK_MOD
 %token TOK_NEG
 %token TOK_LTE
 %token TOK_GTE
@@ -38,7 +42,7 @@
 %left TOK_EQ TOK_NE
 %left '<' '>' TOK_LTE TOK_GTE
 %left '+' '-'
-%left '*' '/'
+%left '*' '/' TOK_DIV '%' TOK_MOD
 %nonassoc TOK_NEG
 %nonassoc TOK_NOT
 
@@ -71,6 +75,8 @@ select_expr:
 	| SEL_MAX '(' expr ')' 		{ pParser->AddItem ( &$3, SPH_AGGR_MAX, &$1, &$4 ); }
 	| SEL_MIN '(' expr ')' 		{ pParser->AddItem ( &$3, SPH_AGGR_MIN, &$1, &$4 ); }
 	| SEL_SUM '(' expr ')' 		{ pParser->AddItem ( &$3, SPH_AGGR_SUM, &$1, &$4 ); }
+	| SEL_GROUP_CONCAT '(' expr ')'		{ pParser->AddItem ( &$3, SPH_AGGR_CAT, &$1, &$4 ); }
+	| SEL_GROUPBY '(' ')'		{ pParser->AddItem ( "groupby()", &$1, &$3 ); }
 	| SEL_COUNT '(' '*' ')' 	{ pParser->AddItem ( "count(*)", &$1, &$4 ); }
 	| SEL_WEIGHT '(' ')' 		{ pParser->AddItem ( "weight()", &$1, &$3 ); }
 	| SEL_COUNT '(' SEL_DISTINCT SEL_TOKEN ')' 
@@ -88,8 +94,11 @@ expr:
 	| expr '/' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
 	| expr '<' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
 	| expr '>' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| expr '|' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
 	| expr '&' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
+	| expr '|' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
+	| expr '%' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
+	| expr TOK_DIV expr			{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
+	| expr TOK_MOD expr			{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
 	| expr TOK_LTE expr			{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
 	| expr TOK_GTE expr			{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
 	| expr TOK_EQ expr			{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
@@ -116,9 +125,15 @@ arglist:
 	arg
 	| arglist ',' arg
 	;
+
+consthash:
+	SEL_TOKEN TOK_EQ SEL_TOKEN
+	| consthash ',' SEL_TOKEN TOK_EQ SEL_TOKEN
+	;	
 	
 arg:
 	expr
+	| '{' consthash '}'
 	| TOK_CONST_STRING
 	;
 

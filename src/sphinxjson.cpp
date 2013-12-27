@@ -3,8 +3,8 @@
 //
 
 //
-// Copyright (c) 2011, Andrew Aksyonoff
-// Copyright (c) 2011, Sphinx Technologies Inc
+// Copyright (c) 2011-2013, Andrew Aksyonoff
+// Copyright (c) 2011-2013, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -32,6 +32,7 @@ struct JsonNode_t
 	CSphVector<CSphString>	m_dValue; // !COMMIT warning! slow!! implement Swap!!!
 
 	JsonNode_t ()
+		: m_eType ( JSON_TOTAL )
 	{}
 };
 #define YYSTYPE JsonNode_t
@@ -341,7 +342,7 @@ ESphJsonType sphJsonFindKey ( const BYTE ** ppValue, const BYTE * pData, const J
 
 		// check if key matches
 		int iNameLen = sphJsonUnpackInt ( &p );
-		if ( iNameLen==tKey.m_iLen && tKey.m_uKey==sphFNV64 ( p, iNameLen, SPH_FNV64_SEED ) )
+		if ( iNameLen==tKey.m_iLen && !memcmp ( tKey.m_sKey.cstr(), p, tKey.m_iLen ) )
 		{
 			*ppValue = p + iNameLen;
 			return eType;
@@ -360,14 +361,12 @@ ESphJsonType sphJsonFindKey ( const BYTE ** ppValue, const BYTE * pData, const J
 			p += 8;
 			break;
 		case JSON_STRING:
-			iSkip = sphJsonUnpackInt ( &p );
-			p += iSkip;
-			break;
 		case JSON_STRING_VECTOR:
 			iSkip = sphJsonUnpackInt ( &p );
 			p += iSkip;
 			break;
 		case JSON_EOF:
+		default:
 			break;
 		}
 	}
@@ -375,11 +374,12 @@ ESphJsonType sphJsonFindKey ( const BYTE ** ppValue, const BYTE * pData, const J
 
 //////////////////////////////////////////////////////////////////////////
 
-static const BYTE * JsonFormatStr ( CSphVector<BYTE> & dOut, const BYTE * p )
+static const BYTE * JsonFormatStr ( CSphVector<BYTE> & dOut, const BYTE * p, bool bQuote=true )
 {
 	int iLen = sphJsonUnpackInt ( &p );
 	dOut.Reserve ( dOut.GetLength()+iLen );
-	dOut.Add ( '"' );
+	if ( bQuote )
+		dOut.Add ( '"' );
 	while ( iLen-- )
 	{
 		if ( *p=='"' )
@@ -387,7 +387,8 @@ static const BYTE * JsonFormatStr ( CSphVector<BYTE> & dOut, const BYTE * p )
 		dOut.Add ( *p );
 		p++;
 	}
-	dOut.Add ( '"' );
+	if ( bQuote )
+		dOut.Add ( '"' );
 	return p;
 }
 
@@ -421,7 +422,7 @@ void sphJsonFormat ( CSphVector<BYTE> & dOut, const BYTE * pData )
 	}
 }
 
-const BYTE * sphJsonFieldFormat ( CSphVector<BYTE> & dOut, const BYTE * pData, ESphJsonType eType )
+const BYTE * sphJsonFieldFormat ( CSphVector<BYTE> & dOut, const BYTE * pData, ESphJsonType eType, bool bQuoteString )
 {
 	const BYTE * p = pData;
 
@@ -432,7 +433,7 @@ const BYTE * sphJsonFieldFormat ( CSphVector<BYTE> & dOut, const BYTE * pData, E
 	{
 		int iOff = dOut.GetLength();
 		dOut.Resize ( iOff+32 );
-		int iLen = snprintf ( (char *)dOut.Begin()+iOff, 32, "%d", sphJsonLoadInt ( &p ) );
+		int iLen = snprintf ( (char *)dOut.Begin()+iOff, 32, "%d", sphJsonLoadInt ( &p ) ); // NOLINT
 		dOut.Resize ( iOff+iLen );
 		break;
 	}
@@ -440,7 +441,7 @@ const BYTE * sphJsonFieldFormat ( CSphVector<BYTE> & dOut, const BYTE * pData, E
 	{
 		int iOff = dOut.GetLength();
 		dOut.Resize ( iOff+32 );
-		int iLen = snprintf ( (char *)dOut.Begin()+iOff, 32, INT64_FMT, sphJsonLoadBigint ( &p ) );
+		int iLen = snprintf ( (char *)dOut.Begin()+iOff, 32, INT64_FMT, sphJsonLoadBigint ( &p ) ); // NOLINT
 		dOut.Resize ( iOff+iLen );
 		break;
 	}
@@ -448,12 +449,12 @@ const BYTE * sphJsonFieldFormat ( CSphVector<BYTE> & dOut, const BYTE * pData, E
 	{
 		int iOff = dOut.GetLength();
 		dOut.Resize ( iOff+32 );
-		int iLen = snprintf ( (char *)dOut.Begin()+iOff, 32, "%f", sphQW2D ( sphJsonLoadBigint ( &p ) ) );
+		int iLen = snprintf ( (char *)dOut.Begin()+iOff, 32, "%f", sphQW2D ( sphJsonLoadBigint ( &p ) ) ); // NOLINT
 		dOut.Resize ( iOff+iLen );
 		break;
 	}
 	case JSON_STRING:
-		p = JsonFormatStr ( dOut, p );
+		p = JsonFormatStr ( dOut, p, bQuoteString );
 		break;
 	case JSON_STRING_VECTOR:
 	{
@@ -473,8 +474,8 @@ const BYTE * sphJsonFieldFormat ( CSphVector<BYTE> & dOut, const BYTE * pData, E
 		dOut.Add ( ']' );
 		break;
 	}
-	case JSON_EOF:
-		break;
+	case JSON_EOF:		break;
+	case JSON_TOTAL:	assert(0); break;
 	}
 
 	return p;
@@ -502,8 +503,7 @@ bool sphJsonNameSplit ( const char * sName, CSphString * sColumn, CSphString * s
 
 
 JsonKey_t::JsonKey_t ()
-	: m_uKey ( 0 )
-	, m_uMask ( 0 )
+	: m_uMask ( 0 )
 	, m_iLen ( 0 )
 {}
 
@@ -512,7 +512,7 @@ JsonKey_t::JsonKey_t ( const char * sKey )
 {
 	m_uMask = sphJsonKeyMask ( sKey );
 	m_iLen = strlen ( sKey );
-	m_uKey = sphFNV64 ( (const BYTE *)sKey, m_iLen, SPH_FNV64_SEED );
+	m_sKey.SetBinary ( sKey, m_iLen );
 }
 
 

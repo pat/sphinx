@@ -1,5 +1,5 @@
 //
-// $Id: sphinxstd.h 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxstd.h 4241 2013-10-10 10:18:29Z tomat $
 //
 
 //
@@ -513,6 +513,8 @@ void sphSort ( T * pData, int iCount, U COMP, V ACC )
 		return;
 
 	typedef T * P;
+	// st0 and st1 are stacks with left and right bounds of array-part.
+	// They allow us to avoid recursion in quicksort implementation.
 	P st0[32], st1[32], a, b, i, j;
 	typename V::MEDIAN_TYPE x;
 	int k;
@@ -558,6 +560,8 @@ void sphSort ( T * pData, int iCount, U COMP, V ACC )
 			continue;
 		}
 
+		// ATTENTION! This copy can lead to memleaks if your CopyKey
+		// copies something which is not freed by objects destructor.
 		ACC.CopyKey ( &x, ACC.Add ( a, iLen/2 ) );
 		while ( a<b )
 		{
@@ -575,6 +579,8 @@ void sphSort ( T * pData, int iCount, U COMP, V ACC )
 				}
 			}
 
+			// Not so obvious optimization. We put smaller array-parts
+			// to the top of stack. That reduces peak stack size.
 			if ( ACC.Sub ( j, a )>=ACC.Sub ( b, i ) )
 			{
 				if ( a<j ) { st0[k] = a; st1[k] = j; k++; }
@@ -859,7 +865,8 @@ public:
 	/// resize
 	void Resize ( int iNewLength )
 	{
-		if ( (unsigned int)iNewLength>=(unsigned int)m_iLength )
+		assert ( iNewLength>=0 );
+		if ( iNewLength>=m_iLength )
 			Reserve ( iNewLength );
 		m_iLength = iNewLength;
 	}
@@ -899,10 +906,10 @@ public:
 
 		Sort ();
 
-		int iSrc = 0, iDst = 0;
+		int iSrc = 1, iDst = 1;
 		while ( iSrc<m_iLength )
 		{
-			if ( iDst>0 && m_pData[iDst-1]==m_pData[iSrc] )
+			if ( m_pData[iDst-1]==m_pData[iSrc] )
 				iSrc++;
 			else
 				m_pData[iDst++] = m_pData[iSrc++];
@@ -1014,18 +1021,16 @@ public:
 	/// insert into a middle
 	void Insert ( int iIndex, const T & tValue )
 	{
-		if ( iIndex==m_iLength )
-		{
-			Add ( tValue );
-			return;
-		}
+		assert ( iIndex>=0 && iIndex<=m_iLength );
 
 		if ( m_iLength>=m_iLimit )
 			Reserve ( m_iLength+1 );
 
-		memmove ( m_pData+iIndex+1, m_pData+iIndex, ( m_iLength++-iIndex ) * sizeof tValue );
-		memset ( m_pData+iIndex, 0, sizeof tValue );
+		// FIXME! this will not work for SwapVector
+		for ( int i=m_iLength-1; i>=iIndex; i-- )
+			m_pData [ i+1 ] = m_pData[i];
 		m_pData[iIndex] = tValue;
+		m_iLength++;
 	}
 
 protected:
@@ -1428,7 +1433,7 @@ public:
 		return *this;
 	}
 
-	/// copyint ctor
+	/// copying ctor
 	CSphOrderedHash<T,KEY,HASHFUNC,LENGTH> ( const CSphOrderedHash<T,KEY,HASHFUNC,LENGTH> & rhs )
 		: m_pFirstByOrder ( NULL )
 		, m_pLastByOrder ( NULL )
@@ -1765,6 +1770,174 @@ inline void Swap ( CSphString & v1, CSphString & v2 )
 {
 	v1.Swap ( v2 );
 }
+
+
+/// string builder
+/// somewhat quicker than a series of SetSprintf()s
+/// lets you build strings bigger than 1024 bytes, too
+class CSphStringBuilder
+{
+protected:
+	char *	m_sBuffer;
+	int		m_iSize;
+	int		m_iUsed;
+	bool	m_bFirstSeparator;
+
+public:
+	CSphStringBuilder ()
+	{
+		Reset ();
+	}
+
+	~CSphStringBuilder ()
+	{
+		SafeDeleteArray ( m_sBuffer );
+	}
+
+	void Reset ()
+	{
+		m_iSize = 256;
+		m_iUsed = 0;
+		m_sBuffer = new char [ m_iSize ];
+		m_sBuffer[0] = '\0';
+		m_bFirstSeparator = true;
+	}
+
+	CSphStringBuilder & Appendf ( const char * sTemplate, ... ) __attribute__ ( ( format ( printf, 2, 3 ) ) )
+	{
+		assert ( m_sBuffer );
+		assert ( m_iUsed<m_iSize );
+
+		for ( ;; )
+		{
+			int iLeft = m_iSize - m_iUsed;
+
+			// try to append
+			va_list ap;
+			va_start ( ap, sTemplate );
+			int iPrinted = vsnprintf ( m_sBuffer+m_iUsed, iLeft, sTemplate, ap );
+			va_end ( ap );
+
+			// success? bail
+			// note that we check for strictly less, not less or equal
+			// that is because vsnprintf does *not* count the trailing zero
+			// meaning that if we had N bytes left, and N bytes w/o the zero were printed,
+			// we do not have a trailing zero anymore, but vsnprintf succeeds anyway
+			if ( iPrinted>=0 && iPrinted<iLeft )
+			{
+				m_iUsed += iPrinted;
+				break;
+			}
+
+			// we need more chars!
+			// either 256 (happens on Windows; lets assume we need 256 more chars)
+			// or get all the needed chars and 64 more for future calls
+			Grow ( iPrinted<0 ? 256 : iPrinted - iLeft + 64 );
+		}
+		return *this;
+	}
+
+	void ResetSeparator ()
+	{
+		m_bFirstSeparator = true;
+	}
+
+	CSphStringBuilder & AppendSeparator ( const char * sSep )
+	{
+		if ( !m_bFirstSeparator )
+			*this += sSep;
+		m_bFirstSeparator = false;
+		return *this;
+	}
+
+	const char * cstr() const
+	{
+		return m_sBuffer;
+	}
+
+	int Length ()
+	{
+		return m_iUsed;
+	}
+
+	const CSphStringBuilder & operator += ( const char * sText )
+	{
+		if ( !sText || *sText=='\0' )
+			return *this;
+
+		int iLen = strlen ( sText );
+		int iLeft = m_iSize - m_iUsed;
+		if ( iLen>=iLeft )
+			Grow ( iLen - iLeft + 64 );
+
+		memcpy ( m_sBuffer+m_iUsed, sText, iLen+1 );
+		m_iUsed += iLen;
+		return *this;
+	}
+
+	const CSphStringBuilder & operator = ( const CSphStringBuilder & rhs )
+	{
+		if ( this!=&rhs )
+		{
+			m_iUsed = rhs.m_iUsed;
+			m_iSize = rhs.m_iSize;
+			m_bFirstSeparator = rhs.m_bFirstSeparator;
+			SafeDeleteArray ( m_sBuffer );
+			m_sBuffer = new char [ m_iSize ];
+			memcpy ( m_sBuffer, rhs.m_sBuffer, m_iUsed+1 );
+		}
+		return *this;
+	}
+
+	void AppendEscaped ( const char * sText, bool bEscape=true, bool bFixupSpace=true )
+	{
+		if ( !sText || !*sText )
+			return;
+
+		const char * pBuf = sText;
+		int iEsc = 0;
+		for ( ; *pBuf; )
+		{
+			char s = *pBuf++;
+			iEsc = ( bEscape && ( s=='\\' || s=='\'' ) ) ? ( iEsc+1 ) : iEsc;
+		}
+
+		int iLen = pBuf - sText + iEsc;
+		int iLeft = m_iSize - m_iUsed;
+		if ( iLen>=iLeft )
+			Grow ( iLen - iLeft + 64 );
+
+		pBuf = sText;
+		char * pCur = m_sBuffer+m_iUsed;
+		for ( ; *pBuf; )
+		{
+			char s = *pBuf++;
+			if ( bEscape && ( s=='\\' || s=='\'' ) )
+			{
+				*pCur++ = '\\';
+				*pCur++ = s;
+			} else if ( bFixupSpace && ( s==' ' || s=='\t' || s=='\n' || s=='\r' ) )
+			{
+				*pCur++ = ' ';
+			} else
+			{
+				*pCur++ = s;
+			}
+		}
+		*pCur = '\0';
+		m_iUsed = pCur-m_sBuffer;
+	}
+
+private:
+	void Grow ( int iLen )
+	{
+		m_iSize += iLen;
+		char * pNew = new char [ m_iSize ];
+		memcpy ( pNew, m_sBuffer, m_iUsed+1 );
+		Swap ( pNew, m_sBuffer );
+		SafeDeleteArray ( pNew );
+	}
+};
 
 /////////////////////////////////////////////////////////////////////////////
 
@@ -2597,7 +2770,7 @@ public:
 		m_iElements = iElements;
 		if ( iElements > int(sizeof(m_uStatic)*8) )
 		{
-			int iSize = (m_iElements+31)/32;
+			int iSize = GetSize();
 			m_pData = new DWORD [ iSize ];
 			memset ( m_pData, 0, sizeof(DWORD)*iSize );
 		} else
@@ -2606,6 +2779,12 @@ public:
 			for ( int i=0; i<int(sizeof(m_uStatic)/sizeof(m_uStatic[0])); i++ )
 				m_uStatic[i] = 0;
 		}
+	}
+
+	void Clear ()
+	{
+		int iSize = GetSize();
+		memset ( m_pData, 0, sizeof(DWORD)*iSize );
 	}
 
 	bool BitGet ( int iIndex ) const
@@ -2629,40 +2808,30 @@ public:
 		assert ( iIndex<m_iElements );
 		m_pData [ iIndex>>5 ] &= ~( 1UL<<( iIndex&31 ) ); // NOLINT
 	}
-};
 
-/// generic COM-like uids
-enum ExtraData_e
-{
-	EXTRA_GET_DATA_ZONESPANS,
-	EXTRA_GET_DATA_ZONESPANLIST,
-	EXTRA_GET_DATA_RANKFACTORS,
-	EXTRA_GET_DATA_PACKEDFACTORS,
-	EXTRA_SET_MVAPOOL,
-	EXTRA_SET_STRINGPOOL,
-	EXTRA_SET_MAXMATCHES,
-	EXTRA_SET_MATCHPUSHED,
-	EXTRA_SET_MATCHPOPPED
-};
-
-/// generic COM-like interface
-class ISphExtra
-{
-public:
-	virtual						~ISphExtra () {}
-	inline bool					ExtraData	( ExtraData_e eType, void** ppData )
+	const DWORD * Begin () const
 	{
-		return ExtraDataImpl ( eType, ppData );
+		return m_pData;
 	}
-private:
-	virtual bool ExtraDataImpl ( ExtraData_e, void** )
+
+	int GetSize() const
 	{
-		return false;
+		return (m_iElements+31)/32;
+	}
+
+	int BitCount () const
+	{
+		int iBitSet = 0;
+		for ( int i=0; i<GetSize(); i++ )
+			iBitSet += sphBitCount ( m_pData[i] );
+
+		return iBitSet;
 	}
 };
+
 
 #endif // _sphinxstd_
 
 //
-// $Id: sphinxstd.h 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxstd.h 4241 2013-10-10 10:18:29Z tomat $
 //

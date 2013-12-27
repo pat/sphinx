@@ -19,6 +19,7 @@
 %token	TOK_USERVAR
 %token	TOK_SYSVAR
 %token	TOK_CONST_STRINGS
+%token	TOK_BAD_NUMERIC
 
 %token	TOK_AGENT
 %token	TOK_AS
@@ -27,6 +28,7 @@
 %token	TOK_AVG
 %token	TOK_BEGIN
 %token	TOK_BETWEEN
+%token	TOK_BIGINT
 %token	TOK_BY
 %token	TOK_CALL
 %token	TOK_CHARACTER
@@ -70,8 +72,10 @@
 %token	TOK_OPTION
 %token	TOK_ORDER
 %token	TOK_OPTIMIZE
+%token	TOK_PLAN
 %token	TOK_PROFILE
 %token	TOK_RAND
+%token	TOK_RAMCHUNK
 %token	TOK_READ
 %token	TOK_REPEATABLE
 %token	TOK_REPLACE
@@ -147,8 +151,10 @@ statement:
 	| drop_function
 	| attach_index
 	| flush_rtindex
+	| flush_ramchunk
 	| set_transaction
 	| select_sysvar
+	| select_dual
 	| truncate
 	| optimize_index
 	;
@@ -251,7 +257,6 @@ select_expr:
 	| TOK_SUM '(' expr ')'				{ pParser->AddItem ( &$3, SPH_AGGR_SUM, &$1, &$4 ); }
 	| TOK_GROUP_CONCAT '(' expr ')'		{ pParser->AddItem ( &$3, SPH_AGGR_CAT, &$1, &$4 ); }
 	| TOK_COUNT '(' '*' ')'				{ if ( !pParser->AddItem ( "count(*)", &$1, &$4 ) ) YYERROR; }
-	| TOK_WEIGHT '(' ')'				{ if ( !pParser->AddItem ( "weight()", &$1, &$3 ) ) YYERROR; }
 	| TOK_GROUPBY '(' ')'				{ if ( !pParser->AddItem ( "groupby()", &$1, &$3 ) ) YYERROR; }
 	| TOK_COUNT '(' TOK_DISTINCT TOK_IDENT ')' 	{ if ( !pParser->AddDistinct ( &$4, &$1, &$5 ) ) YYERROR; }
 	;
@@ -303,7 +308,7 @@ where_item:
 			if ( !pFilter )
 				YYERROR;
 			pFilter->m_dValues = *$4.m_pValues.Ptr();
-			pFilter->m_dValues.Sort();
+			pFilter->m_dValues.Uniq();
 		}
 	| expr_ident TOK_NOT TOK_IN '(' const_list ')'
 		{
@@ -312,7 +317,7 @@ where_item:
 				YYERROR;
 			pFilter->m_dValues = *$5.m_pValues.Ptr();
 			pFilter->m_bExclude = true;
-			pFilter->m_dValues.Sort();
+			pFilter->m_dValues.Uniq();
 		}
 	| expr_ident TOK_IN TOK_USERVAR
 		{
@@ -349,14 +354,29 @@ where_item:
 			if ( !pParser->AddIntFilterLesser ( $1.m_sValue, $3.m_iValue, true ) )
 				YYERROR;
 		}
+	| expr_ident '=' const_float
+		{
+			if ( !pParser->AddFloatRangeFilter ( $1.m_sValue, $3.m_fValue, $3.m_fValue, true ) )
+				YYERROR;
+		}
 	| expr_float_unhandled
 		{
-			yyerror ( pParser, "EQ and NEQ filters on floats are not (yet?) supported" );
+			yyerror ( pParser, "NEQ filter on floats is not (yet?) supported" );
 			YYERROR;
 		}
 	| expr_ident TOK_BETWEEN const_float TOK_AND const_float
 		{
 			if ( !pParser->AddFloatRangeFilter ( $1.m_sValue, $3.m_fValue, $5.m_fValue, true ) )
+				YYERROR;
+		}
+	| expr_ident TOK_BETWEEN const_int TOK_AND const_float
+		{
+			if ( !pParser->AddFloatRangeFilter ( $1.m_sValue, $3.m_iValue, $5.m_fValue, true ) )
+				YYERROR;
+		}
+	| expr_ident TOK_BETWEEN const_float TOK_AND const_int
+		{
+			if ( !pParser->AddFloatRangeFilter ( $1.m_sValue, $3.m_fValue, $5.m_iValue, true ) )
 				YYERROR;
 		}
 	| expr_ident '>' const_float
@@ -392,8 +412,7 @@ where_item:
 	;
 
 expr_float_unhandled:
-	expr_ident '=' const_float
-	| expr_ident TOK_NE const_float
+	expr_ident TOK_NE const_float
 	;
 
 expr_ident:
@@ -461,13 +480,17 @@ const_list:
 
 opt_group_clause:
 	// empty
-	| group_clause
+	| TOK_GROUP TOK_BY group_items_list
 	;
 
-group_clause:
-	TOK_GROUP TOK_BY expr_ident
+group_items_list:
+	expr_ident
 		{
-			pParser->SetGroupBy ( $3.m_sValue );
+			pParser->AddGroupBy ( $1.m_sValue );
+		}
+	| group_items_list ',' expr_ident
+		{
+			pParser->AddGroupBy ( $3.m_sValue );
 		}
 	;
 
@@ -632,9 +655,11 @@ expr:
 function:
 	TOK_IDENT '(' arglist ')'	{ $$ = $1; $$.m_iEnd = $4.m_iEnd; }
 	| TOK_IN '(' arglist ')'	{ $$ = $1; $$.m_iEnd = $4.m_iEnd; }			// handle exception from 'ident' rule
+	| TOK_BIGINT '(' arglist ')'	{ $$ = $1; $$.m_iEnd = $4.m_iEnd; }
 	| TOK_IDENT '(' ')'			{ $$ = $1; $$.m_iEnd = $3.m_iEnd }
 	| TOK_MIN '(' expr ',' expr ')'		{ $$ = $1; $$.m_iEnd = $6.m_iEnd }	// handle clash with aggregate functions
 	| TOK_MAX '(' expr ',' expr ')'		{ $$ = $1; $$.m_iEnd = $6.m_iEnd }
+	| TOK_WEIGHT '(' ')'				{ $$ = $1; $$.m_iEnd = $3.m_iEnd }
 	;
 
 arglist:
@@ -669,6 +694,7 @@ show_what:
 	| TOK_META like_filter				{ pParser->m_pStmt->m_eStmt = STMT_SHOW_META; }
 	| TOK_AGENT TOK_STATUS like_filter	{ pParser->m_pStmt->m_eStmt = STMT_SHOW_AGENT_STATUS; }
 	| TOK_PROFILE						{ pParser->m_pStmt->m_eStmt = STMT_SHOW_PROFILE; }
+	| TOK_PLAN							{ pParser->m_pStmt->m_eStmt = STMT_SHOW_PLAN; }
 	| TOK_AGENT TOK_QUOTED_STRING TOK_STATUS like_filter
 		{
 			pParser->m_pStmt->m_eStmt = STMT_SHOW_AGENT_STATUS;
@@ -1043,6 +1069,7 @@ create_function:
 
 udf_type:
 	TOK_INT			{ $$ = SPH_ATTR_INTEGER; }
+	| TOK_BIGINT	{ $$ = SPH_ATTR_BIGINT; }
 	| TOK_FLOAT		{ $$ = SPH_ATTR_FLOAT; }
 	| TOK_STRING	{ $$ = SPH_ATTR_STRINGPTR; }
 	;
@@ -1079,6 +1106,15 @@ flush_rtindex:
 		}
 	;
 
+flush_ramchunk:
+	TOK_FLUSH TOK_RAMCHUNK TOK_IDENT
+		{
+			SqlStmt_t & tStmt = *pParser->m_pStmt;
+			tStmt.m_eStmt = STMT_FLUSH_RAMCHUNK;
+			tStmt.m_sIndex = $3.m_sValue;
+		}
+	;
+
 //////////////////////////////////////////////////////////////////////////
 
 select_sysvar:
@@ -1094,6 +1130,15 @@ sysvar_name:
 	| TOK_SYSVAR '.' TOK_IDENT
 		{
 			$$.m_sValue.SetSprintf ( "%s.%s", $1.m_sValue.cstr(), $3.m_sValue.cstr() );
+		}
+	;
+
+select_dual:
+	TOK_SELECT expr
+		{
+			pParser->m_pStmt->m_eStmt = STMT_SELECT_DUAL;
+			pParser->m_pStmt->m_tQuery.m_sQuery.SetBinary ( pParser->m_pBuf+$2.m_iStart,
+				$2.m_iEnd-$2.m_iStart );
 		}
 	;
 

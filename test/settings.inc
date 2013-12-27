@@ -29,6 +29,7 @@ $index_data_path	= "data";
 $g_model	= false;
 $g_id64		= false;
 $g_re2		= false;
+$g_rlp		= false;
 $g_strict	= false;
 $g_skipdemo = false;
 $g_usemarks = true; // that we mark the output of every test in the searchd.log and query.log
@@ -105,6 +106,29 @@ function GuessRE2 ()
 	}
 }
 
+function GuessRLP ()
+{
+	global $g_rlp;
+	global $g_locals;
+
+	exec ( $g_locals['indexer'].' --quiet --config test_rlp.conf --all', $output, $result );
+	if ( count($output) == 0 )
+	{
+		print "ERROR: failed to run the indexer\n";
+		exit ( 1 );
+	}
+
+	$g_rlp = true;
+	foreach ( $output as $str )
+	{
+		if ( strstr ( $str, 'no RLP support compiled' ) )
+		{
+			$g_rlp = false;
+			break;
+		}
+	}
+}
+
 function GetVersion ()
 {
 	$banner = GetBanner();
@@ -123,6 +147,16 @@ function PublishLocals ( $locals, $benchmark )
 	}
 	
 	$text = @file_get_contents ( getenv('HOME') . '/.sphinx' );
+	if ( !$text )
+	{
+		$path = '';
+		if ( $windows )
+			$path = $benchmark ? '..\\bin\\release\\' : '..\\bin\\debug\\';
+		else
+			$path = '../src/';
+	
+		$text = @file_get_contents ( $path . '/.sphinx' );
+	}
 	if ( $text )
 	{
 		eval('$init = array ' . $text . ';');

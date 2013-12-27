@@ -41,6 +41,7 @@ EXPONENT			[eE](\+|-)?{DIGIT}+
 "AVG"				{ YYSTOREBOUNDS; return TOK_AVG; }
 "BEGIN"				{ YYSTOREBOUNDS; return TOK_BEGIN; }
 "BETWEEN"			{ YYSTOREBOUNDS; return TOK_BETWEEN; }
+"BIGINT"			{ YYSTOREBOUNDS; return TOK_BIGINT; }
 "BY"				{ YYSTOREBOUNDS; return TOK_BY; }
 "CALL"				{ YYSTOREBOUNDS; return TOK_CALL; }
 "CHARACTER"			{ YYSTOREBOUNDS; return TOK_CHARACTER; }
@@ -86,7 +87,9 @@ EXPONENT			[eE](\+|-)?{DIGIT}+
 "OPTIMIZE"			{ YYSTOREBOUNDS; return TOK_OPTIMIZE; }
 "OR"				{ YYSTOREBOUNDS; return TOK_OR; }
 "ORDER"				{ YYSTOREBOUNDS; return TOK_ORDER; }
+"PLAN"				{ YYSTOREBOUNDS; return TOK_PLAN; }
 "PROFILE"			{ YYSTOREBOUNDS; return TOK_PROFILE; }
+"RAMCHUNK"			{ YYSTOREBOUNDS; return TOK_RAMCHUNK; }
 "RAND"				{ YYSTOREBOUNDS; return TOK_RAND; }
 "READ"				{ YYSTOREBOUNDS; return TOK_READ; }
 "REPEATABLE"		{ YYSTOREBOUNDS; return TOK_REPEATABLE; }
@@ -135,9 +138,10 @@ EXPONENT			[eE](\+|-)?{DIGIT}+
 "@weight"			{ YYSTOREBOUNDS; lvalp->m_sValue = yytext; return TOK_ATIDENT; }
 "@count"			{ YYSTOREBOUNDS; lvalp->m_sValue = yytext; return TOK_ATIDENT; }
 {ID}				{ YYSTOREBOUNDS; lvalp->m_sValue = yytext; return TOK_IDENT; }
+[a-zA-Z_0-9]+		{ YYSTOREBOUNDS; return TOK_BAD_NUMERIC; }
 @{ID}				{ YYSTOREBOUNDS; lvalp->m_sValue = yytext; return TOK_USERVAR; }
 @@{ID}				{ YYSTOREBOUNDS; lvalp->m_sValue = yytext; return TOK_SYSVAR; }
-"`ID`"				{ YYSTOREBOUNDS; lvalp->m_sValue = yytext; return TOK_ID; }
+"`ID`"				{ YYSTOREBOUNDS; lvalp->m_iStart++; lvalp->m_iEnd--; lvalp->m_sValue.SetBinary ( yytext+1, strlen(yytext)-2 ); return TOK_ID; }
 `{ID}`				{ YYSTOREBOUNDS; lvalp->m_iStart++; lvalp->m_iEnd--; lvalp->m_sValue.SetBinary ( yytext+1, strlen(yytext)-2 ); return TOK_IDENT; }
 
 {SPACE}+			{ ; }

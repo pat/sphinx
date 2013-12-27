@@ -1,5 +1,5 @@
 //
-// $Id: sphinxexcerpt.cpp 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxexcerpt.cpp 4052 2013-08-05 17:32:38Z kevg $
 //
 
 //
@@ -1154,7 +1154,7 @@ void ExcerptGen_c::CalcPassageWeight ( Passage_t & tPass, const TokenSpan_t & tS
 	tPass.m_iQwordCount = 0;
 
 	DWORD uWords = tPass.m_uQwords;
-	for ( int iWord=0; uWords; uWords >>= 1, iWord++ )
+	for ( iWord=0; uWords; uWords >>= 1, iWord++ )
 		if ( uWords & 1 )
 	{
 		tPass.m_iQwordsWeight += m_dWords[iWord].m_iWeight;
@@ -1506,7 +1506,11 @@ bool ExcerptGen_c::HighlightBestPassages ( const ExcerptQuery_t & tQuery )
 		{
 			// there might be just enough space to partially display this passage
 			if ( ( iTotalCodes + iKeywordsLength )<=tQuery.m_iLimit )
+			{
 				dShow.Add ( tBest );
+				iTotalWords += tBest.m_iWords;
+				iTotalCodes += tBest.m_iCodes;
+			}
 			break;
 		}
 
@@ -1973,7 +1977,7 @@ void SnippetsDocIndex_c::ParseQuery ( const char * sQuery, ISphTokenizer * pToke
 				continue;
 
 			m_dAllKeywords.Add ( (const char*)sWord );
-			if ( sWord[0]=='*' || sWord [ strlen((const char*)sWord)-1 ]=='*' )
+			if ( sWord[0]=='*' || sWord [ strlen ( (const char*)sWord)-1 ]=='*' )
 				AddWordStar ( (const char *)sWord );
 			else
 				AddWord ( uWordID, pTokenizer->GetLastTokenLen() );
@@ -2976,7 +2980,7 @@ private:
 		m_tPass.m_iQwordCount = 0;
 
 		DWORD uWords = m_tPass.m_uQwords;
-		for ( int iWord=0; uWords; uWords >>= 1, iWord++ )
+		for ( iWord=0; uWords; uWords >>= 1, iWord++ )
 			if ( uWords & 1 )
 			{
 				m_tPass.m_iQwordsWeight += m_tContainer.GetTermWeight(iWord);
@@ -4087,7 +4091,6 @@ void sphBuildExcerpt ( ExcerptQuery_t & tOptions, const CSphIndex * pIndex, cons
 
 	char * pData = const_cast<char*> ( tOptions.m_sSource.cstr() );
 	CSphFixedVector<char> pBuffer ( 0 );
-	int iDataLen = 0;
 
 	if ( tOptions.m_iLoadFiles )
 	{
@@ -4116,8 +4119,7 @@ void sphBuildExcerpt ( ExcerptQuery_t & tOptions, const CSphIndex * pIndex, cons
 		if ( iFileSize<0 )
 			return;
 
-		iDataLen = iFileSize+1;
-		pBuffer.Reset ( iDataLen );
+		pBuffer.Reset ( iFileSize+1 );
 		if ( !tFile.Read ( pBuffer.Begin(), iFileSize, sError ) )
 			return;
 
@@ -4133,7 +4135,7 @@ void sphBuildExcerpt ( ExcerptQuery_t & tOptions, const CSphIndex * pIndex, cons
 		pStripper = NULL;
 
 	// FIXME!!! check on real data (~100 Mb) as stripper changes len
-	iDataLen = strlen ( pData );
+	int iDataLen = strlen ( pData );
 
 	bool bCanFastPathed = ( !tOptions.m_bUseBoundaries && !tOptions.m_bWeightOrder && tOptions.m_ePassageSPZ==SPH_SPZ_NONE && !tOptions.m_bEmitZones );
 
@@ -4192,5 +4194,5 @@ void sphBuildExcerpt ( ExcerptQuery_t & tOptions, const CSphIndex * pIndex, cons
 }
 
 //
-// $Id: sphinxexcerpt.cpp 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxexcerpt.cpp 4052 2013-08-05 17:32:38Z kevg $
 //

@@ -1,5 +1,5 @@
 //
-// $Id: sphinxexpr.h 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxexpr.h 3890 2013-05-25 10:48:43Z kevg $
 //
 
 //
@@ -114,6 +114,9 @@ public:
 
 	/// run a tree wide action
 	virtual void Command ( ESphExprCommand, void * ) {}
+
+	/// run a tree wide action
+	virtual void Command ( ESphExprCommand, void * ) const {}
 };
 
 /// string expression traits
@@ -209,5 +212,5 @@ ISphExpr * sphExprJsonField ( const CSphColumnInfo & tCol, int iAttr, const char
 #endif // _sphinxexpr_
 
 //
-// $Id: sphinxexpr.h 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxexpr.h 3890 2013-05-25 10:48:43Z kevg $
 //

@@ -1,5 +1,5 @@
 //
-// $Id: sphinxsearch.h 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxsearch.h 3738 2013-03-15 06:07:17Z tomat $
 //
 
 //
@@ -18,6 +18,7 @@
 
 #include "sphinx.h"
 #include "sphinxquery.h"
+#include "sphinxint.h"
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -211,5 +212,5 @@ public:
 #endif // _sphinxsearch_
 
 //
-// $Id: sphinxsearch.h 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxsearch.h 3738 2013-03-15 06:07:17Z tomat $
 //
