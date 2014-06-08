@@ -1,10 +1,10 @@
 //
-// $Id: sphinxquery.cpp 4043 2013-07-31 07:00:01Z kevg $
+// $Id: sphinxquery.cpp 4655 2014-04-10 05:28:38Z tomat $
 //
 
 //
-// Copyright (c) 2001-2013, Andrew Aksyonoff
-// Copyright (c) 2008-2013, Sphinx Technologies Inc
+// Copyright (c) 2001-2014, Andrew Aksyonoff
+// Copyright (c) 2008-2014, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -751,12 +751,16 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 			&& !( *p=='-' && !( p-sToken==1 && sphIsModifier ( p[-1] ) ) ) // !bDashInside copied over from arbitration
 			&& ( *p=='\0' || sphIsSpace(*p) || IsSpecial(*p) ) )
 		{
+			// float as quorum argument has higher precedence than blended
+			bool bQuorum = ( m_iQuorumQuote==m_iQuorumFSlash && m_iQuorumFSlash==m_iAtomPos );
+			bool bQuorumPercent = ( bQuorum && iDots==1 );
+
 			bool bTok = ( m_pTokenizer->GetToken()!=NULL );
-			if ( bTok && m_pTokenizer->TokenIsBlended() ) // number with blended should be tokenized as usual
+			if ( bTok && m_pTokenizer->TokenIsBlended() && !( bQuorum || bQuorumPercent ) ) // number with blended should be tokenized as usual
 			{
 				m_pTokenizer->SkipBlended();
 				m_pTokenizer->SetBufferPtr ( m_pLastTokenStart );
-			} else if ( bTok && m_pTokenizer->WasTokenSynonym() )
+			} else if ( bTok && m_pTokenizer->WasTokenSynonym() && !( bQuorum || bQuorumPercent ) )
 			{
 				m_pTokenizer->SetBufferPtr ( m_pLastTokenStart );
 			} else
@@ -934,9 +938,8 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 
 				if ( sToken[0]=='(' )
 				{
-					// safe way of performing m_dStateSpec.Add ( m_dStateSpec.Last() )
-					m_dStateSpec.Add ();
-					m_dStateSpec[m_dStateSpec.GetLength()-1] = m_dStateSpec[m_dStateSpec.GetLength()-2];
+					XQLimitSpec_t * pLastField = m_dStateSpec.Last();
+					m_dStateSpec.Add ( pLastField );
 				} else if ( sToken[0]==')' && m_dStateSpec.GetLength()>1 )
 				{
 					m_dStateSpec.Pop();
@@ -1049,10 +1052,6 @@ XQNode_t * XQParser_t::AddOp ( XQOperator_e eOp, XQNode_t * pLeft, XQNode_t * pR
 	if ( !pLeft || !pRight )
 		return pLeft ? pLeft : pRight;
 
-	// left spec always tries to infect the nodes to the right, only brackets can stop it
-	// eg. '@title hello' vs 'world'
-	pRight->CopySpecs ( pLeft );
-
 	// build a new node
 	XQNode_t * pResult = NULL;
 	if ( pLeft->m_dChildren.GetLength() && pLeft->GetOp()==eOp && pLeft->m_iOpArg==iOpArg )
@@ -1060,11 +1059,6 @@ XQNode_t * XQParser_t::AddOp ( XQOperator_e eOp, XQNode_t * pLeft, XQNode_t * pR
 		pLeft->m_dChildren.Add ( pRight );
 		pRight->m_pParent = pLeft;
 		pResult = pLeft;
-		if ( pRight->m_dSpec.m_bFieldSpec )
-			pResult->m_dSpec.SetFieldSpec ( pRight->m_dSpec.m_dFieldMask, pRight->m_dSpec.m_iFieldMaxPos );
-
-		if ( pRight->m_dSpec.m_dZones.GetLength() )
-			pResult->m_dSpec.SetZoneSpec ( pRight->m_dSpec.m_dZones, pRight->m_dSpec.m_bZoneSpan );
 	} else
 	{
 		// however, it's right (!) spec which is chosen for the resulting node,
@@ -3879,5 +3873,5 @@ void sphSetupQueryTokenizer ( ISphTokenizer * pTokenizer )
 
 
 //
-// $Id: sphinxquery.cpp 4043 2013-07-31 07:00:01Z kevg $
+// $Id: sphinxquery.cpp 4655 2014-04-10 05:28:38Z tomat $
 //

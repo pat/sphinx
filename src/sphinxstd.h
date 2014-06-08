@@ -1,10 +1,10 @@
 //
-// $Id: sphinxstd.h 4241 2013-10-10 10:18:29Z tomat $
+// $Id: sphinxstd.h 4505 2014-01-22 15:16:21Z deogar $
 //
 
 //
-// Copyright (c) 2001-2013, Andrew Aksyonoff
-// Copyright (c) 2008-2013, Sphinx Technologies Inc
+// Copyright (c) 2001-2014, Andrew Aksyonoff
+// Copyright (c) 2008-2014, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -853,7 +853,9 @@ public:
 
 		// realloc
 		// FIXME! optimize for POD case
-		T * pNew = new T [ m_iLimit ];
+		T * pNew = NULL;
+		if ( m_iLimit )
+			pNew = new T [ m_iLimit ];
 		__analysis_assume ( m_iLength<=m_iLimit );
 
 		POLICY::Copy ( pNew, m_pData, m_iLength );
@@ -962,7 +964,8 @@ public:
 
 		m_iLength = rhs.m_iLength;
 		m_iLimit = rhs.m_iLimit;
-		m_pData = new T [ m_iLimit ];
+		if ( m_iLimit )
+			m_pData = new T [ m_iLimit ];
 		__analysis_assume ( m_iLength<=m_iLimit );
 		for ( int i=0; i<rhs.m_iLength; i++ )
 			m_pData[i] = rhs.m_pData[i];
@@ -1231,6 +1234,7 @@ public:
 	/// reset
 	void Reset ()
 	{
+		assert ( ( m_pFirstByOrder && m_iLength ) || ( !m_pFirstByOrder && !m_iLength ) );
 		HashEntry_t * pKill = m_pFirstByOrder;
 		while ( pKill )
 		{
@@ -2833,5 +2837,5 @@ public:
 #endif // _sphinxstd_
 
 //
-// $Id: sphinxstd.h 4241 2013-10-10 10:18:29Z tomat $
+// $Id: sphinxstd.h 4505 2014-01-22 15:16:21Z deogar $
 //

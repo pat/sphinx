@@ -1,10 +1,10 @@
 //
-// $Id: sphinxexcerpt.cpp 4052 2013-08-05 17:32:38Z kevg $
+// $Id: sphinxexcerpt.cpp 4575 2014-02-24 18:41:31Z kevg $
 //
 
 //
-// Copyright (c) 2001-2013, Andrew Aksyonoff
-// Copyright (c) 2008-2013, Sphinx Technologies Inc
+// Copyright (c) 2001-2014, Andrew Aksyonoff
+// Copyright (c) 2008-2014, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -214,9 +214,6 @@ protected:
 	bool					FlushPassage ( const Passage_t & tPass, int iLCSThresh );
 };
 
-
-/// hitman used here in snippets
-typedef Hitman_c<8> HITMAN;
 
 /// snippets query words for different cases
 class ISnippetsQword : public ISphQword
@@ -4194,5 +4191,5 @@ void sphBuildExcerpt ( ExcerptQuery_t & tOptions, const CSphIndex * pIndex, cons
 }
 
 //
-// $Id: sphinxexcerpt.cpp 4052 2013-08-05 17:32:38Z kevg $
+// $Id: sphinxexcerpt.cpp 4575 2014-02-24 18:41:31Z kevg $
 //

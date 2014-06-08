@@ -1,10 +1,10 @@
 //
-// $Id: sphinxsearch.cpp 4407 2013-12-11 09:31:09Z tomat $
+// $Id: sphinxsearch.cpp 4664 2014-04-18 18:08:22Z tomat $
 //
 
 //
-// Copyright (c) 2001-2013, Andrew Aksyonoff
-// Copyright (c) 2008-2013, Sphinx Technologies Inc
+// Copyright (c) 2001-2014, Andrew Aksyonoff
+// Copyright (c) 2008-2014, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -32,8 +32,6 @@ int g_iPredictorCostMatch	= 64;
 //////////////////////////////////////////////////////////////////////////
 // EXTENDED MATCHING V2
 //////////////////////////////////////////////////////////////////////////
-
-typedef Hitman_c<8> HITMAN;
 
 #define SPH_TREE_DUMP			0
 
@@ -1341,8 +1339,19 @@ static ExtNode_i * CreateMultiNode ( const XQNode_t * pQueryNode, const ISphQwor
 		CSphVector<ExtNode_i *> dNodes;
 		ARRAY_FOREACH ( i, pQueryNode->m_dChildren )
 		{
-			dNodes.Add ( ExtNode_i::Create ( pQueryNode->m_dChildren[i], tSetup ) );
-			assert ( dNodes.Last()->m_iAtomPos>=0 );
+			ExtNode_i * pTerm = ExtNode_i::Create ( pQueryNode->m_dChildren[i], tSetup );
+			assert ( !pTerm || pTerm->m_iAtomPos>=0 );
+			if ( pTerm )
+				dNodes.Add ( pTerm );
+		}
+
+		if ( dNodes.GetLength()<2 )
+		{
+			ARRAY_FOREACH ( i, dNodes )
+				SafeDelete ( dNodes[i] );
+			if ( tSetup.m_pWarning )
+				tSetup.m_pWarning->SetSprintf ( "can't create phrase node, hitlists unavailable (hitlists=%d, nodes=%d)", dNodes.GetLength(), pQueryNode->m_dChildren.GetLength() );
+			return NULL;
 		}
 
 		// FIXME! tricky combo again
@@ -1432,7 +1441,7 @@ static ExtNode_i * CreateOrderNode ( const XQNode_t * pNode, const ISphQwordSetu
 	ARRAY_FOREACH ( i, pNode->m_dChildren )
 	{
 		ExtNode_i * pChild = ExtNode_i::Create ( pNode->m_dChildren[i], tSetup );
-		if ( pChild->GotHitless() )
+		if ( !pChild || pChild->GotHitless() )
 		{
 			if ( tSetup.m_pWarning )
 				tSetup.m_pWarning->SetSprintf ( "failed to create order node, hitlist unavailable" );
@@ -1973,13 +1982,15 @@ ExtNode_i * ExtNode_i::Create ( const XQNode_t * pNode, const ISphQwordSetup & t
 				for ( int i=0; i<iChildren; i++ )
 				{
 					const XQNode_t * pChild = pNode->m_dChildren[i];
-					dTerms.Add ( ExtNode_i::Create ( pChild, tSetup ) );
+					ExtNode_i * pTerm = ExtNode_i::Create ( pChild, tSetup );
+					if ( pTerm )
+						dTerms.Add ( pTerm );
 				}
 
 				dTerms.Sort ( ExtNodeTF_fn() );
 
 				ExtNode_i * pCur = dTerms[0];
-				for ( int i=1; i<iChildren; i++ )
+				for ( int i=1; i<dTerms.GetLength(); i++ )
 					pCur = new ExtAndZonespan_c ( pCur, dTerms[i], tSetup, pNode->m_dChildren[0] );
 
 // For zonespan we have also Extra data which is not (yet?) covered by common-node optimization.
@@ -1993,13 +2004,15 @@ ExtNode_i * ExtNode_i::Create ( const XQNode_t * pNode, const ISphQwordSetup & t
 				for ( int i=0; i<iChildren; i++ )
 				{
 					const XQNode_t * pChild = pNode->m_dChildren[i];
-					dTerms.Add ( ExtNode_i::Create ( pChild, tSetup ) );
+					ExtNode_i * pTerm = ExtNode_i::Create ( pChild, tSetup );
+					if ( pTerm )
+						dTerms.Add ( pTerm );
 				}
 
 				dTerms.Sort ( ExtNodeTF_fn() );
 
 				ExtNode_i * pCur = dTerms[0];
-				for ( int i=1; i<iChildren; i++ )
+				for ( int i=1; i<dTerms.GetLength(); i++ )
 					pCur = new ExtAnd_c ( pCur, dTerms[i], tSetup );
 
 				if ( pNode->GetCount() )
@@ -2036,7 +2049,7 @@ ExtNode_i * ExtNode_i::Create ( const XQNode_t * pNode, const ISphQwordSetup & t
 				default:					assert ( 0 && "internal error: unhandled op in ExtNode_i::Create()" ); break;
 			}
 		}
-		if ( pNode->GetCount() )
+		if ( pCur && pNode->GetCount() )
 			return tSetup.m_pNodeCache->CreateProxy ( pCur, pNode, tSetup );
 		return pCur;
 	}
@@ -3678,7 +3691,7 @@ FSMphrase::FSMphrase ( const CSphVector<ExtNode_i *> & dQwords, const XQNode_t &
 
 inline bool FSMphrase::HitFSM ( const ExtHit_t* pHit, ExtHit_t* dTarget )
 {
-int iHitpos = HITMAN::GetLCS ( pHit->m_uHitpos );
+	int iHitpos = HITMAN::GetLCS ( pHit->m_uHitpos );
 
 	// adding start state for start hit
 	if ( pHit->m_uQuerypos==m_dAtomPos[0] )
@@ -5142,13 +5155,13 @@ int ExtUnit_c::FilterHits ( int iMyHit, DWORD uSentenceEnd, SphDocID_t uDocid, i
 			{
 				m_dMyHits[iMyHit++] = *m_pHit1++;
 				if ( m_pHit1->m_uDocid==DOCID_MAX )
-					m_pHit1 = m_pArg1->GetHitsChunk ( m_pDocs1, 0 );
+					m_pHit1 = m_pArg1->GetHitsChunk ( m_pDocs1, DOCID_MAX );
 
 			} else
 			{
 				m_dMyHits[iMyHit++] = *m_pHit2++;
 				if ( m_pHit2->m_uDocid==DOCID_MAX )
-					m_pHit2 = m_pArg2->GetHitsChunk ( m_pDocs2, 0 );
+					m_pHit2 = m_pArg2->GetHitsChunk ( m_pDocs2, DOCID_MAX );
 			}
 
 		} else
@@ -5468,7 +5481,6 @@ static void Explain ( const XQNode_t * pNode, const CSphSchema & tSchema, const 
 		}
 	} else
 	{
-		assert ( pNode->m_dWords.GetLength() );
 		ARRAY_FOREACH ( i, pNode->m_dWords )
 		{
 			const XQKeyword_t & w = pNode->m_dWords[i];
@@ -6224,6 +6236,10 @@ struct RankerState_Proximity_fn : public ISphExtra
 			DWORD uPos = HITMAN::GetLCS ( pHlist->m_uHitpos );
 			DWORD uField = HITMAN::GetField ( pHlist->m_uHitpos );
 
+			// reset accumulated data from previous field
+			if ( (DWORD)HITMAN::GetField ( m_uCurPos )!=uField )
+				m_uCurQposMask = 0;
+
 			if ( uPos!=m_uCurPos )
 			{
 				// next new and shiny hitpos in line
@@ -6739,6 +6755,10 @@ public:
 	BYTE				m_uLCS[SPH_MAX_FIELDS];
 	BYTE				m_uMatchMask[SPH_MAX_FIELDS];
 	BYTE				m_uCurLCS;
+	DWORD				m_uCurPos;
+	DWORD				m_uLcsTailPos;
+	DWORD				m_uLcsTailQposMask;
+	DWORD				m_uCurQposMask;
 	int					m_iExpDelta;
 	int					m_iFields;
 	const int *			m_pWeights;
@@ -7546,6 +7566,13 @@ bool RankerState_Expr_fn<NEED_PACKEDFACTORS, HANDLE_DUPES>::Init ( int iFields, 
 	memset ( m_uLCS, 0, sizeof(m_uLCS) );
 	memset ( m_uMatchMask, 0, sizeof(m_uMatchMask) );
 	m_uCurLCS = 0;
+	if ( HANDLE_DUPES )
+	{
+		m_uCurPos = 0;
+		m_uLcsTailPos = 0;
+		m_uLcsTailQposMask = 0;
+		m_uCurQposMask = 0;
+	}
 	m_iExpDelta = -INT_MAX;
 	m_iFields = iFields;
 	m_pWeights = pWeights;
@@ -7639,25 +7666,90 @@ void RankerState_Expr_fn<NEED_PACKEDFACTORS, HANDLE_DUPES>::Update ( const ExtHi
 	const DWORD uField = HITMAN::GetField ( pHlist->m_uHitpos );
 	const int iPos = HITMAN::GetPos ( pHlist->m_uHitpos );
 
-	// update LCS
-	int iDelta = HITMAN::GetLCS ( pHlist->m_uHitpos ) - pHlist->m_uQuerypos;
-	if ( iDelta==m_iExpDelta )
+	if ( !HANDLE_DUPES )
 	{
-		m_uCurLCS = m_uCurLCS + BYTE(pHlist->m_uWeight);
-		if ( HITMAN::IsEnd ( pHlist->m_uHitpos ) && (int)pHlist->m_uQuerypos==m_iMaxQpos && iPos==m_iMaxQpos )
-			m_uExactHit |= ( 1UL << uField );
+		// update LCS
+		int iDelta = HITMAN::GetLCS ( pHlist->m_uHitpos )-pHlist->m_uQuerypos;
+		if ( iDelta==m_iExpDelta )
+		{
+			m_uCurLCS = m_uCurLCS+BYTE ( pHlist->m_uWeight );
+			if ( HITMAN::IsEnd ( pHlist->m_uHitpos ) && (int)pHlist->m_uQuerypos==m_iMaxQpos && iPos==m_iMaxQpos )
+				m_uExactHit |= ( 1UL << uField );
+		} else
+		{
+			m_uCurLCS = BYTE ( pHlist->m_uWeight );
+			if ( iPos==1 && HITMAN::IsEnd ( pHlist->m_uHitpos ) && m_iMaxQpos==1 )
+				m_uExactHit |= ( 1UL << uField );
+		}
+		if ( m_uCurLCS>m_uLCS [ uField ] )
+		{
+			m_uLCS [ uField ] = m_uCurLCS;
+			// for first hit in field just use current position as min_best_span_pos
+			// else adjust position with current lcs
+			if ( !m_iMinBestSpanPos [ uField ] )
+				m_iMinBestSpanPos [ uField ] = iPos;
+			else
+				m_iMinBestSpanPos [ uField ] = iPos - m_uCurLCS + 1;
+		}
+		m_iExpDelta = iDelta + pHlist->m_uSpanlen - 1;
 	} else
 	{
-		m_uCurLCS = BYTE(pHlist->m_uWeight);
-		if ( iPos==1 && HITMAN::IsEnd ( pHlist->m_uHitpos ) && m_iMaxQpos==1 )
-			m_uExactHit |= ( 1UL << uField );
+		// reset accumulated data from previous field
+		if ( (DWORD)HITMAN::GetField ( m_uCurPos )!=uField )
+			m_uCurQposMask = 0;
+
+		DWORD uPos = HITMAN::GetLCS ( pHlist->m_uHitpos );
+		if ( (DWORD)uPos!=m_uCurPos )
+		{
+			// next new and shiny hitpos in line
+			// FIXME!? what do we do with longer spans? keep looking? reset?
+			if ( m_uCurLCS<2 )
+			{
+				m_uLcsTailPos = m_uCurPos;
+				m_uLcsTailQposMask = m_uCurQposMask;
+				m_uCurLCS = 1;
+			}
+			m_uCurQposMask = 0;
+			m_uCurPos = uPos;
+			if ( m_uLCS [ uField ]<pHlist->m_uWeight )
+			{
+				m_uLCS [ uField ] = BYTE ( pHlist->m_uWeight );
+				m_iMinBestSpanPos [ uField ] = iPos;
+			}
+		}
+
+		// add that qpos to current qpos mask (for the current hitpos)
+		m_uCurQposMask |= ( 1UL << pHlist->m_uQuerypos );
+
+		// and check if that results in a better lcs match now
+		int iDelta = ( m_uCurPos-m_uLcsTailPos );
+		if ( ( m_uCurQposMask >> iDelta ) & m_uLcsTailQposMask )
+		{
+			// cool, it matched!
+			m_uLcsTailQposMask = ( 1UL << pHlist->m_uQuerypos ); // our lcs span now ends with a specific qpos
+			m_uLcsTailPos = m_uCurPos; // and in a specific position
+			m_uCurLCS = BYTE ( m_uCurLCS+pHlist->m_uWeight ); // and it's longer
+			m_uCurQposMask = 0; // and we should avoid matching subsequent hits on the same hitpos
+
+			// update per-field vector
+			if ( m_uCurLCS>m_uLCS [ uField ] )
+			{
+				m_uLCS [ uField ] = m_uCurLCS;
+				m_iMinBestSpanPos [ uField ] = iPos - m_uCurLCS + 1;
+			}
+		}
+
+		if ( iDelta==m_iExpDelta )
+		{
+			if ( HITMAN::IsEnd ( pHlist->m_uHitpos ) && (int)pHlist->m_uQuerypos==m_iMaxQpos && iPos==m_iMaxQpos )
+				m_uExactHit |= ( 1UL << uField );
+		} else
+		{
+			if ( iPos==1 && HITMAN::IsEnd ( pHlist->m_uHitpos ) && m_iMaxQpos==1 )
+				m_uExactHit |= ( 1UL << uField );
+		}
+		m_iExpDelta = iDelta + pHlist->m_uSpanlen - 1;
 	}
-	if ( m_uCurLCS>m_uLCS[uField] )
-	{
-		m_uLCS[uField] = m_uCurLCS;
-		m_iMinBestSpanPos[uField] = iPos - m_uCurLCS + 1;
-	}
-	m_iExpDelta = iDelta + pHlist->m_uSpanlen - 1;
 
 	// update other stuff
 	m_uMatchMask[uField] |= ( 1<<(pHlist->m_uQuerypos-1) );
@@ -7862,6 +7954,16 @@ bool RankerState_Expr_fn<NEED_PACKEDFACTORS, HANDLE_DUPES>::ExtraDataImpl ( Extr
 template < bool NEED_PACKEDFACTORS, bool HANDLE_DUPES >
 DWORD RankerState_Expr_fn<NEED_PACKEDFACTORS, HANDLE_DUPES>::Finalize ( const CSphMatch & tMatch )
 {
+#ifndef NDEBUG
+	// sanity check
+	for ( int i=0; i<m_iFields; ++i )
+	{
+		assert ( m_iMinHitPos[i]<=m_iMinBestSpanPos[i] );
+		if ( m_uLCS[i]==1 )
+			assert ( m_iMinHitPos[i]==m_iMinBestSpanPos[i] );
+	}
+#endif // NDEBUG
+
 	// finishing touches
 	FinalizeDocFactors ( tMatch );
 
@@ -7882,6 +7984,14 @@ DWORD RankerState_Expr_fn<NEED_PACKEDFACTORS, HANDLE_DUPES>::Finalize ( const CS
 	DWORD uRes = ( m_eExprType==SPH_ATTR_INTEGER )
 		? m_pExpr->IntEval ( tMatch )
 		: (DWORD)m_pExpr->Eval ( tMatch );
+
+	if ( HANDLE_DUPES )
+	{
+		m_uCurPos = 0;
+		m_uLcsTailPos = 0;
+		m_uLcsTailQposMask = 0;
+		m_uCurQposMask = 0;
+	}
 
 	// cleanup
 	ResetDocFactors();
@@ -8741,5 +8851,5 @@ ExtNode_i * CSphQueryNodeCache::CreateProxy ( ExtNode_i * pChild, const XQNode_t
 }
 
 //
-// $Id: sphinxsearch.cpp 4407 2013-12-11 09:31:09Z tomat $
+// $Id: sphinxsearch.cpp 4664 2014-04-18 18:08:22Z tomat $
 //

@@ -1,10 +1,10 @@
 //
-// $Id: sphinxstd.cpp 4048 2013-07-31 15:31:59Z kevg $
+// $Id: sphinxstd.cpp 4505 2014-01-22 15:16:21Z deogar $
 //
 
 //
-// Copyright (c) 2001-2013, Andrew Aksyonoff
-// Copyright (c) 2008-2013, Sphinx Technologies Inc
+// Copyright (c) 2001-2014, Andrew Aksyonoff
+// Copyright (c) 2008-2014, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -1732,5 +1732,5 @@ DWORD sphCRC32 ( const BYTE * pString, int iLen, DWORD uPrevCRC )
 }
 
 //
-// $Id: sphinxstd.cpp 4048 2013-07-31 15:31:59Z kevg $
+// $Id: sphinxstd.cpp 4505 2014-01-22 15:16:21Z deogar $
 //

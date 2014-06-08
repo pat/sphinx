@@ -1,10 +1,10 @@
 //
-// $Id: tests.cpp 4067 2013-08-12 05:04:21Z kevg $
+// $Id: tests.cpp 4521 2014-01-30 10:23:05Z tomat $
 //
 
 //
-// Copyright (c) 2001-2013, Andrew Aksyonoff
-// Copyright (c) 2008-2013, Sphinx Technologies Inc
+// Copyright (c) 2001-2014, Andrew Aksyonoff
+// Copyright (c) 2008-2014, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -2896,6 +2896,21 @@ void TestArabicStemmer()
 	stem_ar_utf8 ( (BYTE*)sTest1 );
 	assert ( memcmp ( sTest1, sRef1, sizeof(sTest1) )==0 );
 
+
+	char sTest2[] = "\xd8\xa7\xd9\x84\xd8\xb7\xd8\xa7\xd9\x84\xd8\xa8\xd8\xa9\0";
+	char sRef2[] = "\xd8\xb7\xd9\x84\xd8\xa8\0";
+	CSphTightVector<BYTE> dTest22;
+	dTest22.Resize ( sizeof(sTest2) );
+	for ( int i=0; i<10; i++ )
+	{
+		dTest22.Resize ( dTest22.GetLength() * 2 );
+		int iOff = dTest22.GetLength() - sizeof(sTest2);
+		memcpy ( dTest22.Begin() + iOff, sTest2, sizeof(sTest2) );
+		stem_ar_utf8 ( dTest22.Begin() + iOff );
+		assert ( memcmp ( dTest22.Begin() + iOff, sRef2, sizeof(sRef2) )==0 );
+	}
+
+
 	printf ( "ok\n" );
 }
 #endif // !NDEBUG
@@ -2981,5 +2996,5 @@ int main ()
 }
 
 //
-// $Id: tests.cpp 4067 2013-08-12 05:04:21Z kevg $
+// $Id: tests.cpp 4521 2014-01-30 10:23:05Z tomat $
 //

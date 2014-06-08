@@ -3,8 +3,8 @@
 //
 
 //
-// Copyright (c) 2011-2013, Andrew Aksyonoff
-// Copyright (c) 2011-2013, Sphinx Technologies Inc
+// Copyright (c) 2011-2014, Andrew Aksyonoff
+// Copyright (c) 2011-2014, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -382,7 +382,7 @@ static const BYTE * JsonFormatStr ( CSphVector<BYTE> & dOut, const BYTE * p, boo
 		dOut.Add ( '"' );
 	while ( iLen-- )
 	{
-		if ( *p=='"' )
+		if ( *p=='"' && bQuote )
 			dOut.Add ( '\\' );
 		dOut.Add ( *p );
 		p++;

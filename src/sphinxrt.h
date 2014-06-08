@@ -1,10 +1,10 @@
 //
-// $Id: sphinxrt.h 3737 2013-03-14 14:09:23Z klirichek $
+// $Id: sphinxrt.h 4505 2014-01-22 15:16:21Z deogar $
 //
 
 //
-// Copyright (c) 2001-2013, Andrew Aksyonoff
-// Copyright (c) 2008-2013, Sphinx Technologies Inc
+// Copyright (c) 2001-2014, Andrew Aksyonoff
+// Copyright (c) 2008-2014, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -95,5 +95,5 @@ void sphReplayBinlog ( const SmallStringHash_T<CSphIndex*> & hIndexes, DWORD uRe
 #endif // _sphinxrt_
 
 //
-// $Id: sphinxrt.h 3737 2013-03-14 14:09:23Z klirichek $
+// $Id: sphinxrt.h 4505 2014-01-22 15:16:21Z deogar $
 //

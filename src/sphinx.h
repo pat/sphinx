@@ -1,10 +1,10 @@
 //
-// $Id: sphinx.h 4321 2013-11-11 20:08:52Z deogar $
+// $Id: sphinx.h 4675 2014-04-28 05:30:12Z deogar $
 //
 
 //
-// Copyright (c) 2001-2013, Andrew Aksyonoff
-// Copyright (c) 2008-2013, Sphinx Technologies Inc
+// Copyright (c) 2001-2014, Andrew Aksyonoff
+// Copyright (c) 2008-2014, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -199,8 +199,8 @@ inline const	DWORD *	STATIC2DOCINFO ( const DWORD * pAttrs )	{ return STATIC2DOC
 #define SPHINX_TAG "-release"
 #endif
 
-#define SPHINX_VERSION			"2.1.4" SPHINX_BITS_TAG SPHINX_TAG " (" SPH_SVN_TAGREV ")"
-#define SPHINX_BANNER			"Sphinx " SPHINX_VERSION "\nCopyright (c) 2001-2013, Andrew Aksyonoff\nCopyright (c) 2008-2013, Sphinx Technologies Inc (http://sphinxsearch.com)\n\n"
+#define SPHINX_VERSION			"2.1.8" SPHINX_BITS_TAG SPHINX_TAG " (" SPH_SVN_TAGREV ")"
+#define SPHINX_BANNER			"Sphinx " SPHINX_VERSION "\nCopyright (c) 2001-2014, Andrew Aksyonoff\nCopyright (c) 2008-2014, Sphinx Technologies Inc (http://sphinxsearch.com)\n\n"
 #define SPHINX_SEARCHD_PROTO	1
 #define SPHINX_CLIENT_VERSION	1
 
@@ -809,7 +809,7 @@ public:
 	virtual SphWordID_t	GetWordID ( const BYTE * pWord, int iLen, bool bFilterStops ) = 0;
 
 	/// apply stemmers to the given word
-	virtual void		ApplyStemmers ( BYTE * ) {}
+	virtual void		ApplyStemmers ( BYTE * ) const {}
 
 	/// load stopwords from given files
 	virtual void		LoadStopwords ( const char * sFiles, const ISphTokenizer * pTokenizer ) = 0;
@@ -2339,7 +2339,8 @@ enum ESphFilter
 	SPH_FILTER_VALUES		= 0,	///< filter by integer values set
 	SPH_FILTER_RANGE		= 1,	///< filter by integer range
 	SPH_FILTER_FLOATRANGE	= 2,	///< filter by float range
-	SPH_FILTER_STRING		= 3		///< filter by string value
+	SPH_FILTER_STRING		= 3,	///< filter by string value
+	SPH_FILTER_USERVAR		= 5		///< filter by @uservar
 };
 
 
@@ -3197,5 +3198,5 @@ extern CSphString g_sLemmatizerBase;
 #endif // _sphinx_
 
 //
-// $Id: sphinx.h 4321 2013-11-11 20:08:52Z deogar $
+// $Id: sphinx.h 4675 2014-04-28 05:30:12Z deogar $
 //

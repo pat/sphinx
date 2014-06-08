@@ -1,10 +1,10 @@
 //
-// $Id: sphinxrt.cpp 4394 2013-12-05 18:42:50Z kevg $
+// $Id: sphinxrt.cpp 4658 2014-04-15 05:55:39Z tomat $
 //
 
 //
-// Copyright (c) 2001-2013, Andrew Aksyonoff
-// Copyright (c) 2008-2013, Sphinx Technologies Inc
+// Copyright (c) 2001-2014, Andrew Aksyonoff
+// Copyright (c) 2008-2014, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -45,9 +45,6 @@
 #else
 #define	WORDID_MAX				0xffffffffUL
 #endif
-
-// RT hitman
-typedef Hitman_c<8> HITMAN;
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -1020,6 +1017,7 @@ private:
 	/// double buffer
 	CSphMutex					m_tSaveInnerMutex;
 	CSphMutex					m_tSaveOuterMutex;
+	CSphMutex					m_tFlushLock;
 	int							m_iDoubleBuffer;
 	CSphVector<SphDocID_t>		m_dNewSegmentKlist;					///< raw doc-id container
 	CSphFixedVector<SphAttr_t>	m_dDiskChunkKlist;					///< well ordered SphAttr_t kill-list
@@ -1066,7 +1064,7 @@ private:
 	/// returns NULL if another index already uses it in an open txn
 	RtAccum_t *					AcquireAccum ( CSphString * sError=NULL );
 
-	RtSegment_t *				MergeSegments ( const RtSegment_t * pSeg1, const RtSegment_t * pSeg2, const CSphVector<SphDocID_t> * pAccKlist );
+	RtSegment_t *				MergeSegments ( const RtSegment_t * pSeg1, const RtSegment_t * pSeg2, const CSphVector<SphDocID_t> * pAccKlist, bool bHasMorphology );
 	const RtWord_t *			CopyWord ( RtSegment_t * pDst, RtWordWriter_t & tOutWord, const RtSegment_t * pSrc, const RtWord_t * pWord, RtWordReader_t & tInWord, const CSphVector<SphDocID_t> * pAccKlist );
 	void						MergeWord ( RtSegment_t * pDst, const RtSegment_t * pSrc1, const RtWord_t * pWord1, const RtSegment_t * pSrc2, const RtWord_t * pWord2, RtWordWriter_t & tOut, const CSphVector<SphDocID_t> * pAccKlist );
 	void						CopyDoc ( RtSegment_t * pSeg, RtDocWriter_t & tOutDoc, RtWord_t * pWord, const RtSegment_t * pSrc, const RtDoc_t * pDoc );
@@ -1083,7 +1081,7 @@ private:
 	bool						SaveRamChunk ();
 
 	virtual void				GetPrefixedWords ( const char * sPrefix, int iPrefix, const char * sWildcard, CSphVector<CSphNamedInt> & dPrefixedWords, BYTE * pDictBuf, int iFD ) const;
-	virtual void				GetInfixedWords ( const char * sInfix, int iInfix, const char * sWildcard, CSphVector<CSphNamedInt> & dPrefixedWords ) const;
+	virtual void				GetInfixedWords ( const char * sInfix, int iInfix, const char * sWildcard, CSphVector<CSphNamedInt> & dPrefixedWords, bool bHasMorphology ) const;
 
 public:
 #if USE_WINDOWS
@@ -1145,7 +1143,7 @@ public:
 
 	virtual void				SetEnableStar ( bool bEnableStar );
 	bool						IsWordDict () const { return m_bKeywordDict; }
-	void						BuildSegmentInfixes ( RtSegment_t * pSeg ) const;
+	void						BuildSegmentInfixes ( RtSegment_t * pSeg, bool bHasMorphology ) const;
 
 	// TODO: implement me
 	virtual	void				SetProgressCallback ( CSphIndexProgress::IndexingProgress_fn ) {}
@@ -1190,6 +1188,7 @@ RtIndex_t::RtIndex_t ( const CSphSchema & tSchema, const char * sIndexName, int6
 	Verify ( m_tRwlock.Init() );
 	Verify ( m_tSaveOuterMutex.Init() );
 	Verify ( m_tSaveInnerMutex.Init() );
+	Verify ( m_tFlushLock.Init() );
 }
 
 
@@ -1204,6 +1203,7 @@ RtIndex_t::~RtIndex_t ()
 		SaveMeta ( m_pDiskChunks.GetLength(), m_iTID );
 	}
 
+	Verify ( m_tFlushLock.Done() );
 	Verify ( m_tSaveInnerMutex.Done() );
 	Verify ( m_tSaveOuterMutex.Done() );
 	Verify ( m_tRwlock.Done() );
@@ -1249,6 +1249,12 @@ void RtIndex_t::CheckRamFlush ()
 void RtIndex_t::ForceRamFlush ( bool bPeriodic )
 {
 	int64_t tmSave = sphMicroTimer();
+
+	// need this lock as could get here at same time either ways:
+	// via RtFlushThreadFunc->RtIndex_t::CheckRamFlush
+	// and via HandleMysqlFlushRtindex
+	CSphScopedLock<CSphMutex> tLock ( m_tFlushLock );
+
 	if ( g_pRtBinlog->IsActive() && m_iTID<=m_iSavedTID )
 		return;
 
@@ -2410,6 +2416,7 @@ static bool BuildBloom ( const BYTE * sWord, int iLen, int iInfixCodepointCount,
 	// byte offset for each codepoints
 	BYTE dOffsets [ SPH_MAX_WORD_LEN+1 ] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
 		20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42 };
+	assert ( iLen<=SPH_MAX_WORD_LEN || ( bUtf8 && iLen<=SPH_MAX_WORD_LEN*3 ) );
 	int iCodes = iLen;
 	if ( bUtf8 )
 	{
@@ -2447,7 +2454,7 @@ static bool BuildBloom ( const BYTE * sWord, int iLen, int iInfixCodepointCount,
 }
 
 
-void RtIndex_t::BuildSegmentInfixes ( RtSegment_t * pSeg ) const
+void RtIndex_t::BuildSegmentInfixes ( RtSegment_t * pSeg, bool bHasMorphology ) const
 {
 	if ( !pSeg || !m_bKeywordDict || !m_tSettings.m_iMinInfixLen )
 		return;
@@ -2462,14 +2469,25 @@ void RtIndex_t::BuildSegmentInfixes ( RtSegment_t * pSeg ) const
 	RtWordReader_t rdDictRough ( pSeg, true, m_iWordsCheckpoint );
 	while ( ( pWord = rdDictRough.UnzipWord () )!=NULL )
 	{
+		const BYTE * pDictWord = pWord->m_sWord+1;
+		if ( bHasMorphology && *pDictWord!=MAGIC_WORD_HEAD_NONSTEMMED )
+			continue;
+
+		int iLen = pWord->m_sWord[0];
+		if ( *pDictWord<0x20 ) // anyway skip heading magic chars in the prefix, like NONSTEMMED maker
+		{
+			pDictWord++;
+			iLen--;
+		}
+
 		uint64_t * pVal = pRough + rdDictRough.m_iCheckpoint * BLOOM_PER_ENTRY_VALS_COUNT * BLOOM_HASHES_COUNT;
-		BuildBloom ( pWord->m_sWord+1, pWord->m_sWord[0], 2, ( m_iMaxCodepointLength>1 ), pVal+BLOOM_PER_ENTRY_VALS_COUNT*0, BLOOM_PER_ENTRY_VALS_COUNT );
-		BuildBloom ( pWord->m_sWord+1, pWord->m_sWord[0], 4, ( m_iMaxCodepointLength>1 ), pVal+BLOOM_PER_ENTRY_VALS_COUNT*1, BLOOM_PER_ENTRY_VALS_COUNT );
+		BuildBloom ( pDictWord, iLen, 2, ( m_iMaxCodepointLength>1 ), pVal+BLOOM_PER_ENTRY_VALS_COUNT*0, BLOOM_PER_ENTRY_VALS_COUNT );
+		BuildBloom ( pDictWord, iLen, 4, ( m_iMaxCodepointLength>1 ), pVal+BLOOM_PER_ENTRY_VALS_COUNT*1, BLOOM_PER_ENTRY_VALS_COUNT );
 	}
 }
 
 
-RtSegment_t * RtIndex_t::MergeSegments ( const RtSegment_t * pSeg1, const RtSegment_t * pSeg2, const CSphVector<SphDocID_t> * pAccKlist )
+RtSegment_t * RtIndex_t::MergeSegments ( const RtSegment_t * pSeg1, const RtSegment_t * pSeg2, const CSphVector<SphDocID_t> * pAccKlist, bool bHasMorphology )
 {
 	if ( pSeg1->m_iTag > pSeg2->m_iTag )
 		Swap ( pSeg1, pSeg2 );
@@ -2540,6 +2558,13 @@ RtSegment_t * RtIndex_t::MergeSegments ( const RtSegment_t * pSeg1, const RtSegm
 	CheckSegmentRows ( pSeg, m_iStride );
 #endif
 
+	// merged segment might be completely killed by committed data
+	if ( !pSeg->m_iRows )
+	{
+		SafeDelete ( pSeg );
+		return NULL;
+	}
+
 	//////////////////
 	// merge keywords
 	//////////////////
@@ -2598,7 +2623,7 @@ RtSegment_t * RtIndex_t::MergeSegments ( const RtSegment_t * pSeg1, const RtSegm
 	if ( m_bKeywordDict )
 		FixupSegmentCheckpoints ( pSeg );
 
-	BuildSegmentInfixes ( pSeg );
+	BuildSegmentInfixes ( pSeg, bHasMorphology );
 
 	assert ( pSeg->m_dRows.GetLength() );
 	assert ( pSeg->m_iRows );
@@ -2632,6 +2657,7 @@ void RtIndex_t::Commit ( int * pDeleted )
 		pAcc->m_iAccumDocs = 0;
 		pAcc->m_dAccumRows.Resize ( 0 );
 		pAcc->m_dStrings.Resize ( 1 );
+		pAcc->m_dMvas.Resize ( 1 );
 		pAcc->m_dPerDocHitsCount.Resize ( 0 );
 		pAcc->ResetDict();
 		return;
@@ -2648,7 +2674,7 @@ void RtIndex_t::Commit ( int * pDeleted )
 	assert ( !pNewSeg || pNewSeg->m_iAliveRows>0 );
 	assert ( !pNewSeg || pNewSeg->m_bTlsKlist==false );
 
-	BuildSegmentInfixes ( pNewSeg );
+	BuildSegmentInfixes ( pNewSeg, m_pDict->HasMorphology() );
 
 #if PARANOID
 	if ( pNewSeg )
@@ -2659,6 +2685,7 @@ void RtIndex_t::Commit ( int * pDeleted )
 	pAcc->m_dAccum.Resize ( 0 );
 	pAcc->m_dAccumRows.Resize ( 0 );
 	pAcc->m_dStrings.Resize ( 1 ); // handle dummy zero offset
+	pAcc->m_dMvas.Resize ( 1 );
 	pAcc->m_dPerDocHitsCount.Resize ( 0 );
 	pAcc->ResetDict();
 
@@ -2716,6 +2743,7 @@ void RtIndex_t::CommitReplayable ( RtSegment_t * pNewSeg, CSphVector<SphDocID_t>
 		dSegments.Add ( pNewSeg );
 
 	int64_t iRamFreed = 0;
+	bool bHasMorphology = m_pDict->HasMorphology();
 
 	// enforce RAM usage limit
 	int64_t iRamLeft = m_iDoubleBuffer ? m_iDoubleBufferLimit : m_iSoftRamLimit;
@@ -2788,14 +2816,17 @@ void RtIndex_t::CommitReplayable ( RtSegment_t * pNewSeg, CSphVector<SphDocID_t>
 		// do it
 		RtSegment_t * pA = dSegments.Pop();
 		RtSegment_t * pB = dSegments.Pop();
-		dSegments.Add ( MergeSegments ( pA, pB, &dAccKlist ) );
+		RtSegment_t * pMerged = MergeSegments ( pA, pB, &dAccKlist, bHasMorphology );
+		if ( pMerged )
+		{
+			int64_t iMerged = pMerged->GetUsedRam();
+			iRamLeft -= Min ( iRamLeft, iMerged );
+			dSegments.Add ( pMerged );
+		}
 		dToKill.Add ( pA );
 		dToKill.Add ( pB );
 
 		iRamFreed += pA->GetUsedRam() + pB->GetUsedRam();
-
-		int64_t iMerged = dSegments.Last()->GetUsedRam();
-		iRamLeft -= Min ( iRamLeft, iMerged );
 	}
 
 	// phase 2, obtain exclusive writer lock
@@ -3023,6 +3054,10 @@ void RtIndex_t::RollBack ()
 	// clean up parts we no longer need
 	pAcc->m_dAccum.Resize ( 0 );
 	pAcc->m_dAccumRows.Resize ( 0 );
+	pAcc->m_dStrings.Resize ( 1 ); // handle dummy zero offset
+	pAcc->m_dMvas.Resize ( 1 );
+	pAcc->m_dPerDocHitsCount.Resize ( 0 );
+	pAcc->ResetDict();
 
 	// finish cleaning up and release accumulator
 	pAcc->m_pIndex = NULL;
@@ -3256,6 +3291,8 @@ void RtIndex_t::SaveDiskDataImpl ( const char * sFilename, const CSphVector<RtSe
 	SphOffset_t uLastDocpos = 0;
 	CSphVector<SkiplistEntry_t> dSkiplist;
 
+	bool bHasMorphology = m_pDict->HasMorphology();
+
 	CSphScopedPtr<ISphInfixBuilder> pInfixer ( NULL );
 	if ( m_tSettings.m_iMinInfixLen && m_pDict->GetSettings().m_bWordDict )
 		pInfixer = sphCreateInfixBuilder ( m_pTokenizer->GetMaxCodepointLength(), &sError );
@@ -3443,7 +3480,7 @@ void RtIndex_t::SaveDiskDataImpl ( const char * sFilename, const CSphVector<RtSe
 
 				// build infixes
 				if ( pInfixer.Ptr() )
-					pInfixer->AddWord ( pWord->m_sWord+1, pWord->m_sWord[0], dCheckpoints.GetLength() );
+					pInfixer->AddWord ( pWord->m_sWord+1, pWord->m_sWord[0], dCheckpoints.GetLength(), bHasMorphology );
 			}
 
 			// emit skiplist pointer
@@ -3791,6 +3828,7 @@ CSphIndex * RtIndex_t::LoadDiskChunk ( const char * sChunk, CSphString & sError 
 
 	pDiskChunk->SetWordlistPreload ( m_bPreloadWordlist );
 	pDiskChunk->m_iExpansionLimit = m_iExpansionLimit;
+	pDiskChunk->m_bExpandKeywords = m_bExpandKeywords;
 	pDiskChunk->SetBinlog ( false );
 	pDiskChunk->SetEnableStar ( m_bEnableStar );
 
@@ -4149,6 +4187,7 @@ bool RtIndex_t::LoadRamChunk ( DWORD uVersion, bool bRebuildInfixes )
 #endif
 	}
 
+	bool bHasMorphology = ( m_pDict && m_pDict->HasMorphology() ); // fresh and old-format index still has no dictionary at this point
 	int iSegmentSeq = rdChunk.GetDword();
 	m_pSegments.Resize ( rdChunk.GetDword() ); // FIXME? sanitize
 
@@ -4186,28 +4225,28 @@ bool RtIndex_t::LoadRamChunk ( DWORD uVersion, bool bRebuildInfixes )
 		// (the Stride for id32 is 1 DWORD shorter than for id64)
 		// the only usage of this BLOB is to save id32 disk-chunk.
 		LoadVector ( rdChunk, pSeg->m_dRows );
-		if (!m_bId32to64)
-		{	
+		if ( !m_bId32to64 )
+		{
 			LoadVector ( rdChunk, pSeg->m_dKlist );
- 		} else
- 		{
+		} else
+		{
 			// shrink Klist from id32 to id64 on-the-fly
- 			pSeg->m_dKlist.Resize ( rdChunk.GetDword() );
- 			if ( pSeg->m_dKlist.GetLength() )
- 			{
- 				// init 1-st elem with zero - if we load only 1 dword, the high part of id64 will be defined anyway
- 				pSeg->m_dKlist[0] = 0;
- 				// yes, we load tight (id32) array into wide (id64) vector, filling exactly half of it
+			pSeg->m_dKlist.Resize ( rdChunk.GetDword() );
+			if ( pSeg->m_dKlist.GetLength() )
+			{
+				// init 1-st elem with zero - if we load only 1 dword, the high part of id64 will be defined anyway
+				pSeg->m_dKlist[0] = 0;
+				// yes, we load tight (id32) array into wide (id64) vector, filling exactly half of it
 				rdChunk.GetBytes ( pSeg->m_dKlist.Begin(), pSeg->m_dKlist.GetLength()*sizeof(DWORD) );
- 				// now we have to expand n ID32s into n ID64s
- 				DWORD* dId32s = (DWORD*)pSeg->m_dKlist.Begin();
- 				for ( int i=pSeg->m_dKlist.GetLength()-1; i>0; --i ) /// i>0 since for i=0 id is already in place
- 				{
- 					pSeg->m_dKlist[i] = dId32s[i];
- 					dId32s[i] = 0;
- 				}
- 			}
- 		}
+				// now we have to expand n ID32s into n ID64s
+				DWORD* dId32s = (DWORD*)pSeg->m_dKlist.Begin();
+				for ( int i=pSeg->m_dKlist.GetLength()-1; i>0; --i ) /// i>0 since for i=0 id is already in place
+				{
+					pSeg->m_dKlist[i] = dId32s[i];
+					dId32s[i] = 0;
+				}
+			}
+		}
 		LoadVector ( rdChunk, pSeg->m_dStrings );
 		if ( uVersion>=3 )
 			LoadVector ( rdChunk, pSeg->m_dMvas );
@@ -4217,7 +4256,7 @@ bool RtIndex_t::LoadRamChunk ( DWORD uVersion, bool bRebuildInfixes )
 		{
 			LoadVector ( rdChunk, pSeg->m_dInfixFilterCP );
 			if ( bRebuildInfixes )
-				BuildSegmentInfixes ( pSeg );
+				BuildSegmentInfixes ( pSeg, bHasMorphology );
 		}
 	}
 
@@ -5656,7 +5695,7 @@ static bool ExtractInfixCheckpoints ( const char * sInfix, int iBytes, int iMaxC
 }
 
 
-void RtIndex_t::GetInfixedWords ( const char * sInfix, int iBytes, const char * sWildcard, CSphVector<CSphNamedInt> & dExpanded ) const
+void RtIndex_t::GetInfixedWords ( const char * sInfix, int iBytes, const char * sWildcard, CSphVector<CSphNamedInt> & dExpanded, bool bHasMorphology ) const
 {
 	// sanity checks
 	if ( !sInfix || iBytes<=0 )
@@ -5664,6 +5703,7 @@ void RtIndex_t::GetInfixedWords ( const char * sInfix, int iBytes, const char * 
 
 	// find those prefixes
 	CSphVector<int> dPoints;
+	const int iSkipMagic = ( bHasMorphology ? 1 : 0 ); // whether to skip heading magic chars in the prefix, like NONSTEMMED maker
 
 	SmallStringHash_T<DocHitPair_t> hWords;
 	ARRAY_FOREACH ( iSeg, m_pSegments )
@@ -5691,8 +5731,11 @@ void RtIndex_t::GetInfixedWords ( const char * sInfix, int iBytes, const char * 
 			const RtWord_t * pWord = NULL;
 			while ( ( pWord = tReader.UnzipWord() )!=NULL )
 			{
+				if ( bHasMorphology && pWord->m_sWord[1]!=MAGIC_WORD_HEAD_NONSTEMMED )
+					continue;
+
 				// check it
-				if ( !sphWildcardMatch ( (const char*)pWord->m_sWord+1, sWildcard ) )
+				if ( !sphWildcardMatch ( (const char*)pWord->m_sWord+1+iSkipMagic, sWildcard ) )
 					continue;
 
 				iMatches++;
@@ -8226,7 +8269,7 @@ bool RtBinlog_c::ReplayCommit ( int iBinlog, DWORD uReplayFlags, BinlogReader_c 
 		if ( tIndex.m_pRT->IsWordDict() && pSeg.Ptr() )
 		{
 			FixupSegmentCheckpoints ( pSeg.Ptr() );
-			tIndex.m_pRT->BuildSegmentInfixes ( pSeg.Ptr() );
+			tIndex.m_pRT->BuildSegmentInfixes ( pSeg.Ptr(), tIndex.m_pRT->GetDictionary()->HasMorphology() );
 		}
 
 		// actually replay
@@ -8467,10 +8510,7 @@ void sphRTConfigure ( const CSphConfigSection & hSearchd, bool bTestMode )
 	assert ( g_pBinlog );
 	g_pRtBinlog->Configure ( hSearchd, bTestMode );
 	g_iRtFlushPeriod = hSearchd.GetInt ( "rt_flush_period", (int)g_iRtFlushPeriod );
-
-	// clip period to range ( 10 sec, million years )
 	g_iRtFlushPeriod = Max ( g_iRtFlushPeriod, 10 );
-	g_iRtFlushPeriod = Min ( g_iRtFlushPeriod, INT64_MAX );
 }
 
 
@@ -8536,5 +8576,5 @@ bool sphRTSchemaConfigure ( const CSphConfigSection & hIndex, CSphSchema * pSche
 }
 
 //
-// $Id: sphinxrt.cpp 4394 2013-12-05 18:42:50Z kevg $
+// $Id: sphinxrt.cpp 4658 2014-04-15 05:55:39Z tomat $
 //

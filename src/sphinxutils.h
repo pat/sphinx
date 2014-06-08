@@ -1,10 +1,10 @@
 //
-// $Id: sphinxutils.h 4048 2013-07-31 15:31:59Z kevg $
+// $Id: sphinxutils.h 4505 2014-01-22 15:16:21Z deogar $
 //
 
 //
-// Copyright (c) 2001-2013, Andrew Aksyonoff
-// Copyright (c) 2008-2013, Sphinx Technologies Inc
+// Copyright (c) 2001-2014, Andrew Aksyonoff
+// Copyright (c) 2008-2014, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -229,5 +229,5 @@ void sphCheckDuplicatePaths ( const CSphConfig & hConf );
 #endif // _sphinxutils_
 
 //
-// $Id: sphinxutils.h 4048 2013-07-31 15:31:59Z kevg $
+// $Id: sphinxutils.h 4505 2014-01-22 15:16:21Z deogar $
 //

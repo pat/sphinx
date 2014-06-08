@@ -1,10 +1,10 @@
 //
-// $Id: indextool.cpp 4236 2013-10-08 11:41:24Z tomat $
+// $Id: indextool.cpp 4610 2014-03-12 13:49:02Z tomat $
 //
 
 //
-// Copyright (c) 2001-2013, Andrew Aksyonoff
-// Copyright (c) 2008-2013, Sphinx Technologies Inc
+// Copyright (c) 2001-2014, Andrew Aksyonoff
+// Copyright (c) 2008-2014, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -956,18 +956,11 @@ int main ( int argc, char ** argv )
 	CSphConfig & hConf = cp.m_tConf;
 	for ( ;; )
 	{
-		if ( ( eCommand==CMD_DUMPHEADER || eCommand==CMD_DUMPCONFIG ) && sDumpHeader.Ends ( ".sph" ) )
-			break;
-
 		if ( eCommand==CMD_BUILDIDF || eCommand==CMD_MERGEIDF )
 			break;
 
-		if ( eCommand==CMD_DUMPDICT )
-		{
-			if ( sDumpDict.Ends ( ".spi" ) )
-				break;
-			sIndex = sDumpDict;
-		}
+		if ( eCommand==CMD_DUMPDICT && !sDumpDict.Ends ( ".spi" ) )
+				sIndex = sDumpDict;
 
 		sphLoadConfig ( sOptConfig, bQuiet, cp );
 		break;
@@ -1025,6 +1018,14 @@ int main ( int argc, char ** argv )
 
 
 	// common part for several commands, check and preload index
+
+	if ( hConf("indexer") && hConf["indexer"]("indexer") )
+	{
+		if ( hConf["indexer"]["indexer"]("lemmatizer_base") )
+			g_sLemmatizerBase = hConf["indexer"]["indexer"]["lemmatizer_base"];
+		sphAotSetCacheSize ( hConf["indexer"]["indexer"].GetSize ( "lemmatizer_cache", 262144 ) );
+	}
+
 	CSphIndex * pIndex = NULL;
 	while ( !sIndex.IsEmpty() && eCommand!=CMD_OPTIMIZEKLISTS )
 	{
@@ -1212,7 +1213,7 @@ int main ( int argc, char ** argv )
 		{
 			CSphString sError;
 			if ( !BuildIDF ( sOut, dFiles, sError, bSkipUnique ) )
-				fprintf ( stdout, "ERROR: %s\n", sError.cstr() );
+				sphDie ( "ERROR: %s\n", sError.cstr() );
 			break;
 		}
 
@@ -1220,7 +1221,7 @@ int main ( int argc, char ** argv )
 		{
 			CSphString sError;
 			if ( !MergeIDF ( sOut, dFiles, sError, bSkipUnique ) )
-				fprintf ( stdout, "ERROR: %s\n", sError.cstr() );
+				sphDie ( "ERROR: %s\n", sError.cstr() );
 			break;
 		}
 
@@ -1247,5 +1248,5 @@ int main ( int argc, char ** argv )
 }
 
 //
-// $Id: indextool.cpp 4236 2013-10-08 11:41:24Z tomat $
+// $Id: indextool.cpp 4610 2014-03-12 13:49:02Z tomat $
 //

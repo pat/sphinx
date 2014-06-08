@@ -1,10 +1,10 @@
 //
-// $Id: sphinxsoundex.cpp 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxsoundex.cpp 4505 2014-01-22 15:16:21Z deogar $
 //
 
 //
-// Copyright (c) 2001-2013, Andrew Aksyonoff
-// Copyright (c) 2008-2013, Sphinx Technologies Inc
+// Copyright (c) 2001-2014, Andrew Aksyonoff
+// Copyright (c) 2008-2014, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -44,5 +44,5 @@ void stem_soundex ( BYTE * pWord )
 }
 
 //
-// $Id: sphinxsoundex.cpp 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxsoundex.cpp 4505 2014-01-22 15:16:21Z deogar $
 //

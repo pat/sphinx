@@ -1,12 +1,12 @@
 <?php
 
 //
-// $Id: sphinxapi.php 4362 2013-11-25 07:12:52Z tomat $
+// $Id: sphinxapi.php 4505 2014-01-22 15:16:21Z deogar $
 //
 
 //
-// Copyright (c) 2001-2013, Andrew Aksyonoff
-// Copyright (c) 2008-2013, Sphinx Technologies Inc
+// Copyright (c) 2001-2014, Andrew Aksyonoff
+// Copyright (c) 2008-2014, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -1806,5 +1806,5 @@ class SphinxClient
 }
 
 //
-// $Id: sphinxapi.php 4362 2013-11-25 07:12:52Z tomat $
+// $Id: sphinxapi.php 4505 2014-01-22 15:16:21Z deogar $
 //

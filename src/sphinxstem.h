@@ -1,10 +1,10 @@
 //
-// $Id: sphinxstem.h 3721 2013-02-27 16:38:08Z shodan $
+// $Id: sphinxstem.h 4505 2014-01-22 15:16:21Z deogar $
 //
 
 //
-// Copyright (c) 2001-2013, Andrew Aksyonoff
-// Copyright (c) 2008-2013, Sphinx Technologies Inc
+// Copyright (c) 2001-2014, Andrew Aksyonoff
+// Copyright (c) 2008-2014, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -75,5 +75,5 @@ CSphTokenFilter *		sphAotCreateFilter ( ISphTokenizer * pTokenizer, CSphDict * p
 #endif // _sphinxstem_
 
 //
-// $Id: sphinxstem.h 3721 2013-02-27 16:38:08Z shodan $
+// $Id: sphinxstem.h 4505 2014-01-22 15:16:21Z deogar $
 //

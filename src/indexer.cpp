@@ -1,10 +1,10 @@
 //
-// $Id: indexer.cpp 4396 2013-12-08 06:52:38Z tomat $
+// $Id: indexer.cpp 4505 2014-01-22 15:16:21Z deogar $
 //
 
 //
-// Copyright (c) 2001-2013, Andrew Aksyonoff
-// Copyright (c) 2008-2013, Sphinx Technologies Inc
+// Copyright (c) 2001-2014, Andrew Aksyonoff
+// Copyright (c) 2008-2014, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -1928,5 +1928,5 @@ int main ( int argc, char ** argv )
 }
 
 //
-// $Id: indexer.cpp 4396 2013-12-08 06:52:38Z tomat $
+// $Id: indexer.cpp 4505 2014-01-22 15:16:21Z deogar $
 //

@@ -1,11 +1,11 @@
 #
-# $Id: sphinxapi.py 4362 2013-11-25 07:12:52Z tomat $
+# $Id: sphinxapi.py 4505 2014-01-22 15:16:21Z deogar $
 #
 # Python version of Sphinx searchd client (Python API)
 #
 # Copyright (c) 2006, Mike Osadnik
-# Copyright (c) 2006-2013, Andrew Aksyonoff
-# Copyright (c) 2008-2013, Sphinx Technologies Inc
+# Copyright (c) 2006-2014, Andrew Aksyonoff
+# Copyright (c) 2008-2014, Sphinx Technologies Inc
 # All rights reserved
 #
 # This program is free software; you can redistribute it and/or modify
@@ -1207,5 +1207,5 @@ def SetBit ( flag, bit, on ):
 
 	
 #
-# $Id: sphinxapi.py 4362 2013-11-25 07:12:52Z tomat $
+# $Id: sphinxapi.py 4505 2014-01-22 15:16:21Z deogar $
 #

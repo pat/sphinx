@@ -1,5 +1,5 @@
 //
-// $Id: sphinxstemar.cpp 3337 2012-08-14 23:45:54Z shodan $
+// $Id: sphinxstemar.cpp 4521 2014-01-30 10:23:05Z tomat $
 //
 
 //
@@ -387,7 +387,7 @@ static int ar_match_form ( BYTE * word, struct ar_form_t * forms )
 		{
 			if ( forms[fi].entry[pi].cp>=MATCH_M && forms[fi].entry[pi].cp<=MATCH_4 )
 			{
-				int index = forms[fi].entry[pi].cp - MATCH_M;
+				int index = ( forms[fi].entry[pi].cp - MATCH_M ) >> 8;
 				if ( AR_CHAR_AT(index)!=AR_CHAR_AT(forms[fi].entry[pi].at) )
 					break;
 			} else
@@ -517,5 +517,5 @@ void stem_ar_utf8 ( BYTE * word )
 }
 
 //
-// $Id: sphinxstemar.cpp 3337 2012-08-14 23:45:54Z shodan $
+// $Id: sphinxstemar.cpp 4521 2014-01-30 10:23:05Z tomat $
 //

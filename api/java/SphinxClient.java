@@ -1,11 +1,11 @@
 /*
- * $Id: SphinxClient.java 3701 2013-02-20 18:10:18Z deogar $
+ * $Id: SphinxClient.java 4505 2014-01-22 15:16:21Z deogar $
  *
  * Java version of Sphinx searchd client (Java API)
  *
  * Copyright (c) 2007, Vladimir Fedorkov
- * Copyright (c) 2007-2013, Andrew Aksyonoff
- * Copyright (c) 2008-2013, Sphinx Technologies Inc
+ * Copyright (c) 2007-2014, Andrew Aksyonoff
+ * Copyright (c) 2008-2014, Sphinx Technologies Inc
  * All rights reserved
  *
  * This program is free software; you can redistribute it and/or modify
@@ -1519,5 +1519,5 @@ public class SphinxClient
 }
 
 /*
- * $Id: SphinxClient.java 3701 2013-02-20 18:10:18Z deogar $
+ * $Id: SphinxClient.java 4505 2014-01-22 15:16:21Z deogar $
  */

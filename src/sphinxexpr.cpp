@@ -1,10 +1,10 @@
 //
-// $Id: sphinxexpr.cpp 4366 2013-11-26 09:24:20Z tomat $
+// $Id: sphinxexpr.cpp 4606 2014-03-11 07:35:40Z joric $
 //
 
 //
-// Copyright (c) 2001-2013, Andrew Aksyonoff
-// Copyright (c) 2008-2013, Sphinx Technologies Inc
+// Copyright (c) 2001-2014, Andrew Aksyonoff
+// Copyright (c) 2008-2014, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -933,18 +933,21 @@ struct Expr_TimeDiff_c : public ISphExpr
 #define INT64SECOND	m_pSecond->Int64Eval(tMatch)
 #define INT64THIRD	m_pThird->Int64Eval(tMatch)
 
-#define DECLARE_UNARY_TRAITS(_classname,_expr) \
+#define DECLARE_UNARY_TRAITS(_classname) \
 	struct _classname : public Expr_Unary_c \
 	{ \
-		explicit _classname ( ISphExpr * pFirst ) : Expr_Unary_c ( pFirst ) {} \
-		virtual float Eval ( const CSphMatch & tMatch ) const { return _expr; } \
+		explicit _classname ( ISphExpr * pFirst ) : Expr_Unary_c ( pFirst ) {}
+
+#define DECLARE_END() };
 
 #define DECLARE_UNARY_FLT(_classname,_expr) \
-		DECLARE_UNARY_TRAITS ( _classname, _expr ) \
+		DECLARE_UNARY_TRAITS ( _classname ) \
+		virtual float Eval ( const CSphMatch & tMatch ) const { return _expr; } \
 	};
 
 #define DECLARE_UNARY_INT(_classname,_expr,_expr2,_expr3) \
-		DECLARE_UNARY_TRAITS ( _classname, _expr ) \
+		DECLARE_UNARY_TRAITS ( _classname ) \
+		virtual float Eval ( const CSphMatch & tMatch ) const { return _expr; } \
 		virtual int IntEval ( const CSphMatch & tMatch ) const { return _expr2; } \
 		virtual int64_t Int64Eval ( const CSphMatch & tMatch ) const { return _expr3; } \
 	};
@@ -958,15 +961,48 @@ DECLARE_UNARY_INT ( Expr_Floor_c,	float(floor(FIRST)),	int(floor(FIRST)),	int64_
 
 DECLARE_UNARY_FLT ( Expr_Sin_c,		float(sin(FIRST)) )
 DECLARE_UNARY_FLT ( Expr_Cos_c,		float(cos(FIRST)) )
-DECLARE_UNARY_FLT ( Expr_Ln_c,		float(log(FIRST)) )
-DECLARE_UNARY_FLT ( Expr_Log2_c,	float(log(FIRST)*M_LOG2E) )
-DECLARE_UNARY_FLT ( Expr_Log10_c,	float(log(FIRST)*M_LOG10E) )
 DECLARE_UNARY_FLT ( Expr_Exp_c,		float(exp(FIRST)) )
-DECLARE_UNARY_FLT ( Expr_Sqrt_c,	float(sqrt(FIRST)) )
 
 DECLARE_UNARY_INT ( Expr_NotInt_c,		(float)(INTFIRST?0:1),		INTFIRST?0:1,	INTFIRST?0:1 );
 DECLARE_UNARY_INT ( Expr_NotInt64_c,	(float)(INT64FIRST?0:1),	INT64FIRST?0:1,	INT64FIRST?0:1 );
 DECLARE_UNARY_INT ( Expr_Sint_c,		(float)(INTFIRST),			INTFIRST,		INTFIRST )
+
+DECLARE_UNARY_TRAITS ( Expr_Ln_c )
+	virtual float Eval ( const CSphMatch & tMatch ) const
+	{
+		float fFirst = m_pFirst->Eval ( tMatch );
+		// ideally this would be SQLNULL instead of plain 0.0f
+		return fFirst>0.0f ? log ( fFirst ) : 0.0f;
+	}
+DECLARE_END()
+
+DECLARE_UNARY_TRAITS ( Expr_Log2_c )
+	virtual float Eval ( const CSphMatch & tMatch ) const
+	{
+		float fFirst = m_pFirst->Eval ( tMatch );
+		// ideally this would be SQLNULL instead of plain 0.0f
+		return fFirst>0.0f ? log ( fFirst )*M_LOG2E : 0.0f;
+	}
+DECLARE_END()
+
+DECLARE_UNARY_TRAITS ( Expr_Log10_c )
+	virtual float Eval ( const CSphMatch & tMatch ) const
+	{
+		float fFirst = m_pFirst->Eval ( tMatch );
+		// ideally this would be SQLNULL instead of plain 0.0f
+		return fFirst>0.0f ? log ( fFirst )*M_LOG10E : 0.0f;
+	}
+DECLARE_END()
+
+DECLARE_UNARY_TRAITS ( Expr_Sqrt_c )
+	virtual float Eval ( const CSphMatch & tMatch ) const
+	{
+		float fFirst = m_pFirst->Eval ( tMatch );
+		// ideally this would be SQLNULL instead of plain 0 in case of negative argument
+		// MEGA optimization: do not call sqrt for 0.0f
+		return fFirst>0.0f ? sqrt ( fFirst ) : 0.0f;
+	}
+DECLARE_END()
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -978,8 +1014,6 @@ DECLARE_UNARY_INT ( Expr_Sint_c,		(float)(INTFIRST),			INTFIRST,		INTFIRST )
 		_classname ( ISphExpr * pFirst, ISphExpr * pSecond ) : m_pFirst ( pFirst ), m_pSecond ( pSecond ) {} \
 		~_classname () { SafeRelease ( m_pFirst ); SafeRelease ( m_pSecond ); } \
 		virtual void Command ( ESphExprCommand eCmd, void * pArg ) { m_pFirst->Command ( eCmd, pArg ); m_pSecond->Command ( eCmd, pArg ); }
-
-#define DECLARE_END() };
 
 #define DECLARE_BINARY_FLT(_classname,_expr) \
 		DECLARE_BINARY_TRAITS ( _classname ) \
@@ -1004,27 +1038,39 @@ DECLARE_UNARY_INT ( Expr_Sint_c,		(float)(INTFIRST),			INTFIRST,		INTFIRST )
 DECLARE_BINARY_INT ( Expr_Add_c,	FIRST + SECOND,						INTFIRST + INTSECOND,				INT64FIRST + INT64SECOND )
 DECLARE_BINARY_INT ( Expr_Sub_c,	FIRST - SECOND,						INTFIRST - INTSECOND,				INT64FIRST - INT64SECOND )
 DECLARE_BINARY_INT ( Expr_Mul_c,	FIRST * SECOND,						INTFIRST * INTSECOND,				INT64FIRST * INT64SECOND )
-DECLARE_BINARY_FLT ( Expr_Div_c,	FIRST / SECOND )
+
 DECLARE_BINARY_INT ( Expr_BitAnd_c,	(float)(int(FIRST)&int(SECOND)),	INTFIRST & INTSECOND,				INT64FIRST & INT64SECOND )
 DECLARE_BINARY_INT ( Expr_BitOr_c,	(float)(int(FIRST)|int(SECOND)),	INTFIRST | INTSECOND,				INT64FIRST | INT64SECOND )
 DECLARE_BINARY_INT ( Expr_Mod_c,	(float)(int(FIRST)%int(SECOND)),	INTFIRST % INTSECOND,				INT64FIRST % INT64SECOND )
+
+DECLARE_BINARY_TRAITS ( Expr_Div_c )
+	virtual float Eval ( const CSphMatch & tMatch ) const
+	{
+		float fSecond = m_pSecond->Eval ( tMatch );
+		// ideally this would be SQLNULL instead of plain 0.0f
+		return fSecond ? m_pFirst->Eval ( tMatch )/fSecond : 0.0f;
+	}
+DECLARE_END()
 
 DECLARE_BINARY_TRAITS ( Expr_Idiv_c )
 	virtual float Eval ( const CSphMatch & tMatch ) const
 	{
 		int iSecond = int(SECOND);
+		// ideally this would be SQLNULL instead of plain 0.0f
 		return iSecond ? float(int(FIRST)/iSecond) : 0.0f;
 	}
 
 	virtual int IntEval ( const CSphMatch & tMatch ) const
 	{
 		int iSecond = INTSECOND;
+		// ideally this would be SQLNULL instead of plain 0
 		return iSecond ? ( INTFIRST / iSecond ) : 0;
 	}
 
 	virtual int64_t Int64Eval ( const CSphMatch & tMatch ) const
 	{
 		int64_t iSecond = INT64SECOND;
+		// ideally this would be SQLNULL instead of plain 0
 		return iSecond ? ( INT64FIRST / iSecond ) : 0;
 	}
 DECLARE_END()
@@ -1091,7 +1137,8 @@ DECLARE_TERNARY ( Expr_Mul3_c,	FIRST*SECOND*THIRD,					INTFIRST*INTSECOND*INTTHI
 //////////////////////////////////////////////////////////////////////////
 
 #define DECLARE_TIMESTAMP(_classname,_expr) \
-	DECLARE_UNARY_TRAITS ( _classname, (float)IntEval(tMatch) ) \
+	DECLARE_UNARY_TRAITS ( _classname ) \
+		virtual float Eval ( const CSphMatch & tMatch ) const { return (float)IntEval(tMatch); } \
 		virtual int64_t Int64Eval ( const CSphMatch & tMatch ) const { return IntEval(tMatch); } \
 		virtual int IntEval ( const CSphMatch & tMatch ) const \
 		{ \
@@ -1568,6 +1615,8 @@ private:
 	ISphExpr *				CreateUdfNode ( int iCall, ISphExpr * pLeft );
 	ISphExpr *				CreateExistNode ( const ExprNode_t & tNode );
 	ISphExpr *				CreateContainsNode ( const ExprNode_t & tNode );
+
+	bool					GetError () const { return !( m_sLexerError.IsEmpty() && m_sParserError.IsEmpty() && m_sCreateError.IsEmpty() ); }
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -2001,7 +2050,7 @@ void ExprParser_t::Optimize ( int iNode )
 					case '+':	pRoot->m_fConst = fLeft + fRight; break;
 					case '-':	pRoot->m_fConst = fLeft - fRight; break;
 					case '*':	pRoot->m_fConst = fLeft * fRight; break;
-					case '/':	pRoot->m_fConst = fLeft / fRight; break;
+					case '/':	pRoot->m_fConst = fRight ? fLeft / fRight : 0.0f; break;
 					default:	assert ( 0 && "internal error: unhandled arithmetic token during const-float optimization" );
 				}
 				pRoot->m_iToken = TOK_CONST_FLOAT;
@@ -2175,24 +2224,24 @@ void ExprParser_t::Optimize ( int iNode )
 			float fArg = pLeft->m_iToken==TOK_CONST_FLOAT ? pLeft->m_fConst : float(pLeft->m_iConst);
 			switch ( g_dFuncs[pRoot->m_iFunc].m_eFunc )
 			{
-			case FUNC_ABS:
-				pRoot->m_iToken = pLeft->m_iToken;
-				pRoot->m_iLeft = -1;
-				if ( pLeft->m_iToken==TOK_CONST_INT )
-					pRoot->m_iConst = IABS ( pLeft->m_iConst );
-				else
-					pRoot->m_fConst = fabs(fArg);
-				break;
-			case FUNC_CEIL:		pRoot->m_iToken = TOK_CONST_INT; pRoot->m_iLeft = -1; pRoot->m_iConst = (int)ceil(fArg); break;
-			case FUNC_FLOOR:	pRoot->m_iToken = TOK_CONST_INT; pRoot->m_iLeft = -1; pRoot->m_iConst = (int)floor(fArg); break;
-			case FUNC_SIN:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(sin(fArg)); break;
-			case FUNC_COS:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(cos(fArg)); break;
-			case FUNC_LN:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(log(fArg)); break;
-			case FUNC_LOG2:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(log(fArg)*M_LOG2E); break;
-			case FUNC_LOG10:	pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(log(fArg)*M_LOG10E); break;
-			case FUNC_EXP:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(exp(fArg)); break;
-			case FUNC_SQRT:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(sqrt(fArg)); break;
-			default:			break;
+				case FUNC_ABS:
+					pRoot->m_iToken = pLeft->m_iToken;
+					pRoot->m_iLeft = -1;
+					if ( pLeft->m_iToken==TOK_CONST_INT )
+						pRoot->m_iConst = IABS ( pLeft->m_iConst );
+					else
+						pRoot->m_fConst = fabs(fArg);
+					break;
+				case FUNC_CEIL:		pRoot->m_iToken = TOK_CONST_INT; pRoot->m_iLeft = -1; pRoot->m_iConst = (int)ceil(fArg); break;
+				case FUNC_FLOOR:	pRoot->m_iToken = TOK_CONST_INT; pRoot->m_iLeft = -1; pRoot->m_iConst = (int)floor(fArg); break;
+				case FUNC_SIN:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(sin(fArg)); break;
+				case FUNC_COS:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(cos(fArg)); break;
+				case FUNC_LN:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = fArg>0.0f ? log(fArg) : 0.0f; break;
+				case FUNC_LOG2:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = fArg>0.0f ? log(fArg)*M_LOG2E : 0.0f; break;
+				case FUNC_LOG10:	pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = fArg>0.0f ? log(fArg)*M_LOG10E : 0.0f; break;
+				case FUNC_EXP:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = float(exp(fArg)); break;
+				case FUNC_SQRT:		pRoot->m_iToken = TOK_CONST_FLOAT; pRoot->m_iLeft = -1; pRoot->m_fConst = fArg>0.0f ? sqrt(fArg) : 0.0f; break;
+				default:			break;
 			}
 			return;
 		}
@@ -2960,7 +3009,7 @@ ISphExpr * ExprParser_t::CreateContainsNode ( const ExprNode_t & tNode )
 /// fold nodes subtree into opcodes
 ISphExpr * ExprParser_t::CreateTree ( int iNode )
 {
-	if ( iNode<0 )
+	if ( iNode<0 || GetError() )
 		return NULL;
 
 	const ExprNode_t & tNode = m_dNodes[iNode];
@@ -3001,6 +3050,13 @@ ISphExpr * ExprParser_t::CreateTree ( int iNode )
 
 	ISphExpr * pLeft = bSkipLeft ? NULL : CreateTree ( tNode.m_iLeft );
 	ISphExpr * pRight = bSkipRight ? NULL : CreateTree ( tNode.m_iRight );
+
+	if ( GetError() )
+	{
+		SafeRelease ( pLeft );
+		SafeRelease ( pRight );
+		return NULL;
+	}
 
 #define LOC_SPAWN_POLY(_classname) \
 	if ( tNode.m_eArgType==SPH_ATTR_INTEGER )		return new _classname##Int_c ( pLeft, pRight ); \
@@ -4350,6 +4406,17 @@ int ExprParser_t::AddNodeFunc ( int iFunc, int iLeft, int iRight )
 		}
 	}
 
+	// check for (yet) unsupported JSON field in FUNC_IN
+	if ( eFunc==FUNC_IN )
+	{
+		CSphString sCol, sKey;
+		if ( sphJsonNameSplit ( m_dNodes [ iLeft ].m_sName.cstr(), &sCol, &sKey ) )
+		{
+			m_sParserError.SetSprintf ( "%s() argument can not be a JSON field", g_dFuncs[iFunc].m_sName );
+			return -1;
+		}
+	}
+
 	// check that CONTAINS args are poly, float, float
 	if ( eFunc==FUNC_CONTAINS )
 	{
@@ -5176,16 +5243,16 @@ ISphExpr * sphExprParse ( const char * sExpr, const CSphSchema & tSchema, ESphAt
 {
 	// parse into opcodes
 	ExprParser_t tParser ( pExtra, pHook, pProfiler );
-	ISphExpr * bRes = tParser.Parse ( sExpr, tSchema, pAttrType, pUsesWeight, sError );
+	ISphExpr * pRes = tParser.Parse ( sExpr, tSchema, pAttrType, pUsesWeight, sError );
 	if ( pZonespanlist )
 		*pZonespanlist = tParser.m_bHasZonespanlist;
 	if ( pEvalStage )
 		*pEvalStage = tParser.m_eEvalStage;
 	if ( pPackedFactors )
 		*pPackedFactors = tParser.m_bHasPackedFactors;
-	return bRes;
+	return pRes;
 }
 
 //
-// $Id: sphinxexpr.cpp 4366 2013-11-26 09:24:20Z tomat $
+// $Id: sphinxexpr.cpp 4606 2014-03-11 07:35:40Z joric $
 //

@@ -1,7 +1,7 @@
 <?php
 
 //
-// $Id: helpers.inc 4017 2013-07-18 12:38:02Z tomat $
+// $Id: helpers.inc 4568 2014-02-20 13:42:33Z tomat $
 //
 
 ini_set ( "display_errors", 1 );
@@ -1600,9 +1600,9 @@ class SphinxConfig
 			$str .= "Sort: expr: ".$qinfo["sortby"]."\n";
 
 		$str .= @"Query '$result[query]': retrieved $result[total_found] of $result[total] matches in $result[time] sec.\n";
-		if ( $result["error"] )
+		if ( @array_key_exists ( "error", $result ) && $result["error"] )
 			$str .= "Error: $result[error]\n";
-		if ( $result["warning"] )
+		if ( @array_key_exists ( "warning", $result ) && $result["warning"] )
 			$str .= "Warning: $result[warning]\n";
 
 		$array_result = @$result["resarray"];
@@ -2710,5 +2710,5 @@ function RunTest ( $test_dir, $skipdemo, $usemarks )
 }
 
 //
-// $Id: helpers.inc 4017 2013-07-18 12:38:02Z tomat $
+// $Id: helpers.inc 4568 2014-02-20 13:42:33Z tomat $
 //

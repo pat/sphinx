@@ -1,10 +1,10 @@
 //
-// $Id: sphinxfilter.cpp 4278 2013-10-25 15:24:45Z glook $
+// $Id: sphinxfilter.cpp 4535 2014-02-03 06:45:13Z tomat $
 //
 
 //
-// Copyright (c) 2001-2013, Andrew Aksyonoff
-// Copyright (c) 2008-2013, Sphinx Technologies Inc
+// Copyright (c) 2001-2014, Andrew Aksyonoff
+// Copyright (c) 2008-2014, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -1108,7 +1108,7 @@ static ISphFilter * CreateFilterJson ( const CSphColumnInfo * pAttr, ESphFilter 
 
 ISphFilter * sphCreateFilter ( const CSphFilterSettings & tSettings, const CSphSchema & tSchema, const DWORD * pMvaPool, const BYTE * pStrings, CSphString & sError )
 {
-	ISphFilter * pFilter = 0;
+	ISphFilter * pFilter = NULL;
 	const CSphColumnInfo * pAttr = NULL;
 
 	// try to create a filter on a special attribute
@@ -1126,7 +1126,7 @@ ISphFilter * sphCreateFilter ( const CSphFilterSettings & tSettings, const CSphS
 
 	// try to create a filter on a JSON attribute
 	CSphString sJsonCol, sJsonKey;
-	if ( sphJsonNameSplit ( sAttrName.cstr(), &sJsonCol, &sJsonKey ) )
+	if ( !pFilter && sphJsonNameSplit ( sAttrName.cstr(), &sJsonCol, &sJsonKey ) )
 	{
 		pAttr = tSchema.GetAttr ( sJsonCol.cstr() );
 		if ( !pAttr )
@@ -1211,5 +1211,5 @@ ISphFilter * sphJoinFilters ( ISphFilter * pA, ISphFilter * pB )
 }
 
 //
-// $Id: sphinxfilter.cpp 4278 2013-10-25 15:24:45Z glook $
+// $Id: sphinxfilter.cpp 4535 2014-02-03 06:45:13Z tomat $
 //

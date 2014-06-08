@@ -1,10 +1,10 @@
 //
-// $Id: sphinxexcerpt.h 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxexcerpt.h 4505 2014-01-22 15:16:21Z deogar $
 //
 
 //
-// Copyright (c) 2001-2013, Andrew Aksyonoff
-// Copyright (c) 2008-2013, Sphinx Technologies Inc
+// Copyright (c) 2001-2014, Andrew Aksyonoff
+// Copyright (c) 2008-2014, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -83,5 +83,5 @@ void sphBuildExcerpt ( ExcerptQuery_t & tOptions, const CSphIndex * pIndex, cons
 #endif // _sphinxexcerpt_
 
 //
-// $Id: sphinxexcerpt.h 3701 2013-02-20 18:10:18Z deogar $
+// $Id: sphinxexcerpt.h 4505 2014-01-22 15:16:21Z deogar $
 //

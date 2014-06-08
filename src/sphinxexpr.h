@@ -1,10 +1,10 @@
 //
-// $Id: sphinxexpr.h 3890 2013-05-25 10:48:43Z kevg $
+// $Id: sphinxexpr.h 4505 2014-01-22 15:16:21Z deogar $
 //
 
 //
-// Copyright (c) 2001-2013, Andrew Aksyonoff
-// Copyright (c) 2008-2013, Sphinx Technologies Inc
+// Copyright (c) 2001-2014, Andrew Aksyonoff
+// Copyright (c) 2008-2014, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -212,5 +212,5 @@ ISphExpr * sphExprJsonField ( const CSphColumnInfo & tCol, int iAttr, const char
 #endif // _sphinxexpr_
 
 //
-// $Id: sphinxexpr.h 3890 2013-05-25 10:48:43Z kevg $
+// $Id: sphinxexpr.h 4505 2014-01-22 15:16:21Z deogar $
 //
