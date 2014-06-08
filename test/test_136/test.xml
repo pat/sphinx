@@ -17,7 +17,6 @@ indexer
 searchd
 {
 	<searchd_settings/>
-compat_sphinxql_magics = 1
 	binlog_flush = 1
 	binlog_path = <data_path/>
 	workers = threads
@@ -39,7 +38,6 @@ index idx_131
 {
 	source			= src
 	path			= <data_path/>/idx_131
-    charset_type 	= utf-8
     docinfo			= extern
 }
 

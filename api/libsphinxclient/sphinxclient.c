@@ -1,5 +1,5 @@
 //
-// $Id: sphinxclient.c 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxclient.c 4522 2014-01-30 11:00:18Z tomat $
 //
 
 //
@@ -12,6 +12,11 @@
 // have received a copy of the LGPL license along with this program; if you
 // did not, you can find it at http://www.gnu.org/
 //
+
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+//							WARNING
+// We strongly recommend you to use SphinxQL instead of an API
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 #ifdef _WIN32
 #if _MSC_VER>=1400
@@ -81,7 +86,7 @@ enum
 	VER_COMMAND_EXCERPT			= 0x103,
 	VER_COMMAND_UPDATE			= 0x102,
 	VER_COMMAND_KEYWORDS		= 0x100,
-	VER_COMMAND_STATUS			= 0x100
+	VER_COMMAND_STATUS			= 0x101
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -97,6 +102,7 @@ struct st_filter
 	float					fmin;
 	float					fmax;
 	int						exclude;
+	const char *			svalue;
 };
 
 
@@ -209,7 +215,7 @@ sphinx_client * sphinx_create ( sphinx_bool copy_args )
 		return NULL;
 
 	// initialize defaults and return
-	client->ver_search				= 0x11D; // 0x113 for 0.9.8, 0x116 for 0.9.9rc2
+	client->ver_search				= 0x11E; // 0x113 for 0.9.8, 0x116 for 0.9.9rc2
 	client->copy_args				= copy_args;
 	client->head_alloc				= NULL;
 
@@ -222,7 +228,7 @@ sphinx_client * sphinx_create ( sphinx_bool copy_args )
 	client->timeout					= 0.0f;
 	client->offset					= 0;
 	client->limit					= 20;
-	client->mode					= SPH_MATCH_ALL;
+	client->mode					= SPH_MATCH_EXTENDED2;
 	client->num_weights				= 0;
 	client->weights					= NULL;
 	client->sort					= SPH_SORT_RELEVANCE;
@@ -257,7 +263,7 @@ sphinx_client * sphinx_create ( sphinx_bool copy_args )
 	client->max_overrides			= 0;
 	client->overrides				= NULL;
 	client->select_list				= NULL;
-	client->query_flags				= 0;
+	client->query_flags				= 1<<6;
 	client->predicted_time			= 0;
 	client->outer_orderby			= NULL;
 	client->outer_offset			= 0;
@@ -524,9 +530,11 @@ sphinx_bool sphinx_set_max_query_time ( sphinx_client * client, int max_query_ti
 	return SPH_TRUE;
 }
 
-
+// DEPRECATED
 sphinx_bool sphinx_set_match_mode ( sphinx_client * client, int mode )
 {
+	fprintf ( stderr, "DEPRECATED: Do not call this method or, even better, use SphinxQL instead of an API\n" );
+
 	if ( !client || mode<SPH_MATCH_ALL || mode>SPH_MATCH_EXTENDED2 ) // FIXME?
 	{
 		set_error ( client, "invalid arguments (matching mode %d out of bounds)", mode );
@@ -705,6 +713,30 @@ sphinx_bool sphinx_add_filter ( sphinx_client * client, const char * attr, int n
 }
 
 
+sphinx_bool sphinx_add_filter_string ( sphinx_client * client, const char * attr, const char * value, sphinx_bool exclude )
+{
+	struct st_filter * filter;
+
+	if ( !client || !attr || !value )
+	{
+		if ( !attr )				set_error ( client, "invalid arguments (attr must not be empty)" );
+		else if ( !value )			set_error ( client, "invalid arguments (value must not be empty)" );
+		else						set_error ( client, "invalid arguments" );
+		return SPH_FALSE;
+	}
+
+	filter = sphinx_add_filter_entry ( client );
+	if ( !filter )
+		return SPH_FALSE;
+
+	filter->attr = strchain ( client, attr );
+	filter->filter_type = SPH_FILTER_STRING;
+	filter->svalue = strchain ( client, value );
+	filter->exclude = exclude;
+	return SPH_TRUE;
+}
+
+
 sphinx_bool sphinx_add_filter_range ( sphinx_client * client, const char * attr, sphinx_int64_t umin, sphinx_int64_t umax, sphinx_bool exclude )
 {
 	struct st_filter * filter;
@@ -833,10 +865,12 @@ sphinx_bool sphinx_set_retries ( sphinx_client * client, int count, int delay )
 	return SPH_TRUE;
 }
 
-
+// DEPRECATED
 sphinx_bool sphinx_add_override ( sphinx_client * client, const char * attr, const sphinx_uint64_t * docids, int num_values, const unsigned int * values )
 {
 	struct st_override * p;
+
+	fprintf ( stderr, "DEPRECATED: Do not call this method. Use SphinxQL REMAP() function instead.\n" );
 
 	if ( !client )
 		return SPH_FALSE;
@@ -929,6 +963,12 @@ sphinx_bool sphinx_set_query_flags ( sphinx_client * client, const char * flag_n
 	} else if ( strcmp ( flag_name, "idf_plain")==0 )
 	{
 		set_bit ( &client->query_flags, 4, enabled );
+	} else if ( strcmp ( flag_name, "global_idf")==0 )
+	{
+		set_bit ( &client->query_flags, 5, enabled );
+	} else if ( strcmp ( flag_name, "tfidf_normalized")==0 )
+	{
+		set_bit ( &client->query_flags, 6, enabled );
 	} else
 	{
 		set_error ( client, "invalid arguments (unknown flag_name)" );
@@ -939,9 +979,9 @@ sphinx_bool sphinx_set_query_flags ( sphinx_client * client, const char * flag_n
 }
 
 
-void sphinx_reset_query_flag ( sphinx_client * client )
+void sphinx_reset_query_flags ( sphinx_client * client )
 {
-	client->query_flags = 0;
+	client->query_flags = 1<<6;
 	client->predicted_time = 0;
 }
 
@@ -994,6 +1034,8 @@ void sphinx_reset_filters ( sphinx_client * client )
 			unchain ( client, client->filters[i].attr );
 			if ( client->filters[i].filter_type==SPH_FILTER_VALUES )
 				unchain ( client, client->filters[i].values );
+			if ( client->filters[i].filter_type==SPH_FILTER_STRING )
+				unchain ( client, client->filters[i].svalue );
 		}
 
 		free ( client->filters );
@@ -1087,6 +1129,7 @@ static int calc_req_len ( sphinx_client * client, const char * query, const char
 			case SPH_FILTER_VALUES:		res += 4 + filter_val_size*filter->num_values; break; // int values-count; uint32/int64[] values
 			case SPH_FILTER_RANGE:		res += 2*filter_val_size; break; // uint32/int64 min-val, max-val
 			case SPH_FILTER_FLOATRANGE:	res += 8; break; // float min-val,max-val
+			case SPH_FILTER_STRING:		res += 4 + safestrlen ( filter->svalue ); break;
 		}
 	}
 
@@ -1263,6 +1306,10 @@ int sphinx_add_query ( sphinx_client * client, const char * query, const char * 
 			case SPH_FILTER_FLOATRANGE:
 				send_float ( &req, client->filters[i].fmin );
 				send_float ( &req, client->filters[i].fmax );
+				break;
+
+			case SPH_FILTER_STRING:
+				send_str ( &req, client->filters[i].svalue );
 				break;
 		}
 
@@ -2554,8 +2601,12 @@ sphinx_keyword_info * sphinx_build_keywords ( sphinx_client * client, const char
 }
 
 //////////////////////////////////////////////////////////////////////////
-
 char ** sphinx_status ( sphinx_client * client, int * num_rows, int * num_cols )
+{
+	return sphinx_status_extended ( client, num_rows, num_cols, 0 );
+}
+
+char ** sphinx_status_extended ( sphinx_client * client, int * num_rows, int * num_cols, int local )
 {
 	int i, j, k, n;
 	char *p, *pmax, *req, *buf, **res;
@@ -2576,11 +2627,16 @@ char ** sphinx_status ( sphinx_client * client, int * num_rows, int * num_cols )
 		return NULL;
 	}
 
+	if (local)
+		local=0;
+	else
+		local=1;
+
 	req = buf;
 	send_word ( &req, SEARCHD_COMMAND_STATUS );
 	send_word ( &req, VER_COMMAND_STATUS );
 	send_int ( &req, 4 );
-	send_int ( &req, 1 );
+	send_int ( &req, local );
 
 	// send query, get response
 	if ( !net_simple_query ( client, buf, 12 ) )
@@ -2616,5 +2672,5 @@ void sphinx_status_destroy ( char ** status, int num_rows, int num_cols )
 }
 
 //
-// $Id: sphinxclient.c 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxclient.c 4522 2014-01-30 11:00:18Z tomat $
 //

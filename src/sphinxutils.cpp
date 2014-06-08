@@ -1,5 +1,5 @@
 //
-// $Id: sphinxutils.cpp 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxutils.cpp 4665 2014-04-20 05:08:07Z kevg $
 //
 
 //
@@ -19,6 +19,8 @@
 #include "sphinx.h"
 #include "sphinxutils.h"
 #include "sphinxint.h"
+#include "sphinxplugin.h"
+
 #include <ctype.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -35,6 +37,15 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <glob.h>
+
+#ifdef HAVE_DLOPEN
+#include <dlfcn.h>
+#endif // HAVE_DLOPEN
+
+#ifndef HAVE_DLERROR
+#define dlerror() ""
+#endif // HAVE_DLERROR
+
 #endif
 
 //////////////////////////////////////////////////////////////////////////
@@ -86,6 +97,26 @@ void sphSplit ( CSphVector<CSphString> & dOut, const char * sIn )
 			p++;
 		if ( sNext!=p )
 			dOut.Add().SetBinary ( sNext, p-sNext );
+	}
+}
+
+
+void sphSplit ( CSphVector<CSphString> & dOut, const char * sIn, const char * sBounds )
+{
+	if ( !sIn )
+		return;
+
+	const char * p = (char*)sIn;
+	while ( *p )
+	{
+		// skip until the first non-boundary character
+		const char * sNext = p;
+		while ( *p && !strchr ( sBounds, *p ) )
+			p++;
+
+		// add the token, skip the char
+		dOut.Add().SetBinary ( sNext, p-sNext );
+		p++;
 	}
 }
 
@@ -258,6 +289,7 @@ enum
 	KEY_DEPRECATED		= 1UL<<0,
 	KEY_LIST			= 1UL<<1,
 	KEY_HIDDEN			= 1UL<<2,
+	KEY_REMOVED			= 1UL<<3
 };
 
 /// key descriptor for validation purposes
@@ -272,8 +304,6 @@ struct KeyDesc_t
 static KeyDesc_t g_dKeysSource[] =
 {
 	{ "type",					0, NULL },
-	{ "strip_html",				KEY_DEPRECATED, "html_strip (per-index)" },
-	{ "index_html_attrs",		KEY_DEPRECATED, "html_index_attrs (per-index)" },
 	{ "sql_host",				0, NULL },
 	{ "sql_user",				0, NULL },
 	{ "sql_pass",				0, NULL },
@@ -285,7 +315,7 @@ static KeyDesc_t g_dKeysSource[] =
 	{ "mysql_ssl_cert",			0, NULL }, // check.pl mysql_ssl
 	{ "mysql_ssl_ca",			0, NULL }, // check.pl mysql_ssl
 	{ "mssql_winauth",			0, NULL },
-	{ "mssql_unicode",			0, NULL },
+	{ "mssql_unicode",			KEY_REMOVED, NULL },
 	{ "sql_query_pre",			KEY_LIST, NULL },
 	{ "sql_query",				0, NULL },
 	{ "sql_query_range",		0, NULL },
@@ -294,48 +324,71 @@ static KeyDesc_t g_dKeysSource[] =
 	{ "sql_attr_uint",			KEY_LIST, NULL },
 	{ "sql_attr_bool",			KEY_LIST, NULL },
 	{ "sql_attr_timestamp",		KEY_LIST, NULL },
-	{ "sql_attr_str2ordinal",	KEY_LIST | KEY_DEPRECATED, "sql_attr_string for sorting" },
+	{ "sql_attr_str2ordinal",	KEY_REMOVED | KEY_LIST, NULL },
 	{ "sql_attr_float",			KEY_LIST, NULL },
 	{ "sql_attr_bigint",		KEY_LIST, NULL },
 	{ "sql_attr_multi",			KEY_LIST, NULL },
 	{ "sql_query_post",			KEY_LIST, NULL },
 	{ "sql_query_post_index",	KEY_LIST, NULL },
 	{ "sql_ranged_throttle",	0, NULL },
-	{ "sql_query_info",			0, NULL },
+	{ "sql_query_info",			KEY_REMOVED, NULL },
 	{ "xmlpipe_command",		0, NULL },
 	{ "xmlpipe_field",			KEY_LIST, NULL },
 	{ "xmlpipe_attr_uint",		KEY_LIST, NULL },
 	{ "xmlpipe_attr_timestamp",	KEY_LIST, NULL },
-	{ "xmlpipe_attr_str2ordinal",	KEY_LIST, NULL },
+	{ "xmlpipe_attr_str2ordinal", KEY_REMOVED | KEY_LIST, NULL },
 	{ "xmlpipe_attr_bool",		KEY_LIST, NULL },
 	{ "xmlpipe_attr_float",		KEY_LIST, NULL },
 	{ "xmlpipe_attr_bigint",	KEY_LIST, NULL },
 	{ "xmlpipe_attr_multi",		KEY_LIST, NULL },
 	{ "xmlpipe_attr_multi_64",	KEY_LIST, NULL },
 	{ "xmlpipe_attr_string",	KEY_LIST, NULL },
-	{ "xmlpipe_attr_wordcount",	KEY_LIST | KEY_DEPRECATED, "xmlpipe_attr_string for sorting" },
+	{ "xmlpipe_attr_wordcount", KEY_REMOVED | KEY_LIST, NULL },
 	{ "xmlpipe_attr_json",		KEY_LIST, NULL },
 	{ "xmlpipe_field_string",	KEY_LIST, NULL },
-	{ "xmlpipe_field_wordcount",	KEY_LIST | KEY_DEPRECATED, "xmlpipe_field_string for searching and sorting" },
+	{ "xmlpipe_field_wordcount", KEY_REMOVED | KEY_LIST, NULL },
 	{ "xmlpipe_fixup_utf8",		0, NULL },
-	{ "sql_group_column",		KEY_LIST | KEY_DEPRECATED, "sql_attr_uint" },
-	{ "sql_date_column",		KEY_LIST | KEY_DEPRECATED, "sql_attr_timestamp" },
-	{ "sql_str2ordinal_column",	KEY_LIST | KEY_DEPRECATED, "sql_attr_str2ordinal" },
+	{ "sql_str2ordinal_column", KEY_LIST | KEY_REMOVED, NULL },
 	{ "unpack_zlib",			KEY_LIST, NULL },
 	{ "unpack_mysqlcompress",	KEY_LIST, NULL },
 	{ "unpack_mysqlcompress_maxsize", 0, NULL },
 	{ "odbc_dsn",				0, NULL },
 	{ "sql_joined_field",		KEY_LIST, NULL },
 	{ "sql_attr_string",		KEY_LIST, NULL },
-	{ "sql_attr_str2wordcount",	KEY_LIST | KEY_DEPRECATED, "index_field_lengths" },
+	{ "sql_attr_str2wordcount", KEY_REMOVED | KEY_LIST, NULL },
 	{ "sql_field_string",		KEY_LIST, NULL },
-	{ "sql_field_str2wordcount",	KEY_LIST | KEY_DEPRECATED, "index_field_lengths" },
+	{ "sql_field_str2wordcount", KEY_REMOVED | KEY_LIST, NULL },
 	{ "sql_file_field",			KEY_LIST, NULL },
 	{ "sql_column_buffers",		0, NULL },
 	{ "sql_attr_json",			KEY_LIST, NULL },
 	{ "hook_connect",			KEY_HIDDEN, NULL },
 	{ "hook_query_range",		KEY_HIDDEN, NULL },
 	{ "hook_post_index",		KEY_HIDDEN, NULL },
+	{ "tsvpipe_command",		0, NULL },
+	{ "tsvpipe_field",			KEY_LIST, NULL },
+	{ "tsvpipe_attr_uint",		KEY_LIST, NULL },
+	{ "tsvpipe_attr_timestamp",	KEY_LIST, NULL },
+	{ "tsvpipe_attr_bool",		KEY_LIST, NULL },
+	{ "tsvpipe_attr_float",		KEY_LIST, NULL },
+	{ "tsvpipe_attr_bigint",	KEY_LIST, NULL },
+	{ "tsvpipe_attr_multi",		KEY_LIST, NULL },
+	{ "tsvpipe_attr_multi_64",	KEY_LIST, NULL },
+	{ "tsvpipe_attr_string",	KEY_LIST, NULL },
+	{ "tsvpipe_attr_json",		KEY_LIST, NULL },
+	{ "tsvpipe_field_string",	KEY_LIST, NULL },
+	{ "csvpipe_command",		0, NULL },
+	{ "csvpipe_field",			KEY_LIST, NULL },
+	{ "csvpipe_attr_uint",		KEY_LIST, NULL },
+	{ "csvpipe_attr_timestamp",	KEY_LIST, NULL },
+	{ "csvpipe_attr_bool",		KEY_LIST, NULL },
+	{ "csvpipe_attr_float",		KEY_LIST, NULL },
+	{ "csvpipe_attr_bigint",	KEY_LIST, NULL },
+	{ "csvpipe_attr_multi",		KEY_LIST, NULL },
+	{ "csvpipe_attr_multi_64",	KEY_LIST, NULL },
+	{ "csvpipe_attr_string",	KEY_LIST, NULL },
+	{ "csvpipe_attr_json",		KEY_LIST, NULL },
+	{ "csvpipe_field_string",	KEY_LIST, NULL },
+	{ "csvpipe_delimiter",		0, NULL },
 	{ NULL,						0, NULL }
 };
 
@@ -348,12 +401,11 @@ static KeyDesc_t g_dKeysIndex[] =
 	{ "mlock",					0, NULL },
 	{ "morphology",				0, NULL },
 	{ "stopwords",				0, NULL },
-	{ "synonyms",				KEY_DEPRECATED, "exceptions" },
 	{ "exceptions",				0, NULL },
 	{ "wordforms",				KEY_LIST, NULL },
 	{ "embedded_limit",			0, NULL },
 	{ "min_word_len",			0, NULL },
-	{ "charset_type",			0, NULL },
+	{ "charset_type",			KEY_REMOVED, NULL },
 	{ "charset_table",			0, NULL },
 	{ "ignore_chars",			0, NULL },
 	{ "min_prefix_len",			0, NULL },
@@ -361,12 +413,12 @@ static KeyDesc_t g_dKeysIndex[] =
 	{ "max_substring_len",		0, NULL },
 	{ "prefix_fields",			0, NULL },
 	{ "infix_fields",			0, NULL },
-	{ "enable_star",			0, NULL },
+	{ "enable_star",			KEY_REMOVED, NULL },
 	{ "ngram_len",				0, NULL },
 	{ "ngram_chars",			0, NULL },
 	{ "phrase_boundary",		0, NULL },
 	{ "phrase_boundary_step",	0, NULL },
-	{ "ondisk_dict",			0, NULL },
+	{ "ondisk_dict",			KEY_REMOVED, NULL },
 	{ "type",					0, NULL },
 	{ "local",					KEY_LIST, NULL },
 	{ "agent",					KEY_LIST, NULL },
@@ -391,7 +443,7 @@ static KeyDesc_t g_dKeysIndex[] =
 	{ "blend_chars",			0, NULL },
 	{ "expand_keywords",		0, NULL },
 	{ "hitless_words",			0, NULL },
-	{ "hit_format",				KEY_HIDDEN, NULL },
+	{ "hit_format",				KEY_HIDDEN | KEY_DEPRECATED, "default value" },
 	{ "rt_field",				KEY_LIST, NULL },
 	{ "rt_attr_uint",			KEY_LIST, NULL },
 	{ "rt_attr_bigint",			KEY_LIST, NULL },
@@ -414,6 +466,9 @@ static KeyDesc_t g_dKeysIndex[] =
 	{ "divide_remote_ranges",	KEY_HIDDEN, NULL },
 	{ "stopwords_unstemmed",	0, NULL },
 	{ "global_idf",				0, NULL },
+	{ "rlp_context",			0, NULL },
+	{ "ondisk_attrs",			0, NULL },
+	{ "index_token_filter",		0, NULL },
 	{ NULL,						0, NULL }
 };
 
@@ -427,10 +482,9 @@ static KeyDesc_t g_dKeysIndexer[] =
 	{ "max_file_field_buffer",	0, NULL },
 	{ "write_buffer",			0, NULL },
 	{ "on_file_field_error",	0, NULL },
-	{ "on_json_attr_error",		0, NULL },
-	{ "json_autoconv_numbers",	0, NULL },
-	{ "json_autoconv_keynames",	0, NULL },
-	{ "lemmatizer_base",		0, NULL },
+	{ "on_json_attr_error",		KEY_DEPRECATED, "on_json_attr_error in common{..} section" },
+	{ "json_autoconv_numbers",	KEY_DEPRECATED, "json_autoconv_numbers in common{..} section" },
+	{ "json_autoconv_keynames",	KEY_DEPRECATED, "json_autoconv_keynames in common{..} section" },
 	{ "lemmatizer_cache",		0, NULL },
 	{ NULL,						0, NULL }
 };
@@ -438,8 +492,8 @@ static KeyDesc_t g_dKeysIndexer[] =
 /// allowed keys for searchd section
 static KeyDesc_t g_dKeysSearchd[] =
 {
-	{ "address",				KEY_DEPRECATED, "listen" },
-	{ "port",					KEY_DEPRECATED, "listen" },
+	{ "address",				KEY_REMOVED, NULL },
+	{ "port",					KEY_REMOVED, NULL },
 	{ "listen",					KEY_LIST, NULL },
 	{ "log",					0, NULL },
 	{ "query_log",				0, NULL },
@@ -447,15 +501,14 @@ static KeyDesc_t g_dKeysSearchd[] =
 	{ "client_timeout",			0, NULL },
 	{ "max_children",			0, NULL },
 	{ "pid_file",				0, NULL },
-	{ "max_matches",			0, NULL },
+	{ "max_matches",			KEY_REMOVED, NULL },
 	{ "seamless_rotate",		0, NULL },
 	{ "preopen_indexes",		0, NULL },
 	{ "unlink_old",				0, NULL },
-	{ "ondisk_dict_default",	0, NULL },
+	{ "ondisk_dict_default",	KEY_REMOVED, NULL },
 	{ "attr_flush_period",		0, NULL },
 	{ "max_packet_size",		0, NULL },
 	{ "mva_updates_pool",		0, NULL },
-	{ "crash_log_path",			KEY_DEPRECATED, NULL },
 	{ "max_filters",			0, NULL },
 	{ "max_filter_values",		0, NULL },
 	{ "listen_backlog",			0, NULL },
@@ -472,11 +525,10 @@ static KeyDesc_t g_dKeysSearchd[] =
 	{ "binlog_max_log_size",	0, NULL },
 	{ "thread_stack",			0, NULL },
 	{ "expansion_limit",		0, NULL },
-	{ "compat_sphinxql_magics",	0, NULL },
 	{ "rt_flush_period",		0, NULL },
 	{ "query_log_format",		0, NULL },
 	{ "mysql_version_string",	0, NULL },
-	{ "plugin_dir",				0, NULL },
+	{ "plugin_dir",				KEY_DEPRECATED, "plugin_dir in common{..} section" },
 	{ "collation_server",		0, NULL },
 	{ "collation_libc_locale",	0, NULL },
 	{ "watchdog",				0, NULL },
@@ -489,6 +541,24 @@ static KeyDesc_t g_dKeysSearchd[] =
 	{ "ha_period_karma",		0, NULL },
 	{ "predicted_time_costs",	0, NULL },
 	{ "persistent_connections_limit",	0, NULL },
+	{ "ondisk_attrs_default",	0, NULL },
+	{ "shutdown_timeout",		0, NULL },
+	{ "query_log_min_msec",		0, NULL },
+	{ NULL,						0, NULL }
+};
+
+/// allowed keys for common section
+static KeyDesc_t g_dKeysCommon[] =
+{
+	{ "lemmatizer_base",		0, NULL },
+	{ "on_json_attr_error",		0, NULL },
+	{ "json_autoconv_numbers",	0, NULL },
+	{ "json_autoconv_keynames",	0, NULL },
+	{ "rlp_root",				0, NULL },
+	{ "rlp_environment",		0, NULL },
+	{ "rlp_max_batch_size",		0, NULL },
+	{ "rlp_max_batch_docs",		0, NULL },
+	{ "plugin_dir",				0, NULL },
 	{ NULL,						0, NULL }
 };
 
@@ -506,6 +576,7 @@ bool CSphConfigParser::IsPlainSection ( const char * sKey )
 	if ( !strcasecmp ( sKey, "indexer" ) )		return true;
 	if ( !strcasecmp ( sKey, "searchd" ) )		return true;
 	if ( !strcasecmp ( sKey, "search" ) )		return true;
+	if ( !strcasecmp ( sKey, "common" ) )		return true;
 	return false;
 }
 
@@ -544,13 +615,15 @@ void CSphConfigParser::AddKey ( const char * sKey, char * sValue )
 
 	sValue = trim ( sValue );
 	CSphConfigSection & tSec = m_tConf[m_sSectionType][m_sSectionName];
+	int iTag = tSec.m_iTag;
+	tSec.m_iTag++;
 	if ( tSec(sKey) )
 	{
 		if ( tSec[sKey].m_bTag )
 		{
 			// override value or list with a new value
 			SafeDelete ( tSec[sKey].m_pNext ); // only leave the first array element
-			tSec[sKey] = sValue; // update its value
+			tSec[sKey] = CSphVariant ( sValue, iTag ); // update its value
 			tSec[sKey].m_bTag = false; // mark it as overridden
 
 		} else
@@ -559,13 +632,13 @@ void CSphConfigParser::AddKey ( const char * sKey, char * sValue )
 			CSphVariant * pTail = &tSec[sKey];
 			while ( pTail->m_pNext )
 				pTail = pTail->m_pNext;
-			pTail->m_pNext = new CSphVariant ( sValue );
+			pTail->m_pNext = new CSphVariant ( sValue, iTag );
 		}
 
 	} else
 	{
 		// just add
-		tSec.Add ( sValue, sKey ); // FIXME! be paranoid, verify that it returned true
+		tSec.Add ( CSphVariant ( sValue, iTag ), sKey ); // FIXME! be paranoid, verify that it returned true
 	}
 }
 
@@ -579,6 +652,7 @@ bool CSphConfigParser::ValidateKey ( const char * sKey )
 	else if ( m_sSectionType=="index" )		pDesc = g_dKeysIndex;
 	else if ( m_sSectionType=="indexer" )	pDesc = g_dKeysIndexer;
 	else if ( m_sSectionType=="searchd" )	pDesc = g_dKeysSearchd;
+	else if ( m_sSectionType=="common" )	pDesc = g_dKeysCommon;
 	if ( !pDesc )
 	{
 		snprintf ( m_sError, sizeof(m_sError), "unknown section type '%s'", m_sSectionType.cstr() );
@@ -608,6 +682,10 @@ bool CSphConfigParser::ValidateKey ( const char * sKey )
 			if ( ++m_iWarnings<=WARNS_THRESH )
 				fprintf ( stdout, "WARNING: key '%s' is not multi-value; value in %s line %d will be ignored.\n", sKey, m_sFileName.cstr(), m_iLine );
 	}
+
+	if ( pDesc->m_iFlags & KEY_REMOVED )
+		if ( ++m_iWarnings<=WARNS_THRESH )
+			fprintf ( stdout, "WARNING: key '%s' was permanently removed from Sphinx configuration. Refer to documentation for details.\n", sKey );
 
 	return true;
 }
@@ -1034,47 +1112,31 @@ bool CSphConfigParser::Parse ( const char * sFileName, const char * pBuffer )
 
 /////////////////////////////////////////////////////////////////////////////
 
-bool sphConfTokenizer ( const CSphConfigSection & hIndex, CSphTokenizerSettings & tSettings, CSphString & sError )
+void sphConfTokenizer ( const CSphConfigSection & hIndex, CSphTokenizerSettings & tSettings )
 {
 	tSettings.m_iNgramLen = Max ( hIndex.GetInt ( "ngram_len" ), 0 );
 
-	if ( !hIndex("charset_type") || hIndex["charset_type"]=="sbcs" )
+	if ( hIndex ( "ngram_chars" ) )
 	{
-		tSettings.m_iType = TOKENIZER_SBCS;
-
-	} else if ( hIndex["charset_type"]=="utf-8" )
-	{
-		tSettings.m_iType = TOKENIZER_UTF8;
-		if ( hIndex ( "ngram_chars" ) )
-		{
-			if ( tSettings.m_iNgramLen )
-				tSettings.m_iType = TOKENIZER_NGRAM;
-			else
-				sphWarning ( "ngram_chars specified, but ngram_len=0; IGNORED" );
-		}
-
-	} else
-	{
-		sError.SetSprintf ( "unknown charset type '%s'", hIndex["charset_type"].cstr() );
-		return false;
+		if ( tSettings.m_iNgramLen )
+			tSettings.m_iType = TOKENIZER_NGRAM;
+		else
+			sphWarning ( "ngram_chars specified, but ngram_len=0; IGNORED" );
 	}
 
 	tSettings.m_sCaseFolding = hIndex.GetStr ( "charset_table" );
 	tSettings.m_iMinWordLen = Max ( hIndex.GetInt ( "min_word_len", 1 ), 1 );
 	tSettings.m_sNgramChars = hIndex.GetStr ( "ngram_chars" );
 	tSettings.m_sSynonymsFile = hIndex.GetStr ( "exceptions" ); // new option name
-	if ( tSettings.m_sSynonymsFile.IsEmpty() )
-		tSettings.m_sSynonymsFile = hIndex.GetStr ( "synonyms" ); // deprecated option name
 	tSettings.m_sIgnoreChars = hIndex.GetStr ( "ignore_chars" );
 	tSettings.m_sBlendChars = hIndex.GetStr ( "blend_chars" );
 	tSettings.m_sBlendMode = hIndex.GetStr ( "blend_mode" );
+	tSettings.m_sIndexingPlugin = hIndex.GetStr ( "index_token_filter" );
 
 	// phrase boundaries
 	int iBoundaryStep = Max ( hIndex.GetInt ( "phrase_boundary_step" ), -1 );
 	if ( iBoundaryStep!=0 )
 		tSettings.m_sBoundary = hIndex.GetStr ( "phrase_boundary" );
-
-	return true;
 }
 
 void sphConfDictionary ( const CSphConfigSection & hIndex, CSphDictSettings & tSettings )
@@ -1151,11 +1213,14 @@ void sphConfDictionary ( const CSphConfigSection & hIndex, CSphDictSettings & tS
 
 	if ( hIndex("dict") )
 	{
-		tSettings.m_bWordDict = false; // default to crc
-		if ( hIndex["dict"]=="keywords" )
-			tSettings.m_bWordDict = true;
-		else if ( hIndex["dict"]!="crc" )
-			fprintf ( stdout, "WARNING: unknown dict=%s, defaulting to crc\n", hIndex["dict"].cstr() );
+		tSettings.m_bWordDict = true; // default to keywords
+		if ( hIndex["dict"]=="crc" )
+		{
+			sphWarning ( "dict=crc deprecated, use dict=keywords instead" );
+			tSettings.m_bWordDict = false;
+
+		} else if ( hIndex["dict"]!="keywords" )
+			fprintf ( stdout, "WARNING: unknown dict=%s, defaulting to keywords\n", hIndex["dict"].cstr() );
 	}
 }
 
@@ -1191,6 +1256,7 @@ bool sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSetti
 	tSettings.m_iStopwordStep = Min ( Max ( hIndex.GetInt ( "stopword_step", 1 ), 0 ), 1 );
 	tSettings.m_iEmbeddedLimit = hIndex.GetSize ( "embedded_limit", 16384 );
 	tSettings.m_bIndexFieldLens = hIndex.GetInt ( "index_field_lengths" )!=0;
+	tSettings.m_sIndexTokenFilter = hIndex.GetStr ( "index_token_filter" );
 
 	// prefix/infix fields
 	CSphString sFields;
@@ -1245,7 +1311,10 @@ bool sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSetti
 		return false;
 	}
 
-	bool bWordDict = ( strcmp ( hIndex.GetStr ( "dict", "" ), "keywords" )==0 );
+	bool bWordDict = ( strcmp ( hIndex.GetStr ( "dict", "keywords" ), "keywords" )==0 );
+	if ( !bWordDict )
+		sphWarning ( "dict=crc deprecated, use dict=keywords instead" );
+
 	if ( hIndex("type") && hIndex["type"]=="rt" && ( tSettings.m_iMinInfixLen>0 || tSettings.m_iMinPrefixLen>0 ) && !bWordDict )
 	{
 		sError.SetSprintf ( "RT indexes support prefixes and infixes with only dict=keywords" );
@@ -1275,6 +1344,9 @@ bool sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSetti
 		else if ( hIndex["docinfo"]=="extern" )	tSettings.m_eDocinfo = SPH_DOCINFO_EXTERN;
 		else
 			fprintf ( stdout, "WARNING: unknown docinfo=%s, defaulting to extern\n", hIndex["docinfo"].cstr() );
+
+		if ( tSettings.m_eDocinfo==SPH_DOCINFO_INLINE )
+			fprintf ( stdout, "WARNING: docinfo=inline is deprecated, use ondisc_attrs=1 instead\n" );
 
 		if ( tSettings.m_eDocinfo==SPH_DOCINFO_INLINE && tSettings.m_bIndexFieldLens )
 		{
@@ -1346,22 +1418,52 @@ bool sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSetti
 	CSphVector<CSphString> dMorphs;
 	sphSplit ( dMorphs, hIndex.GetStr ( "morphology" ) );
 
-	tSettings.m_bAotFilter = ARRAY_ANY ( tSettings.m_bAotFilter, dMorphs, dMorphs[_any]=="lemmatize_ru_all" );
+	tSettings.m_uAotFilterMask = 0;
+	for ( int j=0; j<AOT_LENGTH; ++j )
+	{
+		char buf_all[20];
+		sprintf ( buf_all, "lemmatize_%s_all", AOT_LANGUAGES[j] ); //NOLINT
+		ARRAY_FOREACH ( i, dMorphs )
+			if ( dMorphs[i]==buf_all )
+			{
+				tSettings.m_uAotFilterMask |= (1UL) << j;
+				break;
+			}
+	}
+
+	bool bPlainRLP = ARRAY_ANY ( bPlainRLP, dMorphs, dMorphs[_any]=="rlp_chinese" );
+	bool bBatchedRLP = ARRAY_ANY ( bBatchedRLP, dMorphs, dMorphs[_any]=="rlp_chinese_batched" );
+
+	if ( bPlainRLP && bBatchedRLP )
+	{
+		fprintf ( stdout, "WARNING: both rlp_chinese and rlp_chinese_batched options specified; switching to rlp_chinese\n" );
+		bBatchedRLP = false;
+	}
+
+	tSettings.m_eChineseRLP = bPlainRLP ? SPH_RLP_PLAIN : ( bBatchedRLP ? SPH_RLP_BATCHED : SPH_RLP_NONE );
+	tSettings.m_sRLPContext = hIndex.GetStr ( "rlp_context" );
+
+#if !USE_RLP
+	if ( tSettings.m_eChineseRLP!=SPH_RLP_NONE || !tSettings.m_sRLPContext.IsEmpty() )
+	{
+		tSettings.m_eChineseRLP = SPH_RLP_NONE;
+		fprintf ( stdout, "WARNING: RLP options specified, but no RLP support compiled; ignoring\n" );
+	}
+#endif
 
 	// all good
 	return true;
 }
 
 
-bool sphFixupIndexSettings ( CSphIndex * pIndex, const CSphConfigSection & hIndex, CSphString & sError )
+bool sphFixupIndexSettings ( CSphIndex * pIndex, const CSphConfigSection & hIndex, CSphString & sError, bool bTemplateDict )
 {
 	bool bTokenizerSpawned = false;
 
 	if ( !pIndex->GetTokenizer () )
 	{
 		CSphTokenizerSettings tSettings;
-		if ( !sphConfTokenizer ( hIndex, tSettings, sError ) )
-			return false;
+		sphConfTokenizer ( hIndex, tSettings );
 
 		ISphTokenizer * pTokenizer = ISphTokenizer::Create ( tSettings, NULL, sError );
 		if ( !pTokenizer )
@@ -1373,11 +1475,22 @@ bool sphFixupIndexSettings ( CSphIndex * pIndex, const CSphConfigSection & hInde
 
 	if ( !pIndex->GetDictionary () )
 	{
+		CSphDict * pDict = NULL;
 		CSphDictSettings tSettings;
-		if ( pIndex->m_bId32to64 )
-			tSettings.m_bCrc32 = true;
-		sphConfDictionary ( hIndex, tSettings );
-		CSphDict * pDict = sphCreateDictionaryCRC ( tSettings, NULL, pIndex->GetTokenizer (), pIndex->GetName(), sError );
+		if ( bTemplateDict )
+		{
+			sphConfDictionary ( hIndex, tSettings );
+			pDict = sphCreateDictionaryTemplate ( tSettings, NULL, pIndex->GetTokenizer (), pIndex->GetName(), sError );
+			CSphIndexSettings tIndexSettings = pIndex->GetSettings();
+			tIndexSettings.m_uAotFilterMask = sphParseMorphAot ( tSettings.m_sMorphology.cstr() );
+			pIndex->Setup ( tIndexSettings );
+		} else
+		{
+			if ( pIndex->m_bId32to64 )
+				tSettings.m_bCrc32 = true;
+			sphConfDictionary ( hIndex, tSettings );
+			pDict = sphCreateDictionaryCRC ( tSettings, NULL, pIndex->GetTokenizer (), pIndex->GetName(), sError );
+		}
 		if ( !pDict )
 		{
 			sphWarning ( "index '%s': %s", pIndex->GetName(), sError.cstr() );
@@ -1950,11 +2063,10 @@ void sphBacktrace ( int iFD, bool bSafe )
 	sphSafeInfo ( iFD, "-------------- backtrace ends here ---------------" );
 
 	if ( bOk )
-		sphSafeInfo ( iFD, "Backtrace looks OK. Now you have to do following steps:\n"
-							"  1. Run the command over the crashed binary (for example, 'searchd'):\n"
-							"     nm -n searchd > searchd.sym\n"
-							"  2. Attach the binary, generated .sym and the text of backtrace (see above) to the bug report.\n"
-							"Also you can read the section about resolving backtraces in the documentation.");
+		sphSafeInfo ( iFD, "Please, create a bug report in our bug tracker (http://sphinxsearch.com/bugs) and attach there:\n"
+							"a) searchd log, b) searchd binary, c) searchd symbols.\n"
+							"Look into the chapter 'Reporting bugs' in the documentation\n"
+							"(/usr/share/doc/sphinx/sphinx.txt or http://sphinxsearch.com/docs/current.html#reporting-bugs)" );
 
 	// convert all BT addresses to source code lines
 	int iCount = Min ( iDepth, (int)( sizeof(g_pArgv)/sizeof(g_pArgv[0]) - SPH_BT_ADDRS - 1 ) );
@@ -2105,7 +2217,7 @@ void sphUnlinkIndex ( const char * sName, bool bForce )
 	// +1 is for .mvp
 	for ( int i=0; i<sphGetExtCount()+1; i++ )
 	{
-		snprintf ( sFileName, sizeof(sFileName), "%s%s", sName, sphGetExts ( SPH_EXT_CUR )[i] );
+		snprintf ( sFileName, sizeof(sFileName), "%s%s", sName, sphGetExts ( SPH_EXT_TYPE_CUR )[i] );
 		// 'mvp' is optional file
 		if ( ::unlink ( sFileName ) && errno!=ENOENT )
 			sphWarning ( "unlink failed (file '%s', error '%s'", sFileName, strerror(errno) );
@@ -2131,6 +2243,185 @@ void sphCheckDuplicatePaths ( const CSphConfig & hConf )
 }
 
 
+void sphConfigureCommon ( const CSphConfig & hConf )
+{
+	if ( !hConf("common") || !hConf["common"]("common") )
+		return;
+
+	CSphConfigSection & hCommon = hConf["common"]["common"];
+	g_sLemmatizerBase = hCommon.GetStr ( "lemmatizer_base" );
+#if USE_RLP
+	g_sRLPRoot = hCommon.GetStr ( "rlp_root" );
+	g_sRLPEnv = hCommon.GetStr ( "rlp_environment" );
+	g_iRLPMaxBatchSize = hCommon.GetSize ( "rlp_max_batch_size", 51200 );
+	g_iRLPMaxBatchDocs = hCommon.GetInt ( "rlp_max_batch_docs", 50 );
+#endif
+	bool bJsonStrict = false;
+	bool bJsonAutoconvNumbers = false;
+	bool bJsonKeynamesToLowercase = false;
+
+	if ( hCommon("on_json_attr_error") )
+	{
+		const CSphString & sVal = hCommon["on_json_attr_error"];
+		if ( sVal=="ignore_attr" )
+			bJsonStrict = false;
+		else if ( sVal=="fail_index" )
+			bJsonStrict = true;
+		else
+			sphDie ( "unknown on_json_attr_error value (must be one of ignore_attr, fail_index)" );
+	}
+
+	if ( hCommon("json_autoconv_keynames") )
+	{
+		const CSphString & sVal = hCommon["json_autoconv_keynames"];
+		if ( sVal=="lowercase" )
+			bJsonKeynamesToLowercase = true;
+		else
+			sphDie ( "unknown json_autoconv_keynames value (must be 'lowercase')" );
+	}
+
+	bJsonAutoconvNumbers = ( hCommon.GetInt ( "json_autoconv_numbers", 0 )!=0 );
+	sphSetJsonOptions ( bJsonStrict, bJsonAutoconvNumbers, bJsonKeynamesToLowercase );
+
+	if ( hCommon("plugin_dir") )
+		sphPluginInit ( hCommon["plugin_dir"].cstr() );
+}
+
+static bool IsChineseCode ( int iCode )
+{
+	return ( ( iCode>=0x2E80 && iCode<=0x2EF3 ) ||	// CJK radicals
+		( iCode>=0x2F00 && iCode<=0x2FD5 ) ||	// Kangxi radicals
+		( iCode>=0x3105 && iCode<=0x312D ) ||	// Bopomofo
+		( iCode>=0x31C0 && iCode<=0x31E3 ) ||	// CJK strokes
+		( iCode>=0x3400 && iCode<=0x4DB5 ) ||	// CJK Ideograph Extension A
+		( iCode>=0x4E00 && iCode<=0x9FCC ) ||	// Ideograph
+		( iCode>=0xF900 && iCode<=0xFAD9 ) ||	// compatibility ideographs
+		( iCode>=0x20000 && iCode<=0x2FA1D ) );	// CJK Ideograph Extensions B/C/D, and compatibility ideographs
+}
+
+bool sphDetectChinese ( const BYTE * szBuffer, int iLength )
+{
+	if ( !szBuffer || !iLength )
+		return false;
+
+	const BYTE * pBuffer = szBuffer;
+	while ( pBuffer<szBuffer+iLength )
+	{
+		int iCode = sphUTF8Decode ( pBuffer );
+		if ( IsChineseCode ( iCode ) )
+			return true;
+	}
+
+	return false;
+}
+
+
+static const char * g_dRankerNames[] =
+{
+	"proximity_bm25",
+	"bm25",
+	"none",
+	"wordcount",
+	"proximity",
+	"matchany",
+	"fieldmask",
+	"sph04",
+	"expr",
+	"export",
+	NULL
+};
+
+
+const char * sphGetRankerName ( ESphRankMode eRanker )
+{
+	if ( eRanker<SPH_RANK_PROXIMITY_BM25 || eRanker>=SPH_RANK_TOTAL )
+		return NULL;
+
+	return g_dRankerNames[eRanker];
+}
+
+#if HAVE_DLOPEN
+
+void CSphDynamicLibrary::FillError ( const char * sMessage )
+{
+	const char* sDlerror = dlerror();
+	if ( sMessage )
+		m_sError.SetSprintf ( "%s: %s", sMessage, sDlerror ? sDlerror : "(null)" );
+	else
+		m_sError.SetSprintf ( "%s", sDlerror ? sDlerror : "(null)" );
+}
+
+bool CSphDynamicLibrary::Init ( const char * sPath, bool bGlobal )
+{
+	if ( m_pLibrary )
+		return true;
+	int iFlags = bGlobal?(RTLD_NOW | RTLD_GLOBAL):(RTLD_LAZY|RTLD_LOCAL);
+	m_pLibrary = dlopen ( sPath, iFlags );
+	if ( !m_pLibrary )
+	{
+		FillError ( "dlopen() failed" );
+		return false;
+	}
+	sphLogDebug ( "dlopen(%s)=%p", sPath, m_pLibrary );
+	m_bReady = true;
+	return m_bReady;
+}
+
+bool CSphDynamicLibrary::LoadSymbol ( const char* sName, void** ppFunc )
+{
+	if ( !m_pLibrary )
+		return false;
+
+	if ( !m_bReady )
+		return false;
+
+	void * pResult = dlsym ( m_pLibrary, sName );
+	if ( !pResult )
+	{
+		FillError ( "Symbol not found" );
+		return false;
+	}
+	*ppFunc = pResult;
+	return true;
+}
+
+bool CSphDynamicLibrary::LoadSymbols ( const char** sNames, void*** pppFuncs, int iNum )
+{
+	if ( !m_pLibrary )
+		return false;
+
+	if ( !m_bReady )
+		return false;
+
+	for ( int i=0; i<iNum; ++i )
+	{
+		void* pResult = dlsym ( m_pLibrary, sNames[i] );
+		if ( !pResult )
+		{
+			FillError ( "Symbol not found" );
+			return false;
+		}
+		// yes, it is void*** - triple pointer.
+		// void* is the legacy pointer (to the function, in this case).
+		// void** is the variable where we store the pointer to the function.
+		// that is to cast all different pointers to legacy void*.
+		// we put the addresses to these variables into array, and it adds
+		// one more level of indirection. void*** actually is void**[]
+		*pppFuncs[i] = pResult;
+	}
+
+	return true;
+};
+
+#else
+
+void CSphDynamicLibrary::FillError ( const char * e ) { m_sError = e; }
+bool CSphDynamicLibrary::Init ( const char *, bool ) { return false; }
+bool CSphDynamicLibrary::LoadSymbol ( const char *, void ** ) { return false; }
+bool CSphDynamicLibrary::LoadSymbols ( const char **, void ***, int ) { return false; }
+
+#endif
+
 //
-// $Id: sphinxutils.cpp 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxutils.cpp 4665 2014-04-20 05:08:07Z kevg $
 //

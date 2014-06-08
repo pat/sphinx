@@ -11,7 +11,7 @@ searchd
 {
 </Static>
 <Searchd_Settings/>
-compat_sphinxql_magics = 1<Static>
+<Static>
 }
 
 source srclj
@@ -29,9 +29,7 @@ index lj
 {
 	source			= srclj
 	path			= </Static><Data_Path/><Static>/lj
-	charset_type	= utf-8
 	min_infix_len	= 3
-	enable_star		= 1
 }</Static>
   </Config>
   <Query>

@@ -1,5 +1,5 @@
 //
-// $Id: sphinxrt.h 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxrt.h 4522 2014-01-30 11:00:18Z tomat $
 //
 
 //
@@ -24,14 +24,14 @@
 class ISphRtIndex : public CSphIndex
 {
 public:
-	explicit ISphRtIndex ( const char * sIndexName, const char * sName ) : CSphIndex ( sIndexName, sName ) {}
+	explicit ISphRtIndex ( const char * sIndexName, const char * sFileName ) : CSphIndex ( sIndexName, sFileName ) {}
 
 	/// get internal schema (to use for Add calls)
 	virtual const CSphSchema & GetInternalSchema () const { return m_tSchema; }
 
 	/// insert/update document in current txn
 	/// fails in case of two open txns to different indexes
-	virtual bool AddDocument ( int iFields, const char ** ppFields, const CSphMatch & tDoc, bool bReplace, const char ** ppStr, const CSphVector<DWORD> & dMvas, CSphString & sError, CSphString & sWarning ) = 0;
+	virtual bool AddDocument ( int iFields, const char ** ppFields, const CSphMatch & tDoc, bool bReplace, const CSphString & sTokenFilterOptions, const char ** ppStr, const CSphVector<DWORD> & dMvas, CSphString & sError, CSphString & sWarning ) = 0;
 
 	/// insert/update document in current txn
 	/// fails in case of two open txns to different indexes
@@ -95,5 +95,5 @@ void sphReplayBinlog ( const SmallStringHash_T<CSphIndex*> & hIndexes, DWORD uRe
 #endif // _sphinxrt_
 
 //
-// $Id: sphinxrt.h 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxrt.h 4522 2014-01-30 11:00:18Z tomat $
 //

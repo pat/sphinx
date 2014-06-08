@@ -12,7 +12,6 @@ indexer
 searchd
 {
 	<searchd_settings/>
-compat_sphinxql_magics = 1
 }
 
 source src
@@ -23,9 +22,7 @@ source src
 	xmlpipe_field = content
 	xmlpipe_attr_uint = gid
 	xmlpipe_attr_string = sgid
-	xmlpipe_attr_wordcount = ordd
 	xmlpipe_field_string = sgidf
-	xmlpipe_field_wordcount = orddf
 }
 
 source src2
@@ -38,14 +35,12 @@ index idx
 {
 	source = src
 	path = <data_path/>/idx
-	charset_type = utf-8
 }
 
 index idx2
 {
 	source = src2
 	path = <data_path/>/idx2
-	charset_type = utf-8
 }
 
 </config>

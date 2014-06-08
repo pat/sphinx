@@ -14,7 +14,6 @@ indexer
 searchd
 {
 	<searchd_settings/>
-compat_sphinxql_magics = 1
 	workers = threads
 	binlog_path = #
 }
@@ -44,7 +43,6 @@ index dist_no
 	source			= src
 	path			= <data_path/>/idx
 	docinfo			= extern
-	charset_type	= utf-8
 	min_word_len	= 1
 }
 
@@ -116,7 +114,6 @@ index rt
 {
 	type = rt
 	path			= <data_path/>/rt
-	charset_type 	= utf-8
 	docinfo			= extern
 
 	rt_field			= body
@@ -149,6 +146,10 @@ index rt
 <sphinxql>select * from rt</sphinxql>
 <sphinxql>select 100500some from rt</sphinxql>
 <sphinxql>select `id` from rt</sphinxql>
+<sphinxql>update idx1 set bfloat=123 where id=1</sphinxql>
+<sphinxql>select bfloat from idx1 where id=1</sphinxql>
+<sphinxql>update rt set bfloat=123 where id=1</sphinxql>
+<sphinxql>select bfloat from rt where id=1</sphinxql>
 </sphqueries>
 
   <DB_Create>

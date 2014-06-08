@@ -1,5 +1,5 @@
 //
-// $Id: sphinxquery.h 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxquery.h 4649 2014-04-07 20:12:49Z kevg $
 //
 
 //
@@ -27,17 +27,21 @@ struct XQKeyword_t
 	int					m_iAtomPos;
 	bool				m_bFieldStart;	///< must occur at very start
 	bool				m_bFieldEnd;	///< must occur at very end
+	float				m_fBoost;		///< keyword IDF will be multiplied by this
 	bool				m_bExpanded;	///< added by prefix expansion
 	bool				m_bExcluded;	///< excluded by query (rval to operator NOT)
 	bool				m_bMorphed;		///< morphology processing (wordforms, stemming etc) already done
+	void *				m_pPayload;
 
 	XQKeyword_t ()
 		: m_iAtomPos ( -1 )
 		, m_bFieldStart ( false )
 		, m_bFieldEnd ( false )
+		, m_fBoost ( 1.0f )
 		, m_bExpanded ( false )
 		, m_bExcluded ( false )
 		, m_bMorphed ( false )
+		, m_pPayload ( NULL )
 	{}
 
 	XQKeyword_t ( const char * sWord, int iPos )
@@ -45,9 +49,11 @@ struct XQKeyword_t
 		, m_iAtomPos ( iPos )
 		, m_bFieldStart ( false )
 		, m_bFieldEnd ( false )
+		, m_fBoost ( 1.0f )
 		, m_bExpanded ( false )
 		, m_bExcluded ( false )
 		, m_bMorphed ( false )
+		, m_pPayload ( NULL )
 	{}
 };
 
@@ -57,6 +63,7 @@ enum XQOperator_e
 {
 	SPH_QUERY_AND,
 	SPH_QUERY_OR,
+	SPH_QUERY_MAYBE,
 	SPH_QUERY_NOT,
 	SPH_QUERY_ANDNOT,
 	SPH_QUERY_BEFORE,
@@ -65,14 +72,15 @@ enum XQOperator_e
 	SPH_QUERY_QUORUM,
 	SPH_QUERY_NEAR,
 	SPH_QUERY_SENTENCE,
-	SPH_QUERY_PARAGRAPH
+	SPH_QUERY_PARAGRAPH,
+	SPH_QUERY_NULL
 };
 
 // the limit of field or zone or zonespan
 struct XQLimitSpec_t
 {
 	bool					m_bFieldSpec;	///< whether field spec was already explicitly set
-	CSphSmallBitvec			m_dFieldMask;	///< fields mask (spec part)
+	FieldMask_t			m_dFieldMask;	///< fields mask (spec part)
 	int						m_iFieldMaxPos;	///< max position within field (spec part)
 	CSphVector<int>			m_dZones;		///< zone indexes in per-query zones list
 	bool					m_bZoneSpan;	///< if we need to hits within only one span
@@ -88,7 +96,7 @@ public:
 		m_bFieldSpec = false;
 		m_iFieldMaxPos = 0;
 		m_bZoneSpan = false;
-		m_dFieldMask.Set();
+		m_dFieldMask.SetAll();
 		m_dZones.Reset();
 	}
 
@@ -120,7 +128,7 @@ public:
 	}
 public:
 	void SetZoneSpec ( const CSphVector<int> & dZones, bool bZoneSpan );
-	void SetFieldSpec ( const CSphSmallBitvec& uMask, int iMaxPos );
+	void SetFieldSpec ( const FieldMask_t& uMask, int iMaxPos );
 };
 
 /// extended query node
@@ -166,7 +174,7 @@ public:
 	}
 
 	/// setup field limits
-	void SetFieldSpec ( const CSphSmallBitvec& uMask, int iMaxPos );
+	void SetFieldSpec ( const FieldMask_t& uMask, int iMaxPos );
 
 	/// setup zone limits
 	void SetZoneSpec ( const CSphVector<int> & dZones, bool bZoneSpan=false );
@@ -296,7 +304,8 @@ void	sphSetupQueryTokenizer ( ISphTokenizer * pTokenizer );
 /// lots of arguments here instead of simply the index pointer, because
 /// a) we do not always have an actual real index class, and
 /// b) might need to tweak stuff even we do
-bool	sphParseExtendedQuery ( XQQuery_t & tQuery, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict, const CSphIndexSettings & tSettings );
+/// FIXME! remove either pQuery or sQuery
+bool	sphParseExtendedQuery ( XQQuery_t & tQuery, const char * sQuery, const CSphQuery * pQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict, const CSphIndexSettings & tSettings );
 
 // perform boolean optimization on tree
 void	sphOptimizeBoolean ( XQNode_t ** pXQ, const ISphKeywordsStat * pKeywords );
@@ -307,5 +316,5 @@ int		sphMarkCommonSubtrees ( int iXQ, const XQQuery_t * pXQ );
 #endif // _sphinxquery_
 
 //
-// $Id: sphinxquery.h 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxquery.h 4649 2014-04-07 20:12:49Z kevg $
 //

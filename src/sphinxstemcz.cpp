@@ -1,5 +1,5 @@
 //
-// $Id: sphinxstemcz.cpp 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxstemcz.cpp 4522 2014-01-30 11:00:18Z tomat $
 //
 
 //
@@ -207,5 +207,5 @@ void stem_cz ( BYTE * word )
 
 
 //
-// $Id: sphinxstemcz.cpp 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxstemcz.cpp 4522 2014-01-30 11:00:18Z tomat $
 //

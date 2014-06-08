@@ -1,11 +1,11 @@
 <?php
 
 //
-// $Id: helpers.inc 4568 2014-02-20 13:42:33Z tomat $
+// $Id: helpers.inc 4678 2014-04-30 12:28:16Z joric $
 //
 
 ini_set ( "display_errors", 1 );
-ini_set ( "error_reporting", E_ALL | E_STRICT );
+ini_set ( "error_reporting", (E_ALL | E_STRICT) & ~E_USER_DEPRECATED );
 
 require_once ( $g_locals['api'] );
 
@@ -51,6 +51,11 @@ function ConnectDB ()
 	if ( !function_exists ( "mysql_connect" ) )
 	{
 		print ( "ERROR: missing required mysql_connect(); add php_mysql.so (.dll on Windows) to your php.ini!\n" );
+		exit ( 1 );
+	}
+	if ( !function_exists ( "mysqli_connect" ) )
+	{
+		print ( "ERROR: missing required mysqli_connect(); add php_mysqli.so (.dll on Windows) to your php.ini!\n" );
 		exit ( 1 );
 	}
 
@@ -1025,14 +1030,16 @@ class SphinxConfig
 	}
 
 
-	function FixupAddresses ( $s )
+	function FixupErrorMessage ( $s )
 	{
 		global $agents;
 		$tr = array(
 			$agents[0]["address"].":".$agents[0]["port"] => "<AGENT0_ADDRESS/>",
 			$agents[1]["address"].":".$agents[1]["port"] => "<AGENT1_ADDRESS/>",
 			$agents[2]["address"].":".$agents[2]["port"] => "<AGENT2_ADDRESS/>" );
-		return strtr ( $s, $tr );
+		$s = strtr ( $s, $tr );
+		$s = preg_replace ( "/or \d+ other tokens/", "or N other tokens", $s );
+		return $s;
 	}
 
 
@@ -1080,7 +1087,7 @@ class SphinxConfig
 					$query_result["total_affected"] = mysqli_affected_rows($connection);
 				else if ($result===false)
 				{
-					$query_result["error"] = $this->FixupAddresses ( mysqli_error( $connection ) );
+					$query_result["error"] = $this->FixupErrorMessage ( mysqli_error( $connection ) );
 					$query_result["errno"] = mysqli_errno( $connection );
 				} else
 				{
@@ -1126,7 +1133,7 @@ class SphinxConfig
 						if ($resultset_num==0)
 							$query_result["sphinxql"]="$query";
 						else
-							$query_result["sphinxql"]="$parts[$resultset_num] /* result ".($resultset_num+1)." of previous multistatement */";
+							$query_result["sphinxql"]=($resultset_num<count($parts)?"$parts[$resultset_num] ":"")."/* result ".($resultset_num+1)." of previous multistatement */";
 						++$resultset_num;
 						$this->_results[] = $query_result;
 						if (!mysqli_more_results($connection))
@@ -2205,7 +2212,7 @@ class SphinxConfig
 
 	function WriteSearchdSettings ( $fp )
 	{
-		global $sd_log, $sd_query_log, $sd_read_timeout, $sd_max_children, $sd_pid_file, $sd_max_matches;
+		global $sd_log, $sd_query_log, $sd_read_timeout, $sd_max_children, $sd_pid_file;
 
 		if ( $this->_compat098 )
 		{
@@ -2222,7 +2229,6 @@ class SphinxConfig
 		fwrite ( $fp, "\tread_timeout	= $sd_read_timeout\n" );
 		fwrite ( $fp, "\tmax_children	= $sd_max_children\n" );
 		fwrite ( $fp, "\tpid_file		= ".$this->_sd_pid_file."\n" );
-		fwrite ( $fp, "\tmax_matches	= $sd_max_matches\n" );
 		if ( $this->IsRt() )
 			fwrite ( $fp, "\tworkers		= threads\n" );
 			
@@ -2710,5 +2716,5 @@ function RunTest ( $test_dir, $skipdemo, $usemarks )
 }
 
 //
-// $Id: helpers.inc 4568 2014-02-20 13:42:33Z tomat $
+// $Id: helpers.inc 4678 2014-04-30 12:28:16Z joric $
 //

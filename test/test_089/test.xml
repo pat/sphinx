@@ -11,7 +11,6 @@ indexer
 searchd
 {
 	<searchd_settings/>
-compat_sphinxql_magics = 1
 	workers = threads
 	binlog_path =
 }
@@ -28,11 +27,8 @@ source src_test2
 {
 	type			= mysql
 	<sql_settings/>
-	sql_query = SELECT id, text, text as ord, text as wc, text as wc2, 1 as gid FROM table2
+	sql_query = SELECT id, text, 1 as gid FROM table2
 	sql_attr_uint = gid
-	sql_attr_str2ordinal = ord	
-	sql_attr_str2wordcount = wc	
-	sql_field_str2wordcount = wc2
 }
 
 index test2
@@ -40,7 +36,6 @@ index test2
 	source				= src_test2
 	path				= <data_path/>/test2
 	docinfo			= extern
-	charset_type	= utf-8
 }
 </config>
 

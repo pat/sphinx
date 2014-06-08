@@ -1,5 +1,5 @@
 //
-// $Id: sphinxquery.cpp 4655 2014-04-10 05:28:38Z tomat $
+// $Id: sphinxquery.cpp 4669 2014-04-21 11:49:27Z tomat $
 //
 
 //
@@ -16,6 +16,7 @@
 #include "sphinx.h"
 #include "sphinxquery.h"
 #include "sphinxutils.h"
+#include "sphinxplugin.h"
 #include <stdarg.h>
 
 //////////////////////////////////////////////////////////////////////////
@@ -37,29 +38,34 @@ public:
 					~XQParser_t ();
 
 public:
-	bool			Parse ( XQQuery_t & tQuery, const char * sQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict, const CSphIndexSettings & tSettings );
+	bool			Parse ( XQQuery_t & tQuery, const char * sQuery, const CSphQuery * pQuery, const ISphTokenizer * pTokenizer, const CSphSchema * pSchema, CSphDict * pDict, const CSphIndexSettings & tSettings );
 
 	bool			Error ( const char * sTemplate, ... ) __attribute__ ( ( format ( printf, 2, 3 ) ) );
 	void			Warning ( const char * sTemplate, ... ) __attribute__ ( ( format ( printf, 2, 3 ) ) );
 
-	bool			AddField ( CSphSmallBitvec & dFields, const char * szField, int iLen );
-	bool			ParseFields ( CSphSmallBitvec & uFields, int & iMaxFieldPos, bool & bIgnore );
+	bool			AddField ( FieldMask_t & dFields, const char * szField, int iLen );
+	bool			ParseFields ( FieldMask_t & uFields, int & iMaxFieldPos, bool & bIgnore );
 	int				ParseZone ( const char * pZone );
 
 	bool			IsSpecial ( char c );
 	int				GetToken ( YYSTYPE * lvalp );
 
+	void			HandleModifiers ( XQKeyword_t & tKeyword );
+
 	void			AddQuery ( XQNode_t * pNode );
 	XQNode_t *		AddKeyword ( const char * sKeyword );
 	XQNode_t *		AddKeyword ( XQNode_t * pLeft, XQNode_t * pRight );
 	XQNode_t *		AddOp ( XQOperator_e eOp, XQNode_t * pLeft, XQNode_t * pRight, int iOpArg=0 );
+	void			SetPhrase ( XQNode_t * pNode, bool bSetExact );
 
 	void			Cleanup ();
 	XQNode_t *		SweepNulls ( XQNode_t * pNode );
 	bool			FixupNots ( XQNode_t * pNode );
+	void			FixupNulls ( XQNode_t * pNode );
 	void			DeleteNodesWOFields ( XQNode_t * pNode );
+	void			PhraseShiftQpos ( XQNode_t * pNode );
 
-	inline void SetFieldSpec ( const CSphSmallBitvec& uMask, int iMaxPos )
+	inline void SetFieldSpec ( const FieldMask_t& uMask, int iMaxPos )
 	{
 		FixRefSpec();
 		m_dStateSpec.Last()->SetFieldSpec ( uMask, iMaxPos );
@@ -88,17 +94,18 @@ public:
 	}
 
 public:
+	static const int MAX_TOKEN_BYTES = 3*SPH_MAX_WORD_LEN + 16;
+
 	XQQuery_t *				m_pParsed;
 
 	BYTE *					m_sQuery;
 	int						m_iQueryLen;
 	const char *			m_pLastTokenStart;
+	const char *			m_pLastTokenEnd;
 
 	const CSphSchema *		m_pSchema;
 	ISphTokenizer *			m_pTokenizer;
 	CSphDict *				m_pDict;
-
-	const char *			m_pCur;
 
 	CSphVector<XQNode_t*>	m_dSpawned;
 	XQNode_t *				m_pRoot;
@@ -119,11 +126,15 @@ public:
 	int						m_iQuorumQuote;
 	int						m_iQuorumFSlash;
 
+	const PluginQueryTokenFilter_c * m_pPlugin;
+	void *					m_pPluginData;
+
 	CSphVector<CSphString>	m_dIntTokens;
 
 	CSphVector < CSphVector<int> >	m_dZoneVecs;
 	CSphVector<XQLimitSpec_t *>		m_dStateSpec;
 	CSphVector<XQLimitSpec_t *>		m_dSpecPool;
+	CSphVector<int>			m_dPhraseStar;
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -143,7 +154,7 @@ void yyerror ( XQParser_t * pParser, const char * sMessage )
 
 //////////////////////////////////////////////////////////////////////////
 
-void XQLimitSpec_t::SetFieldSpec ( const CSphSmallBitvec& uMask, int iMaxPos )
+void XQLimitSpec_t::SetFieldSpec ( const FieldMask_t& uMask, int iMaxPos )
 {
 	m_bFieldSpec = true;
 	m_dFieldMask = uMask;
@@ -182,7 +193,7 @@ XQNode_t::~XQNode_t ()
 }
 
 
-void XQNode_t::SetFieldSpec ( const CSphSmallBitvec& uMask, int iMaxPos )
+void XQNode_t::SetFieldSpec ( const FieldMask_t& uMask, int iMaxPos )
 {
 	// set it, if we do not yet have one
 	if ( !m_dSpec.m_bFieldSpec )
@@ -227,7 +238,7 @@ void XQNode_t::CopySpecs ( const XQNode_t * pSpecs )
 
 void XQNode_t::ClearFieldMask ()
 {
-	m_dSpec.m_dFieldMask.Set();
+	m_dSpec.m_dFieldMask.SetAll();
 
 	ARRAY_FOREACH ( i, m_dChildren )
 		m_dChildren[i]->ClearFieldMask();
@@ -283,11 +294,11 @@ uint64_t XQNode_t::GetHash () const
 	dZeroOp[1] = (XQOperator_e) 0;
 
 	ARRAY_FOREACH ( i, m_dWords )
-		m_iMagicHash = 100 + ( m_iMagicHash ^ sphFNV64 ( (const BYTE*)m_dWords[i].m_sWord.cstr() ) ); ///< +100 to make it non-transitive
+		m_iMagicHash = 100 + ( m_iMagicHash ^ sphFNV64 ( m_dWords[i].m_sWord.cstr() ) ); // +100 to make it non-transitive
 	ARRAY_FOREACH ( j, m_dChildren )
-		m_iMagicHash = 100 + ( m_iMagicHash ^ m_dChildren[j]->GetHash() ); ///< +100 to make it non-transitive
-	m_iMagicHash += 1000000; ///< to immerse difference between parents and children
-	m_iMagicHash ^= sphFNV64 ( (const BYTE*)dZeroOp );
+		m_iMagicHash = 100 + ( m_iMagicHash ^ m_dChildren[j]->GetHash() ); // +100 to make it non-transitive
+	m_iMagicHash += 1000000; // to immerse difference between parents and children
+	m_iMagicHash ^= sphFNV64 ( dZeroOp );
 
 	return m_iMagicHash;
 }
@@ -303,11 +314,11 @@ uint64_t XQNode_t::GetFuzzyHash () const
 	dZeroOp[1] = (XQOperator_e) 0;
 
 	ARRAY_FOREACH ( i, m_dWords )
-		m_iFuzzyHash = 100 + ( m_iFuzzyHash ^ sphFNV64 ( (const BYTE*)m_dWords[i].m_sWord.cstr() ) ); ///< +100 to make it non-transitive
+		m_iFuzzyHash = 100 + ( m_iFuzzyHash ^ sphFNV64 ( m_dWords[i].m_sWord.cstr() ) ); // +100 to make it non-transitive
 	ARRAY_FOREACH ( j, m_dChildren )
-		m_iFuzzyHash = 100 + ( m_iFuzzyHash ^ m_dChildren[j]->GetFuzzyHash () ); ///< +100 to make it non-transitive
-	m_iFuzzyHash += 1000000; ///< to immerse difference between parents and children
-	m_iFuzzyHash ^= sphFNV64 ( (const BYTE*)dZeroOp );
+		m_iFuzzyHash = 100 + ( m_iFuzzyHash ^ m_dChildren[j]->GetFuzzyHash () ); // +100 to make it non-transitive
+	m_iFuzzyHash += 1000000; // to immerse difference between parents and children
+	m_iFuzzyHash ^= sphFNV64 ( dZeroOp );
 
 	return m_iFuzzyHash;
 }
@@ -380,6 +391,7 @@ static int GetNodeChildIndex ( const XQNode_t * pParent, const XQNode_t * pNode 
 XQParser_t::XQParser_t ()
 	: m_pParsed ( NULL )
 	, m_pLastTokenStart ( NULL )
+	, m_pLastTokenEnd ( NULL )
 	, m_pRoot ( NULL )
 	, m_bStopOnInvalid ( true )
 	, m_bWasBlended ( false )
@@ -387,6 +399,8 @@ XQParser_t::XQParser_t ()
 	, m_bEmptyStopword ( false )
 	, m_iQuorumQuote ( -1 )
 	, m_iQuorumFSlash ( -1 )
+	, m_pPlugin ( NULL )
+	, m_pPluginData ( NULL )
 {
 	m_dSpecPool.Add ( new XQLimitSpec_t() );
 	m_dStateSpec.Add ( m_dSpecPool.Last() );
@@ -460,13 +474,13 @@ bool XQParser_t::IsSpecial ( char c )
 
 
 /// lookup field and add it into mask
-bool XQParser_t::AddField ( CSphSmallBitvec & dFields, const char * szField, int iLen )
+bool XQParser_t::AddField ( FieldMask_t & dFields, const char * szField, int iLen )
 {
 	CSphString sField;
 	sField.SetBinary ( szField, iLen );
 
 	int iField = m_pSchema->GetFieldIndex ( sField.cstr () );
-	if ( iField < 0 )
+	if ( iField<0 )
 	{
 		if ( m_bStopOnInvalid )
 			return Error ( "no field '%s' found in schema", sField.cstr () );
@@ -477,7 +491,7 @@ bool XQParser_t::AddField ( CSphSmallBitvec & dFields, const char * szField, int
 		if ( iField>=SPH_MAX_FIELDS )
 			return Error ( " max %d fields allowed", SPH_MAX_FIELDS );
 
-		dFields.Set(iField);
+		dFields.Set ( iField );
 	}
 
 	return true;
@@ -485,9 +499,9 @@ bool XQParser_t::AddField ( CSphSmallBitvec & dFields, const char * szField, int
 
 
 /// parse fields block
-bool XQParser_t::ParseFields ( CSphSmallBitvec & dFields, int & iMaxFieldPos, bool & bIgnore )
+bool XQParser_t::ParseFields ( FieldMask_t & dFields, int & iMaxFieldPos, bool & bIgnore )
 {
-	dFields.Unset();
+	dFields.UnsetAll();
 	iMaxFieldPos = 0;
 	bIgnore = false;
 
@@ -510,7 +524,7 @@ bool XQParser_t::ParseFields ( CSphSmallBitvec & dFields, int & iMaxFieldPos, bo
 	} else if ( *pPtr=='*' )
 	{
 		// handle @*
-		dFields.Set();
+		dFields.SetAll();
 		m_pTokenizer->SetBufferPtr ( pPtr+1 );
 		return true;
 
@@ -726,6 +740,7 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 		// required because if 0-9 are not in charset_table, or min_word_len is too high,
 		// the tokenizer will *not* return the number as a token!
 		m_pLastTokenStart = m_pTokenizer->GetBufferPtr ();
+		m_pLastTokenEnd = m_pTokenizer->GetTokenEnd();
 		const char * sEnd = m_pTokenizer->GetBufferEnd ();
 
 		const char * p = m_pLastTokenStart;
@@ -786,6 +801,7 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 				if ( sToken )
 				{
 					m_dIntTokens.Add ( sToken );
+					m_pDict->SetApplyMorph ( m_pTokenizer->GetMorphFlag() );
 					if ( m_pDict->GetWordID ( (BYTE*)sToken ) )
 						m_tPendingToken.tInt.iStrIndex = m_dIntTokens.GetLength()-1;
 					else
@@ -853,6 +869,15 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 			break;
 		}
 
+		// handle MAYBE
+		if ( sToken && p && !m_pTokenizer->m_bPhrase && !strcasecmp ( sToken, "maybe" ) && !strncmp ( p, "MAYBE", 5 ) )
+		{
+			// we just lexed our next token
+			m_iPendingType = TOK_MAYBE;
+			m_iAtomPos -= 1;
+			break;
+		}
+
 		// handle ZONE
 		if ( sToken && p && !m_pTokenizer->m_bPhrase && !strncmp ( p, "ZONE:", 5 )
 			&& ( sphIsAlpha(p[5]) || p[5]=='(' ) )
@@ -885,6 +910,36 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 			break;
 		}
 
+		// count [ * ] at phrase node for qpos shift
+		if ( m_pTokenizer->m_bPhrase && m_pLastTokenEnd )
+		{
+			if ( strncmp ( sToken, "*", 1 )==0 )
+			{
+				m_dPhraseStar.Add ( m_iAtomPos );
+			} else
+			{
+				int iSpace = 0;
+				int iStar = 0;
+				const char * sCur = m_pLastTokenEnd;
+				const char * sEnd = m_pTokenizer->GetTokenStart();
+				for ( ; sCur<sEnd; sCur++ )
+				{
+					int iCur = sCur - m_pLastTokenEnd;
+					switch ( *sCur )
+					{
+					case '*':
+						iStar = sCur - m_pLastTokenEnd;
+						break;
+					case ' ':
+						if ( iSpace+2==iCur && iStar+1==iCur ) // match only [ * ] (separate single star) as valid shift operator
+							m_dPhraseStar.Add ( m_iAtomPos );
+						iSpace = iCur;
+						break;
+					}
+				}
+			}
+		}
+
 		// handle specials
 		if ( m_pTokenizer->WasTokenSpecial() )
 		{
@@ -902,9 +957,6 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 
 				if ( bIgnore )
 					continue;
-
-				if ( m_pSchema->m_dFields.GetLength()!=SPH_MAX_FIELDS )
-					m_tPendingToken.tFieldLimit.dMask.LimitBits ( m_pSchema->m_dFields.GetLength() );
 
 				m_iPendingType = TOK_FIELDLIMIT;
 				break;
@@ -927,13 +979,21 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 					}
 					continue;
 				}
+			} else if ( sToken[0]=='^' || sToken[0]=='$' )
+			{
+				// these specials are handled in HandleModifiers()
+				continue;
 			} else
 			{
 				bool bWasQuoted = m_bQuoted;
 				// all the other specials are passed to parser verbatim
 				if ( sToken[0]=='"' )
+				{
 					m_bQuoted = !m_bQuoted;
-				m_iPendingType = sToken[0]=='!' ? '-' : sToken[0];
+					if ( m_bQuoted )
+						m_dPhraseStar.Resize ( 0 );
+				}
+				m_iPendingType = sToken[0];
 				m_pTokenizer->m_bPhrase = m_bQuoted;
 
 				if ( sToken[0]=='(' )
@@ -956,13 +1016,28 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 
 		// check for stopword, and create that node
 		// temp buffer is required, because GetWordID() might expand (!) the keyword in-place
-		const int MAX_BYTES = 3*SPH_MAX_WORD_LEN + 16;
-		BYTE sTmp [ MAX_BYTES ];
+		BYTE sTmp [ MAX_TOKEN_BYTES ];
 
-		strncpy ( (char*)sTmp, sToken, MAX_BYTES );
-		sTmp[MAX_BYTES-1] = '\0';
+		strncpy ( (char*)sTmp, sToken, MAX_TOKEN_BYTES );
+		sTmp[MAX_TOKEN_BYTES-1] = '\0';
 
-		if ( !m_pDict->GetWordID ( sTmp ) )
+		int iStopWord = 0;
+		if ( m_pPlugin && m_pPlugin->m_fnPreMorph )
+			m_pPlugin->m_fnPreMorph ( m_pPluginData, (char*)sTmp, &iStopWord );
+
+		m_pDict->SetApplyMorph ( m_pTokenizer->GetMorphFlag() );
+		SphWordID_t uWordId = iStopWord ? 0 : m_pDict->GetWordID ( sTmp );
+
+		if ( uWordId && m_pPlugin && m_pPlugin->m_fnPostMorph )
+		{
+			int iRes = m_pPlugin->m_fnPostMorph ( m_pPluginData, (char*)sTmp, &iStopWord );
+			if ( iStopWord )
+				uWordId = 0;
+			else if ( iRes )
+				uWordId = m_pDict->GetWordIDNonStemmed ( sTmp );
+		}
+
+		if ( !uWordId )
 		{
 			sToken = NULL;
 			// stopwords with step=0 must not affect pos
@@ -1004,13 +1079,50 @@ void XQParser_t::AddQuery ( XQNode_t * pNode )
 	m_pRoot = pNode;
 }
 
+// Handle modifiers:
+// 1) ^ - field start
+// 2) $ - field end
+// 3) ^1.234 - keyword boost
+// keyword$^1.234 - field end with boost are on
+// keywords^1.234$ - only boost here, '$' it NOT modifier
+void XQParser_t::HandleModifiers ( XQKeyword_t & tKeyword )
+{
+	const char * sTokStart = m_pTokenizer->GetTokenStart();
+	const char * sTokEnd = m_pTokenizer->GetTokenEnd();
+	if ( !sTokStart || !sTokEnd )
+		return;
+
+	const char * sQuery = reinterpret_cast<char *> ( m_sQuery );
+	tKeyword.m_bFieldStart = ( sTokStart-sQuery )>0 && sTokStart [ -1 ]=='^';
+
+	if ( sTokEnd[0]=='$' )
+	{
+		tKeyword.m_bFieldEnd = true;
+		++sTokEnd; // Skipping.
+	}
+
+	if ( sTokEnd[0]=='^' && ( sTokEnd[1]=='.' || isdigit ( sTokEnd[1] ) ) )
+	{
+		// Probably we have a boost, lets check.
+		char * pEnd;
+		float fBoost = strtod ( sTokEnd+1, &pEnd );
+		if ( ( sTokEnd+1 )!=pEnd )
+		{
+			// We do have a boost.
+			// FIXME Handle ERANGE errno here.
+			tKeyword.m_fBoost = fBoost;
+			m_pTokenizer->SetBufferPtr ( pEnd );
+		}
+	}
+}
+
 
 XQNode_t * XQParser_t::AddKeyword ( const char * sKeyword )
 {
 	XQKeyword_t tAW ( sKeyword, m_iAtomPos );
+	HandleModifiers ( tAW );
 	XQNode_t * pNode = new XQNode_t ( *m_dStateSpec.Last() );
 	pNode->m_dWords.Add ( tAW );
-
 	m_dSpawned.Add ( pNode );
 	return pNode;
 }
@@ -1073,6 +1185,26 @@ XQNode_t * XQParser_t::AddOp ( XQOperator_e eOp, XQNode_t * pLeft, XQNode_t * pR
 }
 
 
+void XQParser_t::SetPhrase ( XQNode_t * pNode, bool bSetExact )
+{
+	if ( !pNode )
+		return;
+
+	assert ( pNode->m_dWords.GetLength() );
+	if ( bSetExact )
+	{
+		ARRAY_FOREACH ( iWord, pNode->m_dWords )
+		{
+			if ( !pNode->m_dWords[iWord].m_sWord.IsEmpty() )
+				pNode->m_dWords[iWord].m_sWord.SetSprintf ( "=%s", pNode->m_dWords[iWord].m_sWord.cstr() );
+		}
+	}
+	pNode->SetOp ( SPH_QUERY_PHRASE );
+
+	PhraseShiftQpos ( pNode );
+}
+
+
 XQNode_t * XQParser_t::SweepNulls ( XQNode_t * pNode )
 {
 	if ( !pNode )
@@ -1100,7 +1232,11 @@ XQNode_t * XQParser_t::SweepNulls ( XQNode_t * pNode )
 	{
 		pNode->m_dChildren[i] = SweepNulls ( pNode->m_dChildren[i] );
 		if ( pNode->m_dChildren[i]==NULL )
+		{
 			pNode->m_dChildren.Remove ( i-- );
+			// use non-null iOpArg as a flag indicating that the sweeping happened.
+			++pNode->m_iOpArg;
+		}
 	}
 
 	if ( pNode->m_dChildren.GetLength()==0 )
@@ -1116,16 +1252,69 @@ XQNode_t * XQParser_t::SweepNulls ( XQNode_t * pNode )
 		XQNode_t * pRet = pNode->m_dChildren[0];
 		pNode->m_dChildren.Reset ();
 		pRet->m_pParent = pNode->m_pParent;
+		// expressions like 'la !word' (having min_word_len>len(la)) became a 'null' node.
+		if ( pNode->m_iOpArg && pRet->GetOp()==SPH_QUERY_NOT )
+		{
+			pRet->SetOp ( SPH_QUERY_NULL );
+			ARRAY_FOREACH ( i, pRet->m_dChildren )
+			{
+				m_dSpawned.RemoveValue ( pRet->m_dChildren[i] );
+				SafeDelete ( pRet->m_dChildren[i] )
+			}
+			pRet->m_dChildren.Reset();
+		}
+		pRet->m_iOpArg = pNode->m_iOpArg;
 
 		m_dSpawned.RemoveValue ( pNode ); // OPTIMIZE!
 		SafeDelete ( pNode );
-		return pRet;
+		return SweepNulls ( pRet );
 	}
 
 	// done
 	return pNode;
 }
 
+void XQParser_t::FixupNulls ( XQNode_t * pNode )
+{
+	if ( !pNode )
+		return;
+
+	ARRAY_FOREACH ( i, pNode->m_dChildren )
+		FixupNulls ( pNode->m_dChildren[i] );
+
+	// smth OR null == smth.
+	if ( pNode->GetOp()==SPH_QUERY_OR )
+	{
+		CSphVector<XQNode_t*> dNotNulls;
+		ARRAY_FOREACH ( i, pNode->m_dChildren )
+		{
+			XQNode_t* pChild = pNode->m_dChildren[i];
+			if ( pChild->GetOp()!=SPH_QUERY_NULL )
+				dNotNulls.Add ( pChild );
+			else
+			{
+				m_dSpawned.RemoveValue ( pChild );
+				SafeDelete ( pChild );
+			}
+		}
+		pNode->m_dChildren.SwapData ( dNotNulls );
+		dNotNulls.Reset();
+	// smth AND null = null.
+	} else if ( pNode->GetOp()==SPH_QUERY_AND )
+	{
+		bool bHasNull = ARRAY_ANY ( bHasNull, pNode->m_dChildren, pNode->m_dChildren[_any]->GetOp()==SPH_QUERY_NULL );
+		if ( bHasNull )
+		{
+			pNode->SetOp ( SPH_QUERY_NULL );
+			ARRAY_FOREACH ( i, pNode->m_dChildren )
+			{
+				m_dSpawned.RemoveValue ( pNode->m_dChildren[i] );
+				SafeDelete ( pNode->m_dChildren[i] )
+			}
+			pNode->m_dChildren.Reset();
+		}
+	}
+}
 
 bool XQParser_t::FixupNots ( XQNode_t * pNode )
 {
@@ -1158,10 +1347,11 @@ bool XQParser_t::FixupNots ( XQNode_t * pNode )
 		return false;
 	}
 
-	// NOT within OR? we can't compute that
-	if ( pNode->GetOp()==SPH_QUERY_OR )
+	// NOT within OR or MAYBE? we can't compute that
+	if ( pNode->GetOp()==SPH_QUERY_OR || pNode->GetOp()==SPH_QUERY_MAYBE )
 	{
-		m_pParsed->m_sParseError.SetSprintf ( "query is non-computable (NOT is not allowed within OR)" );
+		const char *op = pNode->GetOp()==SPH_QUERY_OR ? "OR" : "MAYBE";
+		m_pParsed->m_sParseError.SetSprintf ( "query is non-computable (NOT is not allowed within %s)", op );
 		return false;
 	}
 
@@ -1221,6 +1411,43 @@ void XQParser_t::DeleteNodesWOFields ( XQNode_t * pNode )
 }
 
 
+void XQParser_t::PhraseShiftQpos ( XQNode_t * pNode )
+{
+	if ( !m_dPhraseStar.GetLength() )
+		return;
+
+	const int * pLast = m_dPhraseStar.Begin();
+	const int * pEnd = m_dPhraseStar.Begin() + m_dPhraseStar.GetLength();
+	int iQposShiftStart = *pLast;
+	int iQposShift = 1;
+
+	ARRAY_FOREACH ( iWord, pNode->m_dWords )
+	{
+		XQKeyword_t & tWord = pNode->m_dWords[iWord];
+
+		// star dictionary passes raw star however regular dictionary suppress it
+		// raw star also might be suppressed by min_word_len option
+		// so remove qpos shift from duplicated raw star term
+		if ( tWord.m_sWord.IsEmpty() || tWord.m_sWord=="*" )
+		{
+			pNode->m_dWords.Remove ( iWord-- );
+			iQposShift--;
+			continue;
+		}
+
+		// fold stars in phrase till current term position
+		while ( pLast+1<pEnd && *(pLast+1)<=tWord.m_iAtomPos )
+		{
+			pLast++;
+			iQposShift++;
+		}
+
+		if ( iQposShiftStart<=tWord.m_iAtomPos )
+			tWord.m_iAtomPos += iQposShift;
+	}
+}
+
+
 static bool CheckQuorumProximity ( XQNode_t * pNode, CSphString * pError )
 {
 	assert ( pError );
@@ -1244,12 +1471,7 @@ static bool CheckQuorumProximity ( XQNode_t * pNode, CSphString * pError )
 		return false;
 	}
 
-	bool bValid = true;
-	ARRAY_FOREACH_COND ( i, pNode->m_dChildren, bValid )
-	{
-		bValid &= CheckQuorumProximity ( pNode->m_dChildren[i], pError );
-	}
-
+	bool bValid = ARRAY_ALL ( bValid, pNode->m_dChildren, CheckQuorumProximity ( pNode->m_dChildren[_all], pError ) );
 	return bValid;
 }
 
@@ -1271,7 +1493,7 @@ static void FixupDegenerates ( XQNode_t * pNode )
 }
 
 
-bool XQParser_t::Parse ( XQQuery_t & tParsed, const char * sQuery, const ISphTokenizer * pTokenizer,
+bool XQParser_t::Parse ( XQQuery_t & tParsed, const char * sQuery, const CSphQuery * pQuery, const ISphTokenizer * pTokenizer,
 	const CSphSchema * pSchema, CSphDict * pDict, const CSphIndexSettings & tSettings )
 {
 	// FIXME? might wanna verify somehow that pTokenizer has all the specials etc from sphSetupQueryTokenizer
@@ -1291,14 +1513,34 @@ bool XQParser_t::Parse ( XQQuery_t & tParsed, const char * sQuery, const ISphTok
 		m_bStopOnInvalid = false;
 	}
 
+	m_pPlugin = NULL;
+	m_pPluginData = NULL;
+
+	if ( pQuery && pQuery->m_sQueryTokenFilterName.cstr() )
+	{
+		CSphString sError;
+		m_pPlugin = static_cast < PluginQueryTokenFilter_c * > ( sphPluginAcquire ( pQuery->m_sQueryTokenFilterLib.cstr(),
+			PLUGIN_QUERY_TOKEN_FILTER, pQuery->m_sQueryTokenFilterName.cstr(), tParsed.m_sParseError ) );
+		if ( !m_pPlugin )
+			return false;
+
+		char szError [ SPH_UDF_ERROR_LEN ];
+		if ( m_pPlugin->m_fnInit && m_pPlugin->m_fnInit ( &m_pPluginData, MAX_TOKEN_BYTES, pQuery->m_sQueryTokenFilterOpts.cstr(), szError )!=0 )
+		{
+			tParsed.m_sParseError = sError;
+			m_pPlugin->Release();
+			m_pPlugin = NULL;
+			m_pPluginData = NULL;
+			return false;
+		}
+	}
+
 	// setup parser
 	m_pParsed = &tParsed;
 	m_sQuery = (BYTE*) sQuery;
 	m_iQueryLen = sQuery ? strlen(sQuery) : 0;
 	m_pTokenizer = pMyTokenizer.Ptr();
 	m_pSchema = pSchema;
-	m_pDict = pDict;
-	m_pCur = sQuery;
 	m_iAtomPos = 0;
 	m_iPendingNulls = 0;
 	m_iPendingType = 0;
@@ -1307,8 +1549,23 @@ bool XQParser_t::Parse ( XQQuery_t & tParsed, const char * sQuery, const ISphTok
 	m_bEmptyStopword = ( tSettings.m_iStopwordStep==0 );
 	m_iOvershortStep = tSettings.m_iOvershortStep;
 
+	CSphScopedPtr<CSphDict> tDictCloned ( NULL );
+	m_pDict = pDict;
+	if ( pDict->HasState() )
+		tDictCloned = m_pDict = pDict->Clone();
+
 	m_pTokenizer->SetBuffer ( m_sQuery, m_iQueryLen );
 	int iRes = yyparse ( this );
+
+	if ( m_pPlugin )
+	{
+		if ( m_pPlugin->m_fnDeinit )
+			m_pPlugin->m_fnDeinit ( m_pPluginData );
+
+		m_pPlugin->Release();
+		m_pPlugin = NULL;
+		m_pPluginData = NULL;
+	}
 
 	if ( ( iRes || !m_pParsed->m_sParseError.IsEmpty() ) && !m_bEmpty )
 	{
@@ -1319,6 +1576,7 @@ bool XQParser_t::Parse ( XQQuery_t & tParsed, const char * sQuery, const ISphTok
 	DeleteNodesWOFields ( m_pRoot );
 	m_pRoot = SweepNulls ( m_pRoot );
 	FixupDegenerates ( m_pRoot );
+	FixupNulls ( m_pRoot );
 
 	if ( !FixupNots ( m_pRoot ) )
 	{
@@ -1332,7 +1590,7 @@ bool XQParser_t::Parse ( XQQuery_t & tParsed, const char * sQuery, const ISphTok
 		return false;
 	}
 
-	if ( m_pRoot && m_pRoot->GetOp()==SPH_QUERY_NOT )
+	if ( m_pRoot && m_pRoot->GetOp()==SPH_QUERY_NOT && !m_pRoot->m_iOpArg )
 	{
 		Cleanup ();
 		m_pParsed->m_sParseError.SetSprintf ( "query is non-computable (single NOT operator)" );
@@ -1341,6 +1599,13 @@ bool XQParser_t::Parse ( XQQuery_t & tParsed, const char * sQuery, const ISphTok
 
 	// all ok; might want to create a dummy node to indicate that
 	m_dSpawned.Reset();
+
+	if ( m_pRoot && m_pRoot->GetOp()==SPH_QUERY_NULL )
+	{
+		delete m_pRoot;
+		m_pRoot = NULL;
+	}
+
 	tParsed.m_pRoot = m_pRoot ? m_pRoot : new XQNode_t ( *m_dStateSpec.Last() );
 	return true;
 }
@@ -1368,6 +1633,7 @@ static void xqDump ( const XQNode_t * pNode, int iIndent )
 		{
 			case SPH_QUERY_AND: printf ( "AND:" ); break;
 			case SPH_QUERY_OR: printf ( "OR:" ); break;
+			case SPH_QUERY_MAYBE: printf ( "MAYBE:" ); break;
 			case SPH_QUERY_NOT: printf ( "NOT:" ); break;
 			case SPH_QUERY_ANDNOT: printf ( "ANDNOT:" ); break;
 			case SPH_QUERY_BEFORE: printf ( "BEFORE:" ); break;
@@ -1434,7 +1700,7 @@ CSphString sphReconstructNode ( const XQNode_t * pNode, const CSphSchema * pSche
 		if ( !pNode->m_dSpec.m_dFieldMask.TestAll(true) )
 		{
 			CSphString sFields ( "" );
-			for ( int i=0; i<CSphSmallBitvec::iTOTALBITS; i++ )
+			for ( int i=0; i<SPH_MAX_FIELDS; i++ )
 			{
 				if ( !pNode->m_dSpec.m_dFieldMask.Test(i) )
 					continue;
@@ -1466,6 +1732,7 @@ CSphString sphReconstructNode ( const XQNode_t * pNode, const CSphSchema * pSche
 				{
 				case SPH_QUERY_AND:		sOp = " "; break;
 				case SPH_QUERY_OR:		sOp = "|"; break;
+				case SPH_QUERY_MAYBE:	sOp = "MAYBE"; break;
 				case SPH_QUERY_NOT:		sOp = "NOT"; break;
 				case SPH_QUERY_ANDNOT:	sOp = "AND NOT"; break;
 				case SPH_QUERY_BEFORE:	sOp = "BEFORE"; break;
@@ -1488,11 +1755,11 @@ CSphString sphReconstructNode ( const XQNode_t * pNode, const CSphSchema * pSche
 }
 
 
-bool sphParseExtendedQuery ( XQQuery_t & tParsed, const char * sQuery, const ISphTokenizer * pTokenizer,
+bool sphParseExtendedQuery ( XQQuery_t & tParsed, const char * sQuery, const CSphQuery * pQuery, const ISphTokenizer * pTokenizer,
 	const CSphSchema * pSchema, CSphDict * pDict, const CSphIndexSettings & tSettings )
 {
 	XQParser_t qp;
-	bool bRes = qp.Parse ( tParsed, sQuery, pTokenizer, pSchema, pDict, tSettings );
+	bool bRes = qp.Parse ( tParsed, sQuery, pQuery, pTokenizer, pSchema, pDict, tSettings );
 
 #ifndef NDEBUG
 	if ( bRes && tParsed.m_pRoot )
@@ -2263,8 +2530,7 @@ void CSphTransformation::SetCosts ( XQNode_t * pNode, const CSphVector<XQNode_t 
 	// get keywords info from index dictionary
 	if ( dKeywords.GetLength() )
 	{
-		CSphString sError;
-		m_pKeywords->FillKeywords ( dKeywords, sError );
+		m_pKeywords->FillKeywords ( dKeywords );
 		ARRAY_FOREACH ( i, dKeywords )
 		{
 			const CSphKeywordInfo & tKeyword = dKeywords[i];
@@ -2831,7 +3097,7 @@ static uint64_t sphHashPhrase ( const XQNode_t * pNode )
 	{
 		if ( i )
 			uHash = sphFNV64 ( g_sPhraseDelimiter, sizeof(g_sPhraseDelimiter), uHash );
-		uHash = sphFNV64cont ( (BYTE *)pNode->m_dWords[i].m_sWord.cstr(), uHash );
+		uHash = sphFNV64cont ( pNode->m_dWords[i].m_sWord.cstr(), uHash );
 	}
 
 	return uHash;
@@ -2849,7 +3115,7 @@ static void sphHashSubphrases ( XQNode_t * pNode, BigramHash_t & hBirgam )
 	int iLen = dWords.GetLength();
 	for ( int i=0; i<iLen; i++ )
 	{
-		uint64_t uSubPhrase = sphFNV64cont ( (BYTE *)dWords[i].m_sWord.cstr(), SPH_FNV64_SEED );
+		uint64_t uSubPhrase = sphFNV64cont ( dWords[i].m_sWord.cstr(), SPH_FNV64_SEED );
 		sphBigramAddNode ( pNode, uSubPhrase, hBirgam );
 
 		// skip whole phrase
@@ -2857,7 +3123,7 @@ static void sphHashSubphrases ( XQNode_t * pNode, BigramHash_t & hBirgam )
 		for ( int j=i+1; j<iSubLen; j++ )
 		{
 			uSubPhrase = sphFNV64 ( g_sPhraseDelimiter, sizeof(g_sPhraseDelimiter), uSubPhrase );
-			uSubPhrase = sphFNV64cont ( (BYTE *)dWords[j].m_sWord.cstr(), uSubPhrase );
+			uSubPhrase = sphFNV64cont ( dWords[j].m_sWord.cstr(), uSubPhrase );
 			sphBigramAddNode ( pNode, uSubPhrase, hBirgam );
 		}
 	}
@@ -3060,13 +3326,13 @@ bool CSphTransformation::TransformCommonPhrase ()
 				assert ( dWords.GetLength()>=2 );
 				dNodes[iPhrase]->m_iAtomPos = dWords.Begin()->m_iAtomPos;
 
-				uint64_t uHead = sphFNV64cont ( (const BYTE *)dWords[0].m_sWord.cstr(), SPH_FNV64_SEED );
-				uint64_t uTail = sphFNV64cont ( (const BYTE *)dWords [ dWords.GetLength() - 1 ].m_sWord.cstr(), SPH_FNV64_SEED );
+				uint64_t uHead = sphFNV64cont ( dWords[0].m_sWord.cstr(), SPH_FNV64_SEED );
+				uint64_t uTail = sphFNV64cont ( dWords [ dWords.GetLength() - 1 ].m_sWord.cstr(), SPH_FNV64_SEED );
 				uHead = sphFNV64 ( g_sPhraseDelimiter, sizeof(g_sPhraseDelimiter), uHead );
-				uHead = sphFNV64cont ( (const BYTE *)dWords[1].m_sWord.cstr(), uHead );
+				uHead = sphFNV64cont ( dWords[1].m_sWord.cstr(), uHead );
 
 				uTail = sphFNV64 ( g_sPhraseDelimiter, sizeof(g_sPhraseDelimiter), uTail );
-				uTail = sphFNV64cont ( (const BYTE *)dWords[dWords.GetLength()-2].m_sWord.cstr(), uTail );
+				uTail = sphFNV64cont ( dWords[dWords.GetLength()-2].m_sWord.cstr(), uTail );
 
 				int iHeadLen = sphBigramAddNode ( dNodes[iPhrase], uHead, tBigramHead );
 				int iTailLen = sphBigramAddNode ( dNodes[iPhrase], uTail, tBigramTail );
@@ -3120,7 +3386,7 @@ bool CSphTransformation::TransformCommonPhrase ()
 						break;
 
 					int iWordRef = ( bHead ? iCount-1 : dPhrases[0]->m_dWords.GetLength() - iCount );
-					uint64_t uHash = sphFNV64 ( (const BYTE *)dPhrases[0]->m_dWords[iWordRef].m_sWord.cstr() );
+					uint64_t uHash = sphFNV64 ( dPhrases[0]->m_dWords[iWordRef].m_sWord.cstr() );
 
 					bool bPhrasesMatch = false;
 					bool bSomePhraseOver = false;
@@ -3131,7 +3397,7 @@ bool CSphTransformation::TransformCommonPhrase ()
 							break;
 
 						int iWord = ( bHead ? iCount-1 : dPhrases[iPhrase]->m_dWords.GetLength() - iCount );
-						bPhrasesMatch = ( uHash==sphFNV64 ( (const BYTE *)dPhrases[iPhrase]->m_dWords[iWord].m_sWord.cstr() ) );
+						bPhrasesMatch = ( uHash==sphFNV64 ( dPhrases[iPhrase]->m_dWords[iWord].m_sWord.cstr() ) );
 						if ( !bPhrasesMatch )
 							break;
 					}
@@ -3873,5 +4139,5 @@ void sphSetupQueryTokenizer ( ISphTokenizer * pTokenizer )
 
 
 //
-// $Id: sphinxquery.cpp 4655 2014-04-10 05:28:38Z tomat $
+// $Id: sphinxquery.cpp 4669 2014-04-21 11:49:27Z tomat $
 //

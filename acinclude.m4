@@ -401,50 +401,50 @@ LIBRE2_LIBS=
 # If so, it has the maximum priority over any other possibilities
 
 if test [ -n "$ac_cv_use_re2" -a x$ac_cv_use_re2 != xyes]; then
-	re2include=$ac_cv_use_re2
-	if test [ -f $re2include/re2/re2.h ]; then
-		LIBRE2_CFLAGS="-I$re2include"
-		LIBRE2_LIBS="$re2include/obj/libre2.a"
+       re2include=$ac_cv_use_re2
+       if test [ -f $re2include/re2/re2.h ]; then
+               LIBRE2_CFLAGS="-I$re2include"
+               LIBRE2_LIBS="$re2include/obj/libre2.a"
 
 # Use re2 Makefile if present
-		if test [ -f $re2include/Makefile ]; then
-			LIBRE2_PATH="$re2include"
-		fi
-	fi
+               if test [ -f $re2include/Makefile ]; then
+                       LIBRE2_PATH="$re2include"
+               fi
+       fi
 else
 
 # Check if there any sources in ./libre2 path
-	if test -d ./libre2 && test -f ./libre2/re2/re2.h; then
-	       	ac_cv_use_re2=yes
-	        LIBRE2_LIBS="\$(top_srcdir)/libre2/obj/libre2.a"
-	        LIBRE2_CFLAGS="-I\$(top_srcdir)/libre2"
-	        LIBRE2_PATH="libre2"
-	else
+       if test -d ./libre2 && test -f ./libre2/re2/re2.h; then
+               ac_cv_use_re2=yes
+               LIBRE2_LIBS="\$(top_srcdir)/libre2/obj/libre2.a"
+               LIBRE2_CFLAGS="-I\$(top_srcdir)/libre2"
+               LIBRE2_PATH="libre2"
+       else
 
 # Possible include paths
-	re2includedirs="/usr/include /usr/include/re2"
+       re2includedirs="/usr/include /usr/include/re2"
 
 # Possible libraries paths
-	re2libdirs="/usr/lib/x86_64-linux-gnu /usr/lib64 /usr/local/lib64 /usr/lib/i386-linux-gnu /usr/lib /usr/local/lib"
+       re2libdirs="/usr/lib/x86_64-linux-gnu /usr/lib64 /usr/local/lib64 /usr/lib/i386-linux-gnu /usr/lib /usr/local/lib"
 
 
 # Trying to find installed header files
-	for re2includedir in $re2includedirs
-	do
-		if test [ -f $re2includedir/re2/re2.h ]; then
-			LIBRE2_CFLAGS="-I$re2includedir"
-			break
-		fi
-	done
+       for re2includedir in $re2includedirs
+       do
+               if test [ -f $re2includedir/re2/re2.h ]; then
+                       LIBRE2_CFLAGS="-I$re2includedir"
+                       break
+               fi
+       done
 
 # Trying to find installed libraries
-	for re2libdir in $re2libdirs
-	do
-		if test [ -f $re2libdir/libre2.a ]; then
-			LIBRE2_LIBS="$re2libdir/libre2.a"
-			break 2
-		fi
-	done
+       for re2libdir in $re2libdirs
+       do
+               if test [ -f $re2libdir/libre2.a ]; then
+                       LIBRE2_LIBS="$re2libdir/libre2.a"
+                       break 2
+               fi
+       done
 
 fi
 fi
@@ -452,22 +452,22 @@ fi
 # Apply explicit include path overrides
 
 if test x$ac_cv_re2_includes != xno; then
-	if test [ -f $ac_cv_re2_includes/re2/re2.h ]; then
-		LIBRE2_CFLAGS="-I$ac_cv_re2_includes"
-	else
-		AC_MSG_ERROR([missing re2 headers])
-	fi
+       if test [ -f $ac_cv_re2_includes/re2/re2.h ]; then
+               LIBRE2_CFLAGS="-I$ac_cv_re2_includes"
+       else
+               AC_MSG_ERROR([missing re2 headers])
+       fi
 fi
 
 
 # Apply explicit lib path overrides
 
 if test x$ac_cv_re2_libs != xno; then
-	if test  [ -f "$ac_cv_re2_libs" ]; then
-	        LIBRE2_LIBS="$ac_cv_re2_libs"
-	else
-		AC_MSG_ERROR([missing re2 library libre2.a])
-	fi
+       if test  [ -f "$ac_cv_re2_libs" ]; then
+               LIBRE2_LIBS="$ac_cv_re2_libs"
+       else
+               AC_MSG_ERROR([missing re2 library libre2.a])
+       fi
 fi
 
 

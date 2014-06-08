@@ -1,5 +1,5 @@
 /*
- * $Id: SphinxClient.java 4505 2014-01-22 15:16:21Z deogar $
+ * $Id: SphinxClient.java 4522 2014-01-30 11:00:18Z tomat $
  *
  * Java version of Sphinx searchd client (Java API)
  *
@@ -13,6 +13,11 @@
  * received a copy of the GPL license along with this program; if you
  * did not, you can find it at http://www.gnu.org/
  */
+
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+//							WARNING
+// We strongly recommend you to use SphinxQL instead of the API
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 package org.sphx.api;
 
@@ -160,7 +165,7 @@ public class SphinxClient
 
 		_offset	= 0;
 		_limit	= 20;
-		_mode	= SPH_MATCH_ALL;
+		_mode	= SPH_MATCH_EXTENDED2;
 		_sort	= SPH_SORT_RELEVANCE;
 		_sortby	= "";
 		_minId	= 0;
@@ -492,9 +497,10 @@ public class SphinxClient
 		_maxQueryTime = maxTime;
 	}
 
-	/** Set matching mode. */
+	/** Set matching mode. DEPRECATED */
 	public void SetMatchMode(int mode) throws SphinxException
 	{
+		System.out.println ( "DEPRECATED: Do not call this method or, even better, use SphinxQL instead of an API\n" );
 		myAssert (
 			mode==SPH_MATCH_ALL ||
 			mode==SPH_MATCH_ANY ||
@@ -726,11 +732,12 @@ public class SphinxClient
 	}
 
 	/**
-	 * Set attribute values override (one override list per attribute).
+	 * DEPRECATED: Set attribute values override (one override list per attribute).
 	 * @param values maps Long document IDs to Int/Long/Float values (as specified in attrtype).
 	 */
 	public void SetOverride ( String attrname, int attrtype, Map values ) throws SphinxException
 	{
+		System.out.println ( "DEPRECATED: Do not call this method. Use SphinxQL REMAP() function instead.\n" );
 		myAssert ( attrname!=null && attrname.length()>0, "attrname must not be empty" );
 		myAssert ( attrtype==SPH_ATTR_INTEGER || attrtype==SPH_ATTR_TIMESTAMP || attrtype==SPH_ATTR_BOOL || attrtype==SPH_ATTR_FLOAT || attrtype==SPH_ATTR_BIGINT,
 			"unsupported attrtype (must be one of INTEGER, TIMESTAMP, BOOL, FLOAT, or BIGINT)" );
@@ -1519,5 +1526,5 @@ public class SphinxClient
 }
 
 /*
- * $Id: SphinxClient.java 4505 2014-01-22 15:16:21Z deogar $
+ * $Id: SphinxClient.java 4522 2014-01-30 11:00:18Z tomat $
  */

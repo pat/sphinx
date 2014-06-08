@@ -12,7 +12,6 @@ indexer
 searchd
 {
 	<searchd_settings/>
-	compat_sphinxql_magics = 1
 	workers = threads
 }
 
@@ -27,7 +26,6 @@ index test
 {
 	source			= srctest
 	path			= <data_path/>/test
-    charset_type 	= utf-8
 	charset_table	= -, 0..9, A..Z->a..z, a..z, U+410..U+42F->U+430..U+44F, U+430..U+44F
 	morphology		= stem_ru, stem_en
 }
@@ -39,7 +37,6 @@ index morph0
 
 	dict			= keywords
 	min_prefix_len	= 1
-	enable_star	= 1
 }
 
 index morph1
@@ -49,7 +46,6 @@ index morph1
 
 	dict			= keywords
 	min_prefix_len	= 1
-	enable_star	= 1
 	morphology = stem_en
 }
 
@@ -68,7 +64,6 @@ index test_ru
 	path			= <data_path/>/test_ru
 	dict				= keywords
 	morphology			= stem_ru
-	charset_type		= utf-8
 	charset_table = 0..9, A..Z->a..z, _, ., -, a..z, U+410..U+42F->U+430..U+44F, U+430..U+44F, U+0401->U+0435, U+0451->U+0435 
 }
 
@@ -80,7 +75,6 @@ index rt
 	rt_attr_uint	= idd
 	dict				= keywords
 	morphology			= stem_ru
-	charset_type		= utf-8
 	charset_table = 0..9, A..Z->a..z, _, ., -, a..z, U+410..U+42F->U+430..U+44F, U+430..U+44F, U+0401->U+0435, U+0451->U+0435 
 }
 
@@ -197,7 +191,7 @@ INSERT INTO `test_table` VALUES
 CREATE TABLE `test_ru`
 (
 	`document_id` int(11) NOT NULL default '0',
-	`body` varchar(255) NOT NULL default ''
+	`body` varchar(255) CHARACTER SET UTF8 NOT NULL default ''
 )
 </db_create>
 

@@ -19,7 +19,7 @@
 	} tInt;
 	struct							// field spec
 	{
-		CSphSmallBitvec		dMask;			// acceptable fields mask
+		FieldMask_t	dMask;			// acceptable fields mask
 		int			iMaxPos;		// max allowed position within field
 	} tFieldLimit;
 	int				iZoneVec;
@@ -35,7 +35,7 @@
 %token					TOK_BEFORE
 %token					TOK_SENTENCE
 %token					TOK_PARAGRAPH
-%type <pNode>			rawkeyword
+%token					TOK_MAYBE
 %type <pNode>			keyword
 %type <pNode>			phrasetoken
 %type <pNode>			phrase
@@ -77,11 +77,13 @@ beforelist:
 orlistf:
 	orlist								{ $$ = $1; }
 	| tok_limiter '-' orlist					{ $$ = pParser->AddOp ( SPH_QUERY_NOT, $3, NULL ); }
+	| tok_limiter '!' orlist					{ $$ = pParser->AddOp ( SPH_QUERY_NOT, $3, NULL ); }
 	;
 
 orlist:
 	tok_limiter atom								{ $$ = $2; }
 	| orlist '|' tok_limiter atom					{ $$ = pParser->AddOp ( SPH_QUERY_OR, $1, $4 ); }
+	| orlist TOK_MAYBE tok_limiter atom				{ $$ = pParser->AddOp ( SPH_QUERY_MAYBE, $1, $4 ); }
 	;
 
 atom:
@@ -91,26 +93,20 @@ atom:
 	| '"' '"'							{ $$ = NULL; }
 	| '"' '"' '~' TOK_INT				{ $$ = NULL; }
 	| '"' '"' '/' TOK_INT				{ $$ = NULL; }
-	| '"' '"' '/' TOK_FLOAT			{ $$ = NULL; }
-	| '"' phrase '"'					{ $$ = $2; if ( $$ ) { assert ( $$->m_dWords.GetLength() ); $$->SetOp ( SPH_QUERY_PHRASE); } }
+	| '"' '"' '/' TOK_FLOAT				{ $$ = NULL; }
+	| '"' phrase '"'					{ $$ = $2; pParser->SetPhrase ( $$, false ); }
 	| '"' phrase '"' '~' TOK_INT		{ $$ = $2; if ( $$ ) { assert ( $$->m_dWords.GetLength() ); $$->SetOp ( SPH_QUERY_PROXIMITY ); $$->m_iOpArg = $5.iValue; } }
 	| '"' phrase '"' '/' TOK_INT		{ $$ = $2; if ( $$ ) { assert ( $$->m_dWords.GetLength() ); $$->SetOp ( SPH_QUERY_QUORUM ); $$->m_iOpArg = $5.iValue; } }
-	| '"' phrase '"' '/' TOK_FLOAT	{ $$ = $2; if ( $$ ) { assert ( $$->m_dWords.GetLength() ); $$->SetOp ( SPH_QUERY_QUORUM ); $$->m_iOpArg = $5.fValue * 100; $$->m_bPercentOp = true; } }
+	| '"' phrase '"' '/' TOK_FLOAT		{ $$ = $2; if ( $$ ) { assert ( $$->m_dWords.GetLength() ); $$->SetOp ( SPH_QUERY_QUORUM ); $$->m_iOpArg = $5.fValue * 100; $$->m_bPercentOp = true; } }
 	| '(' expr ')'						{ $$ = $2; }
-
+	| '=' '"' phrase '"'				{ $$ = $3; pParser->SetPhrase ( $$, true ); }
 	;
 
 keyword:
-	rawkeyword
-	| rawkeyword '$'			{ $$ = $1; assert ( $$->m_dWords.GetLength()==1 ); $$->m_dWords[0].m_bFieldEnd = true; }
-	| '^' rawkeyword			{ $$ = $2; assert ( $$->m_dWords.GetLength()==1 ); $$->m_dWords[0].m_bFieldStart = true; }
-	| '^' rawkeyword '$'		{ $$ = $2; assert ( $$->m_dWords.GetLength()==1 ); $$->m_dWords[0].m_bFieldStart = true; $$->m_dWords[0].m_bFieldEnd = true; }
-	;
-
-rawkeyword:
 	TOK_KEYWORD							{ $$ = $1; }
 	| TOK_INT							{ $$ = pParser->AddKeyword ( ( $1.iStrIndex>=0 ) ? pParser->m_dIntTokens[$1.iStrIndex].cstr() : NULL ); }
-	| TOK_FLOAT						{ $$ = pParser->AddKeyword ( ( $1.iStrIndex>=0 ) ? pParser->m_dIntTokens[$1.iStrIndex].cstr() : NULL ); }
+	| TOK_FLOAT							{ $$ = pParser->AddKeyword ( ( $1.iStrIndex>=0 ) ? pParser->m_dIntTokens[$1.iStrIndex].cstr() : NULL ); }
+	| '=' keyword						{ $$ = $2; assert ( $$->m_dWords.GetLength()==1 ); if ( !($$->m_dWords[0].m_sWord.IsEmpty()) ) $$->m_dWords[0].m_sWord.SetSprintf ( "=%s", $$->m_dWords[0].m_sWord.cstr() ); }
 	;
 
 sentence:

@@ -1,5 +1,5 @@
 #
-# $Id: sphinxapi.py 4505 2014-01-22 15:16:21Z deogar $
+# $Id: sphinxapi.py 4522 2014-01-30 11:00:18Z tomat $
 #
 # Python version of Sphinx searchd client (Python API)
 #
@@ -13,6 +13,11 @@
 # received a copy of the GPL license along with this program; if you
 # did not, you can find it at http://www.gnu.org/
 #
+
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+#			WARNING
+# We strongly recommend you to use SphinxQL instead of the API
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 import sys
 import select
@@ -31,11 +36,11 @@ SEARCHD_COMMAND_STATUS		= 5
 SEARCHD_COMMAND_FLUSHATTRS	= 7
 
 # current client-side command implementation versions
-VER_COMMAND_SEARCH		= 0x11D
+VER_COMMAND_SEARCH		= 0x11E
 VER_COMMAND_EXCERPT		= 0x104
 VER_COMMAND_UPDATE		= 0x103
 VER_COMMAND_KEYWORDS	= 0x100
-VER_COMMAND_STATUS		= 0x100
+VER_COMMAND_STATUS		= 0x101
 VER_COMMAND_FLUSHATTRS	= 0x100
 
 # known searchd status codes
@@ -77,6 +82,7 @@ SPH_SORT_EXPR			= 5
 SPH_FILTER_VALUES		= 0
 SPH_FILTER_RANGE		= 1
 SPH_FILTER_FLOATRANGE	= 2
+SPH_FILTER_STRING	= 3
 
 # known attribute types
 SPH_ATTR_NONE			= 0
@@ -122,7 +128,7 @@ class SphinxClient:
 		self._socket		= None
 		self._offset		= 0								# how much records to seek from result-set start (default is 0)
 		self._limit			= 20							# how much records to return from result-set starting at offset (default is 20)
-		self._mode			= SPH_MATCH_ALL					# query matching mode (default is SPH_MATCH_ALL)
+		self._mode			= SPH_MATCH_EXTENDED2					# query matching mode (default is SPH_MATCH_EXTENDED2)
 		self._weights		= []							# per-field weights (default is 1 for all fields)
 		self._sort			= SPH_SORT_RELEVANCE			# match sorting mode (default is SPH_SORT_RELEVANCE)
 		self._sortby		= ''							# attribute to sort by (defualt is "")
@@ -146,7 +152,7 @@ class SphinxClient:
 		self._fieldweights	= {}							# per-field-name weights
 		self._overrides		= {}							# per-query attribute values overrides
 		self._select		= '*'								# select-list (attributes or expressions, with optional aliases)
-		self._query_flags	= 0							# per-query various flags
+		self._query_flags	= SetBit ( 0, 6, True )	# default idf=tfidf_normalized
 		self._predictedtime = 0							# per-query max_predicted_time
 		self._outerorderby = ''							# outer match sort by
 		self._outeroffset = 0								# outer offset
@@ -342,6 +348,7 @@ class SphinxClient:
 		"""
 		Set matching mode.
 		"""
+		print >> sys.stderr, 'DEPRECATED: Do not call this method or, even better, use SphinxQL instead of an API'
 		assert(mode in [SPH_MATCH_ALL, SPH_MATCH_ANY, SPH_MATCH_PHRASE, SPH_MATCH_BOOLEAN, SPH_MATCH_EXTENDED, SPH_MATCH_FULLSCAN, SPH_MATCH_EXTENDED2])
 		self._mode = mode
 
@@ -363,17 +370,6 @@ class SphinxClient:
 		assert ( isinstance ( clause, str ) )
 		self._sort = mode
 		self._sortby = clause
-
-
-	def SetWeights (self, weights): 
-		"""
-		Set per-field weights.
-		WARNING, DEPRECATED; do not use it! use SetFieldWeights() instead
-		"""
-		assert(isinstance(weights, list))
-		for w in weights:
-			AssertUInt32 ( w )
-		self._weights = weights
 
 
 	def SetFieldWeights (self, weights):
@@ -423,6 +419,18 @@ class SphinxClient:
 
 		self._filters.append ( { 'type':SPH_FILTER_VALUES, 'attr':attribute, 'exclude':exclude, 'values':values } )
 
+		
+	def SetFilterString ( self, attribute, value, exclude=0 ):
+		"""
+		Set string filter.
+		Only match records where 'attribute' value is equal
+		"""
+		assert(isinstance(attribute, str))
+		assert(isinstance(value, str))
+
+		print ( "attr='%s' val='%s' " % ( attribute, value ) )
+		self._filters.append ( { 'type':SPH_FILTER_STRING, 'attr':attribute, 'exclude':exclude, 'value':value } )
+		
 
 	def SetFilterRange (self, attribute, min_, max_, exclude=0 ):
 		"""
@@ -482,6 +490,7 @@ class SphinxClient:
 
 
 	def SetOverride (self, name, type, values):
+		print >> sys.stderr, 'DEPRECATED: Do not call this method. Use SphinxQL REMAP() function instead.'
 		assert(isinstance(name, str))
 		assert(type in SPH_ATTR_TYPES)
 		assert(isinstance(values, dict))
@@ -493,8 +502,8 @@ class SphinxClient:
 		self._select = select
 
 	def SetQueryFlag ( self, name, value ):
-		known_names = [ "reverse_scan", "sort_method", "max_predicted_time", "boolean_simplify", "idf" ]
-		flags = { "reverse_scan":[0, 1], "sort_method":["pq", "kbuffer"],"max_predicted_time":[0], "boolean_simplify":[True, False], "idf":["normalized", "plain"] }
+		known_names = [ "reverse_scan", "sort_method", "max_predicted_time", "boolean_simplify", "idf", "global_idf" ]
+		flags = { "reverse_scan":[0, 1], "sort_method":["pq", "kbuffer"],"max_predicted_time":[0], "boolean_simplify":[True, False], "idf":["normalized", "plain", "tfidf_normalized", "tfidf_unnormalized"], "global_idf":[True, False] }
 		assert ( name in known_names )
 		assert ( value in flags[name] or ( name=="max_predicted_time" and isinstance(value, (int, long)) and value>=0))
 		
@@ -507,8 +516,12 @@ class SphinxClient:
 			self._predictedtime = int(value)
 		if name=="boolean_simplify":
 			self._query_flags= SetBit ( self._query_flags, 3, value )
-		if name=="idf":
+		if name=="idf" and ( value=="plain" or value=="normalized" ) :
 			self._query_flags = SetBit ( self._query_flags, 4, value=="plain" )
+		if name=="global_idf":
+			self._query_flags= SetBit ( self._query_flags, 5, value )
+		if name=="idf" and ( value=="tfidf_normalized" or value=="tfidf_unnormalized" ) :
+			self._query_flags = SetBit ( self._query_flags, 6, value=="tfidf_normalized" )
 
 	def SetOuterSelect ( self, orderby, offset, limit ):
 		assert(isinstance(orderby, str))
@@ -544,7 +557,7 @@ class SphinxClient:
 		self._groupdistinct = ''
 
 	def ResetQueryFlag (self):
-		self._query_flags = 0
+		self._query_flags = SetBit ( 0, 6, True ) # default idf=tfidf_normalized
 		self._predictedtime = 0
 		
 	def ResetOuterSelect (self):
@@ -617,6 +630,9 @@ class SphinxClient:
 				req.append ( pack ('>2q', f['min'], f['max']))
 			elif filtertype == SPH_FILTER_FLOATRANGE:
 				req.append ( pack ('>2f', f['min'], f['max']))
+			elif filtertype == SPH_FILTER_STRING:
+				req.append ( pack ( '>L', len(f['value']) ) )
+				req.append ( f['value'] )
 			req.append ( pack ( '>L', f['exclude'] ) )
 
 		# group-by, max-matches, group-sort
@@ -1109,7 +1125,7 @@ class SphinxClient:
 
 		return res
 
-	def Status ( self ):
+	def Status ( self, session=False ):
 		"""
 		Get the status
 		"""
@@ -1119,7 +1135,11 @@ class SphinxClient:
 		if not sock:
 			return None
 
-		req = pack ( '>2HLL', SEARCHD_COMMAND_STATUS, VER_COMMAND_STATUS, 4, 1 )
+		sess = 1
+		if session:
+			sess = 0
+
+		req = pack ( '>2HLL', SEARCHD_COMMAND_STATUS, VER_COMMAND_STATUS, 4, sess )
 		self._Send ( sock, req )
 
 		response = self._GetResponse ( sock, VER_COMMAND_STATUS )
@@ -1207,5 +1227,5 @@ def SetBit ( flag, bit, on ):
 
 	
 #
-# $Id: sphinxapi.py 4505 2014-01-22 15:16:21Z deogar $
+# $Id: sphinxapi.py 4522 2014-01-30 11:00:18Z tomat $
 #

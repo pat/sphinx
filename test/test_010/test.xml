@@ -13,7 +13,6 @@ mem_limit			= 16M
 searchd
 {
 	<Searchd_Settings/>
-compat_sphinxql_magics = 1
 }
 
 source srclj
@@ -36,9 +35,7 @@ index lj
 	source			= srclj
 	path			= <Data_Path/>/lj
 	docinfo			= extern
-	charset_type	= utf-8
 	min_word_len	= 1
-	charset_type	= sbcs
 }
   </Config>
 

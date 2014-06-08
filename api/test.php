@@ -1,7 +1,7 @@
 <?php
 
 //
-// $Id: test.php 2903 2011-08-04 13:30:49Z shodan $
+// $Id: test.php 4097 2013-08-20 09:28:24Z kevg $
 //
 
 require ( "sphinxapi.php" );
@@ -104,7 +104,6 @@ for ( $i=0; $i<count($args); $i++ )
 $cl->SetServer ( $host, $port );
 $cl->SetConnectTimeout ( 1 );
 $cl->SetArrayResult ( true );
-$cl->SetWeights ( array ( 100, 1 ) );
 $cl->SetMatchMode ( $mode );
 if ( count($filtervals) )	$cl->SetFilter ( $filter, $filtervals );
 if ( $groupby )				$cl->SetGroupBy ( $groupby, SPH_GROUPBY_ATTR, $groupsort );
@@ -163,7 +162,7 @@ if ( $res===false )
 }
 
 //
-// $Id: test.php 2903 2011-08-04 13:30:49Z shodan $
+// $Id: test.php 4097 2013-08-20 09:28:24Z kevg $
 //
 
 ?>

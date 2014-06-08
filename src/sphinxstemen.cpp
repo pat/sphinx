@@ -1,5 +1,5 @@
 //
-// $Id: sphinxstemen.cpp 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxstemen.cpp 4522 2014-01-30 11:00:18Z tomat $
 //
 
 //
@@ -546,5 +546,5 @@ void stem_en ( unsigned char * word, int len )
 }
 
 //
-// $Id: sphinxstemen.cpp 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxstemen.cpp 4522 2014-01-30 11:00:18Z tomat $
 //

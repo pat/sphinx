@@ -1,5 +1,5 @@
 //
-// $Id: tests.cpp 4521 2014-01-30 10:23:05Z tomat $
+// $Id: tests.cpp 4539 2014-02-05 16:52:03Z kevg $
 //
 
 //
@@ -75,11 +75,10 @@ bool CreateSynonymsFile ( const char * sMagic )
 const DWORD TOK_EXCEPTIONS		= 1;
 const DWORD TOK_NO_DASH			= 2;
 
-ISphTokenizer * CreateTestTokenizer ( bool bUTF8, DWORD uMode )
+ISphTokenizer * CreateTestTokenizer ( DWORD uMode )
 {
 	CSphString sError;
 	CSphTokenizerSettings tSettings;
-	tSettings.m_iType = bUTF8 ? TOKENIZER_UTF8 : TOKENIZER_SBCS;
 	tSettings.m_iMinWordLen = 2;
 
 	ISphTokenizer * pTokenizer = ISphTokenizer::Create ( tSettings, NULL, sError );
@@ -107,22 +106,18 @@ ISphTokenizer * CreateTestTokenizer ( bool bUTF8, DWORD uMode )
 }
 
 
-void TestTokenizer ( bool bUTF8 )
+void TestTokenizer()
 {
-	const char * sPrefix = bUTF8
-		? "testing UTF8 tokenizer"
-		: "testing SBCS tokenizer";
+	const char * sPrefix = "testing tokenizer";
 
 	for ( int iRun=1; iRun<=3; iRun++ )
 	{
 		// simple "one-line" tests
-		const char * sMagic = bUTF8
-			? "\xD1\x82\xD0\xB5\xD1\x81\xD1\x82\xD1\x82\xD1\x82" // valid UTF-8
-			: "\xC0\xC1\xF5\xF6"; // valid SBCS but invalid UTF-8
+		const char * sMagic = "\xD1\x82\xD0\xB5\xD1\x81\xD1\x82\xD1\x82\xD1\x82";
 
 		assert ( CreateSynonymsFile ( sMagic ) );
 		bool bExceptions = ( iRun>=2 );
-		ISphTokenizer * pTokenizer = CreateTestTokenizer ( bUTF8, bExceptions*TOK_EXCEPTIONS );
+		ISphTokenizer * pTokenizer = CreateTestTokenizer ( bExceptions*TOK_EXCEPTIONS );
 
 		const char * dTests[] =
 		{
@@ -188,15 +183,14 @@ void TestTokenizer ( bool bUTF8 )
 			iCur++;
 		}
 
-		// test misc SBCS-only and UTF8-only one-liners
+		// test misc one-liners
 		const char * dTests2[] =
 		{
-			"0", "\x80\x81\x82",				"\x80\x81\x82", NULL,
-			"1", "\xC2\x80\xC2\x81\xC2\x82",	"\xC2\x80\xC2\x81\xC2\x82", NULL,
+			"\xC2\x80\xC2\x81\xC2\x82",	"\xC2\x80\xC2\x81\xC2\x82", NULL,
 			NULL
 		};
 
-		for ( int iCur=0; dTests2[iCur] && atoi ( dTests2[iCur++] )==int(bUTF8); )
+		for ( int iCur=0; dTests2[iCur]; )
 		{
 			printf ( "%s, run=%d, line=%s\n", sPrefix, iRun, dTests2[iCur] );
 			pTokenizer->SetBuffer ( (BYTE*)dTests2[iCur], strlen ( dTests2[iCur] ) );
@@ -213,15 +207,12 @@ void TestTokenizer ( bool bUTF8 )
 		}
 
 
-		// test that decoder does not go over the buffer boundary on errors in UTF-8
-		if ( bUTF8 )
-		{
-			printf ( "%s for proper UTF-8 error handling\n", sPrefix );
-			const char * sLine3 = "hi\xd0\xffh";
+		// test that decoder does not go over the buffer boundary on errors
+		printf ( "%s for proper UTF-8 error handling\n", sPrefix );
+		const char * sLine3 = "hi\xd0\xffh";
 
-			pTokenizer->SetBuffer ( (BYTE*)sLine3, 4 );
-			assert ( !strcmp ( (char*)pTokenizer->GetToken(), "hi" ) );
-		}
+		pTokenizer->SetBuffer ( (BYTE*)sLine3, 4 );
+		assert ( !strcmp ( (char*)pTokenizer->GetToken(), "hi" ) );
 
 		// test uberlong tokens
 		printf ( "%s for uberlong token handling\n", sPrefix );
@@ -334,6 +325,18 @@ void TestTokenizer ( bool bUTF8 )
 		assert ( *pTokenizer->GetTokenStart()=='d' );
 		assert ( *pTokenizer->GetTokenEnd()=='\0' );
 
+		// test embedded zeroes
+		printf ( "%s vs embedded zeroes\n", sPrefix );
+
+		char sLine7[] = "abc\0\0\0defgh";
+		pTokenizer->SetBuffer ( (BYTE*)sLine7, 9 );
+
+		assert ( !strcmp ( (const char*)pTokenizer->GetToken(), "abc" ) );
+		assert ( !strcmp ( (const char*)pTokenizer->GetToken(), "def" ) );
+		assert ( !pTokenizer->GetToken() );
+		assert ( !pTokenizer->GetToken() );
+		assert ( !pTokenizer->GetToken() );
+
 		// done
 		SafeDelete ( pTokenizer );
 	}
@@ -342,7 +345,7 @@ void TestTokenizer ( bool bUTF8 )
 	printf ( "%s vs escaping vs blend_chars edge cases\n", sPrefix );
 
 	CSphString sError;
-	ISphTokenizer * pTokenizer = CreateTestTokenizer ( bUTF8, 0 );
+	ISphTokenizer * pTokenizer = CreateTestTokenizer ( 0 );
 	assert ( pTokenizer->SetBlendChars ( "., @", sError ) );
 	pTokenizer->AddSpecials ( "()!-\"@" );
 
@@ -425,7 +428,7 @@ void TestTokenizer ( bool bUTF8 )
 
 	// blended/special vs query mode vs modifier.. hell, this is complicated
 	SafeDelete ( pTokenizer );
-	pTokenizer = CreateTestTokenizer ( bUTF8, TOK_NO_DASH );
+	pTokenizer = CreateTestTokenizer ( TOK_NO_DASH );
 	assert ( pTokenizer->SetBlendChars ( "., -", sError ) );
 	pTokenizer->AddSpecials ( "-" );
 	pTokenizer->AddPlainChar ( '=' );
@@ -461,7 +464,7 @@ void TestTokenizer ( bool bUTF8 )
 	BYTE sRes21[SPH_MAX_WORD_LEN];
 
 	memset ( sRes21, 0, sizeof(sRes21) );
-	BYTE * pTest21 = sTest21;
+	const BYTE * pTest21 = sTest21;
 	int iCode21 = sphUTF8Decode ( pTest21 );
 	assert ( sphUTF8Encode ( sRes21, iCode21 )==4 );
 	assert ( sTest21[0]==sRes21[0] && sTest21[1]==sRes21[1] && sTest21[2]==sRes21[2] && sTest21[3]==sRes21[3] );
@@ -484,6 +487,7 @@ void TestTokenizer ( bool bUTF8 )
 	pTokenizer = sphCreateUTF8Tokenizer();
 	pTokenizer->SetBuffer ( (BYTE*)sTest21, sizeof(sTest21) );
 	assert ( !strcmp ( (const char*)pTokenizer->GetToken(), "\xF4\x80\x80\x80\x32\x34" ) );
+	delete pTokenizer;
 }
 
 
@@ -512,9 +516,9 @@ char * LoadFile ( const char * sName, int * pLen, bool bReportErrors )
 }
 
 
-void BenchTokenizer ( bool bUTF8 )
+void BenchTokenizer ()
 {
-	printf ( "benchmarking %s tokenizer\n", bUTF8 ? "UTF8" : "SBCS" );
+	printf ( "benchmarking tokenizer\n" );
 	if ( !CreateSynonymsFile ( NULL ) )
 	{
 		printf ( "benchmark failed: error writing temp synonyms file\n" );
@@ -527,7 +531,7 @@ void BenchTokenizer ( bool bUTF8 )
 		int iData = 0;
 		char * sData = LoadFile ( "./configure", &iData, true );
 
-		ISphTokenizer * pTokenizer = bUTF8 ? sphCreateUTF8Tokenizer () : sphCreateSBCSTokenizer ();
+		ISphTokenizer * pTokenizer = sphCreateUTF8Tokenizer ();
 		pTokenizer->SetCaseFolding ( "-, 0..9, A..Z->a..z, _, a..z", sError );
 		if ( iRun==2 )
 			pTokenizer->LoadSynonyms ( g_sTmpfile, NULL, sError );
@@ -551,9 +555,6 @@ void BenchTokenizer ( bool bUTF8 )
 			(int)(tmTime/1000), (int)(tmTime%1000), float(iData)/tmTime );
 		SafeDeleteArray ( sData );
 	}
-
-	if ( !bUTF8 )
-		return;
 
 	int iData;
 	char * sData = LoadFile ( "./utf8.txt", &iData, false );
@@ -707,7 +708,7 @@ void TestExpr ()
 		pRow[i] = 1+i;
 
 	CSphMatch tMatch;
-	tMatch.m_iDocID = 123;
+	tMatch.m_uDocID = 123;
 	tMatch.m_iWeight = 456;
 	tMatch.m_pStatic = pRow;
 
@@ -811,7 +812,7 @@ void BenchExpr ()
 		pRow[i] = 1+i;
 
 	CSphMatch tMatch;
-	tMatch.m_iDocID = 123;
+	tMatch.m_uDocID = 123;
 	tMatch.m_iWeight = 456;
 	tMatch.m_pStatic = pRow;
 
@@ -882,7 +883,7 @@ void TestQueryParser ()
 	tCol.m_sName = "title"; tSchema.m_dFields.Add ( tCol );
 	tCol.m_sName = "body"; tSchema.m_dFields.Add ( tCol );
 
-	CSphScopedPtr<ISphTokenizer> pBase ( sphCreateSBCSTokenizer () );
+	CSphScopedPtr<ISphTokenizer> pBase ( sphCreateUTF8Tokenizer () );
 	CSphTokenizerSettings tTokenizerSetup;
 	tTokenizerSetup.m_iMinWordLen = 2;
 	tTokenizerSetup.m_sSynonymsFile = g_sTmpfile;
@@ -894,6 +895,7 @@ void TestQueryParser ()
 	sphSetupQueryTokenizer ( pTokenizer.Ptr() );
 
 	CSphDictSettings tDictSettings;
+	tDictSettings.m_bWordDict = false;
 	CSphScopedPtr<CSphDict> pDict ( sphCreateDictionaryCRC ( tDictSettings, NULL, pTokenizer.Ptr(), "query", sError ) );
 
 	assert ( pTokenizer.Ptr() );
@@ -947,7 +949,7 @@ void TestQueryParser ()
 		printf ( "testing query parser, test %d/%d... ", i+1, nTests );
 
 		XQQuery_t tQuery;
-		sphParseExtendedQuery ( tQuery, dTest[i].m_sQuery, pTokenizer.Ptr(), &tSchema, pDict.Ptr(), tTmpSettings );
+		sphParseExtendedQuery ( tQuery, dTest[i].m_sQuery, NULL, pTokenizer.Ptr(), &tSchema, pDict.Ptr(), tTmpSettings );
 		CSphString sReconst = sphReconstructNode ( tQuery.m_pRoot, &tSchema );
 		assert ( sReconst==dTest[i].m_sReconst );
 
@@ -960,7 +962,7 @@ class CSphDummyIndex : public CSphIndex
 {
 public:
 	CSphDummyIndex () : CSphIndex ( NULL, NULL ) {}
-	virtual SphAttr_t *			GetKillList () const { return NULL; }
+	virtual SphDocID_t *		GetKillList () const { return NULL; }
 	virtual int					GetKillListSize () const { return 0 ; }
 	virtual bool				HasDocid ( SphDocID_t ) const { return false; }
 	virtual int					Build ( const CSphVector<CSphSource*> & , int , int ) { return 0; }
@@ -976,15 +978,17 @@ public:
 	virtual void				PostSetup() {}
 	virtual bool				EarlyReject ( CSphQueryContext * , CSphMatch & ) const { return false; }
 	virtual const CSphSourceStats &	GetStats () const { return g_tTmpDummyStat; }
-	virtual CSphIndexStatus			GetStatus () const { CSphIndexStatus tRes; tRes.m_iRamUse = 0; return tRes; }
-	virtual bool				MultiQuery ( const CSphQuery * , CSphQueryResult * , int , ISphMatchSorter ** , const CSphVector<CSphFilterSettings> * , int, bool ) const { return false; }
-	virtual bool				MultiQueryEx ( int , const CSphQuery * , CSphQueryResult ** , ISphMatchSorter ** , const CSphVector<CSphFilterSettings> * , int, bool ) const { return false; }
-	virtual bool				GetKeywords ( CSphVector <CSphKeywordInfo> & , const char * , bool , CSphString & ) const { return false; }
-	virtual bool				FillKeywords ( CSphVector <CSphKeywordInfo> & dKeywords, CSphString & sError ) const;
-	virtual int					UpdateAttributes ( const CSphAttrUpdate & , int , CSphString & ) { return -1; }
+	virtual void				GetStatus ( CSphIndexStatus* pRes ) const { if ( pRes ) { pRes->m_iDiskUse = 0; pRes->m_iRamUse = 0;} }
+	virtual bool				MultiQuery ( const CSphQuery * , CSphQueryResult * , int , ISphMatchSorter ** , const CSphMultiQueryArgs & ) const { return false; }
+	virtual bool				MultiQueryEx ( int , const CSphQuery * , CSphQueryResult ** , ISphMatchSorter ** , const CSphMultiQueryArgs & ) const { return false; }
+	virtual bool				GetKeywords ( CSphVector <CSphKeywordInfo> & , const char * , bool , CSphString * ) const { return false; }
+	virtual bool				FillKeywords ( CSphVector <CSphKeywordInfo> & dKeywords ) const;
+	virtual int					UpdateAttributes ( const CSphAttrUpdate & , int , CSphString &, CSphString & ) { return -1; }
 	virtual bool				SaveAttributes ( CSphString & ) const { return false; }
 	virtual DWORD				GetAttributeStatus () const { return 0; }
-	virtual void				DebugDumpHeader ( FILE * , const char * , bool ) {}
+	virtual bool				CreateModifiedFiles ( bool, const CSphString &, ESphAttr, int, CSphString & ) { return true; }
+	virtual bool				AddRemoveAttribute ( bool, const CSphString &, ESphAttr, int, CSphString & ) { return true; }
+	virtual void				DebugDumpHeader ( FILE *, const char *, bool ) {}
 	virtual void				DebugDumpDocids ( FILE * ) {}
 	virtual void				DebugDumpHitlist ( FILE * , const char * , bool ) {}
 	virtual int					DebugCheck ( FILE * ) { return 0; } // NOLINT
@@ -995,7 +999,7 @@ public:
 };
 
 
-bool CSphDummyIndex::FillKeywords ( CSphVector <CSphKeywordInfo> & dKeywords, CSphString & ) const
+bool CSphDummyIndex::FillKeywords ( CSphVector <CSphKeywordInfo> & dKeywords ) const
 {
 	ARRAY_FOREACH ( i, dKeywords )
 	{
@@ -1016,7 +1020,8 @@ void TestQueryTransforms ()
 
 	CSphString sError;
 	CSphDictSettings tDictSettings;
-	CSphScopedPtr<ISphTokenizer> pBase ( sphCreateSBCSTokenizer () );
+	tDictSettings.m_bWordDict = false;
+	CSphScopedPtr<ISphTokenizer> pBase ( sphCreateUTF8Tokenizer () );
 	CSphScopedPtr<CSphDict> pDict ( sphCreateDictionaryCRC ( tDictSettings, NULL, pBase.Ptr(), "query", sError ) );
 	assert ( pBase.Ptr() );
 	assert ( pDict.Ptr() );
@@ -1362,7 +1367,7 @@ void TestQueryTransforms ()
 		printf ( "testing query transformations, test %d/%d... ", (int)( pTest-dTest+1 ), (int)( sizeof(dTest)/sizeof(dTest[0])-1 ) );
 
 		XQQuery_t tQuery;
-		sphParseExtendedQuery ( tQuery, pTest->m_sQuery, pTokenizer.Ptr(), &tSchema, pDict.Ptr(), tTmpSettings );
+		sphParseExtendedQuery ( tQuery, pTest->m_sQuery, NULL, pTokenizer.Ptr(), &tSchema, pDict.Ptr(), tTmpSettings );
 
 		CSphString sReconst = sphReconstructNode ( tQuery.m_pRoot, &tSchema );
 
@@ -1809,9 +1814,9 @@ struct SortPayload_t
 inline bool operator < ( const CSphWordHit & a, const CSphWordHit & b )
 {
 	return
-		( a.m_iWordID<b.m_iWordID || \
-		( a.m_iWordID==b.m_iWordID && a.m_iDocID<b.m_iDocID ) || \
-		( a.m_iWordID==b.m_iWordID && a.m_iDocID==b.m_iDocID && a.m_iWordPos<b.m_iWordPos ) );
+		( a.m_uWordID<b.m_uWordID || \
+		( a.m_uWordID==b.m_uWordID && a.m_uDocID<b.m_uDocID ) || \
+		( a.m_uWordID==b.m_uWordID && a.m_uDocID==b.m_uDocID && a.m_uWordPos<b.m_uWordPos ) );
 }
 
 template < typename T >
@@ -1909,8 +1914,6 @@ void BenchSort ()
 
 //////////////////////////////////////////////////////////////////////////
 
-extern DWORD sphCRC32 ( const BYTE * pString, int iLen );
-
 struct TestAccCmp_fn
 {
 	typedef DWORD MEDIAN_TYPE;
@@ -1962,7 +1965,7 @@ struct TestAccCmp_fn
 
 	DWORD GenerateKey ( const DWORD * pData ) const
 	{
-		return m_iStride > 1 ? sphCRC32 ( ( ( const BYTE * ) ( pData + 1 ) ), ( m_iStride - 1 ) * 4 ) : ( *pData );
+		return m_iStride > 1 ? sphCRC32 ( pData+1, ( m_iStride-1 )*4 ) : ( *pData );
 	}
 };
 
@@ -2086,30 +2089,49 @@ void TestStridedSort ()
 		const int iNrmCount = Max ( iRndCount, 1 );
 		TestStridedSortPass ( iNrmStride, iNrmCount );
 	}
+
+	// regression of uniq vs empty array
+	DWORD dUniq[] = { 1, 1, 3, 1 };
+	int iCount = sizeof(dUniq)/sizeof(dUniq[0]);
+	assert ( sphUniq ( dUniq, 0 )==0 );
+	sphSort ( dUniq, iCount );
+	assert ( sphUniq ( dUniq, iCount )==2 && dUniq[0]==1 && dUniq[1]==3 );
+	CSphVector<DWORD> dUniq1;
+	dUniq1.Uniq();
+	assert ( dUniq1.GetLength()==0 );
+	dUniq1.Add ( 1 );
+	dUniq1.Add ( 3 );
+	dUniq1.Add ( 1 );
+	dUniq1.Add ( 1 );
+	dUniq1.Uniq();
+	assert ( dUniq1.GetLength()==2 && dUniq1[0]==1 && dUniq1[1]==3 );
 }
 
 //////////////////////////////////////////////////////////////////////////
 
-static const char * g_sFieldsData[] = { "33", "1033", "If I were a cat...", "We are the greatest cat" };
-
 class SphTestDoc_c : public CSphSource_Document
 {
 public:
-	explicit SphTestDoc_c ( const CSphSchema & tSchema ) : CSphSource_Document ( "test_doc" )
+	explicit SphTestDoc_c ( const CSphSchema & tSchema, BYTE ** ppDocs, int iDocs, int iFields )
+		: CSphSource_Document ( "test_doc" )
 	{
 		m_tSchema = tSchema;
+		m_ppDocs = ppDocs;
+		m_iDocCount = iDocs;
+		m_iFields = iFields;
 	}
 
 	virtual BYTE ** NextDocument ( CSphString & )
 	{
-		if ( m_tDocInfo.m_iDocID )
+		if ( m_tDocInfo.m_uDocID>=(SphDocID_t)m_iDocCount )
 		{
-			m_tDocInfo.m_iDocID = 0;
+			m_tDocInfo.m_uDocID = 0;
 			return NULL;
 		}
 
-		m_tDocInfo.m_iDocID++;
-		return (BYTE **) &g_sFieldsData[2];
+		int iDoc = (int)m_tDocInfo.m_uDocID;
+		m_tDocInfo.m_uDocID++;
+		return m_ppDocs + iDoc * m_iFields;
 	}
 
 	bool Connect ( CSphString & ) { return true; }
@@ -2122,6 +2144,11 @@ public:
 	bool IterateFieldMVANext () { return false; }
 	bool IterateKillListStart ( CSphString & ) { return false; }
 	bool IterateKillListNext ( SphDocID_t & ) { return false; }
+
+private:
+	int m_iDocCount;
+	int m_iFields;
+	BYTE ** m_ppDocs;
 };
 
 
@@ -2197,6 +2224,7 @@ void TestRTWeightBoundary ()
 
 		CSphString sError, sWarning;
 		CSphDictSettings tDictSettings;
+		tDictSettings.m_bWordDict = false;
 
 		ISphTokenizer * pTok = sphCreateUTF8Tokenizer();
 		CSphDict * pDict = sphCreateDictionaryCRC ( tDictSettings, NULL, pTok, "weight", sError );
@@ -2217,7 +2245,9 @@ void TestRTWeightBoundary ()
 		tCol.m_sName = "content";
 		tSrcSchema.m_dFields.Add ( tCol );
 
-		SphTestDoc_c * pSrc = new SphTestDoc_c ( tSrcSchema );
+
+		const char * dFields[] = { "If I were a cat...", "We are the greatest cat" };
+		SphTestDoc_c * pSrc = new SphTestDoc_c ( tSrcSchema, (BYTE **)dFields, 1, 2 );
 
 		pSrc->SetTokenizer ( pTok );
 		pSrc->SetDict ( pDict );
@@ -2243,6 +2273,7 @@ void TestRTWeightBoundary ()
 		// so for simplicity i just clone them
 		pIndex->SetTokenizer ( pTok->Clone ( SPH_CLONE_INDEX ) );
 		pIndex->SetDictionary ( pDict->Clone() );
+		pIndex->PostSetup();
 		Verify ( pIndex->Prealloc ( false, false, sError ) );
 
 		ISphHits * pHits;
@@ -2250,7 +2281,7 @@ void TestRTWeightBoundary ()
 		for ( ;; )
 		{
 			Verify ( pSrc->IterateDocument ( sError ) );
-			if ( !pSrc->m_tDocInfo.m_iDocID )
+			if ( !pSrc->m_tDocInfo.m_uDocID )
 				break;
 
 			pHits = pSrc->IterateHits ( sError );
@@ -2267,20 +2298,24 @@ void TestRTWeightBoundary ()
 
 		CSphQuery tQuery;
 		CSphQueryResult tResult;
+		CSphMultiQueryArgs tArgs ( CSphVector<SphDocID_t>(), 1 );
 		tQuery.m_sQuery = "@title cat";
 
-		ISphMatchSorter * pSorter = sphCreateQueue ( &tQuery, pIndex->GetMatchSchema(), tResult.m_sError, NULL, false );
+		SphQueueSettings_t tQueueSettings ( tQuery, pIndex->GetMatchSchema(), tResult.m_sError, NULL );
+		tQueueSettings.m_bComputeItems = false;
+		ISphMatchSorter * pSorter = sphCreateQueue ( tQueueSettings );
 		assert ( pSorter );
-		Verify ( pIndex->MultiQuery ( &tQuery, &tResult, 1, &pSorter, NULL ) );
+		Verify ( pIndex->MultiQuery ( &tQuery, &tResult, 1, &pSorter, tArgs ) );
 		sphFlattenQueue ( pSorter, &tResult, 0 );
 		CheckRT ( tResult.m_dMatches.GetLength(), 1, "results found" );
-		CheckRT ( (int)tResult.m_dMatches[0].m_iDocID, 1, "docID" );
+		CheckRT ( (int)tResult.m_dMatches[0].m_uDocID, 1, "docID" );
 		CheckRT ( tResult.m_dMatches[0].m_iWeight, g_iWeights[iPass], "weight" );
 		SafeDelete ( pSorter );
 		SafeDelete ( pIndex );
 
 		SafeDelete ( pDict );
 		SafeDelete ( pTok );
+		SafeDelete ( pSrc );
 		sphRTDone ();
 
 		printf ( "ok\n" );
@@ -2312,6 +2347,7 @@ void TestWriter()
 		tWr.PutByte ( 0xff );
 	}
 	unlink ( sTmpWriteout.cstr() );
+	delete [] pData;
 	printf ( "ok\n" );
 }
 
@@ -2331,15 +2367,15 @@ public:
 
 	virtual BYTE ** NextDocument ( CSphString & )
 	{
-		if ( m_tDocInfo.m_iDocID>800 )
+		if ( m_tDocInfo.m_uDocID>800 )
 		{
-			m_tDocInfo.m_iDocID = 0;
+			m_tDocInfo.m_uDocID = 0;
 			return NULL;
 		}
 
-		m_tDocInfo.m_iDocID++;
+		m_tDocInfo.m_uDocID++;
 
-		m_tDocInfo.SetAttr ( m_tSchema.GetAttr(0).m_tLocator, m_tDocInfo.m_iDocID+1000 );
+		m_tDocInfo.SetAttr ( m_tSchema.GetAttr(0).m_tLocator, m_tDocInfo.m_uDocID+1000 );
 		m_tDocInfo.SetAttr ( m_tSchema.GetAttr(1).m_tLocator, 1313 );
 
 		snprintf ( m_dFields[0], m_iMaxFieldLen, "cat title%d title%d title%d title%d title%d"
@@ -2372,6 +2408,7 @@ void TestRTSendVsMerge ()
 
 	CSphString sError, sWarning;
 	CSphDictSettings tDictSettings;
+	tDictSettings.m_bWordDict = false;
 
 	ISphTokenizer * pTok = sphCreateUTF8Tokenizer();
 	CSphDict * pDict = sphCreateDictionaryCRC ( tDictSettings, NULL, pTok, "rt", sError );
@@ -2416,20 +2453,24 @@ void TestRTSendVsMerge ()
 
 	pIndex->SetTokenizer ( pTok ); // index will own this pair from now on
 	pIndex->SetDictionary ( pDict );
+	pIndex->PostSetup();
 	Verify ( pIndex->Prealloc ( false, false, sError ) );
 
 	CSphQuery tQuery;
 	CSphQueryResult tResult;
+	CSphMultiQueryArgs tArgs ( CSphVector<SphDocID_t>(), 1 );
 	tQuery.m_sQuery = "@title cat";
 
-	ISphMatchSorter * pSorter = sphCreateQueue ( &tQuery, pIndex->GetMatchSchema(), tResult.m_sError, NULL, false );
+	SphQueueSettings_t tQueueSettings ( tQuery, pIndex->GetMatchSchema(), tResult.m_sError, NULL );
+	tQueueSettings.m_bComputeItems = false;
+	ISphMatchSorter * pSorter = sphCreateQueue ( tQueueSettings );
 	assert ( pSorter );
 
 	CSphVector<DWORD> dMvas;
 	for ( ;; )
 	{
 		Verify ( pSrc->IterateDocument ( sError ) );
-		if ( !pSrc->m_tDocInfo.m_iDocID )
+		if ( !pSrc->m_tDocInfo.m_uDocID )
 			break;
 
 		ISphHits * pHits = pSrc->IterateHits ( sError );
@@ -2437,10 +2478,10 @@ void TestRTSendVsMerge ()
 			break;
 
 		pIndex->AddDocument ( pHits, pSrc->m_tDocInfo, NULL, dMvas, sError, sWarning );
-		if ( pSrc->m_tDocInfo.m_iDocID==350 )
+		if ( pSrc->m_tDocInfo.m_uDocID==350 )
 		{
 			pIndex->Commit ();
-			Verify ( pIndex->MultiQuery ( &tQuery, &tResult, 1, &pSorter, NULL ) );
+			Verify ( pIndex->MultiQuery ( &tQuery, &tResult, 1, &pSorter, tArgs ) );
 			sphFlattenQueue ( pSorter, &tResult, 0 );
 		}
 	}
@@ -2448,16 +2489,206 @@ void TestRTSendVsMerge ()
 
 	pSrc->Disconnect();
 
+	tResult.m_tSchema = pSorter->GetSchema(); // can SwapOut
+
 	for ( int i=0; i<tResult.m_dMatches.GetLength(); i++ )
 	{
-		const SphDocID_t tID = tResult.m_dMatches[i].m_iDocID;
+		const SphDocID_t uID = tResult.m_dMatches[i].m_uDocID;
 		const SphAttr_t tTag1 = tResult.m_dMatches[i].GetAttr ( tResult.m_tSchema.GetAttr ( 0 ).m_tLocator );
 		const SphAttr_t tTag2 = tResult.m_dMatches[i].GetAttr ( tResult.m_tSchema.GetAttr ( 1 ).m_tLocator );
-		assert ( (SphDocID_t)tTag1==tID+1000 );
+		assert ( (SphDocID_t)tTag1==uID+1000 );
 		assert ( tTag2==1313 );
 	}
 	SafeDelete ( pSorter );
 	SafeDelete ( pIndex );
+	SafeDelete ( pSrc );
+
+	sphRTDone ();
+
+	printf ( "ok\n" );
+
+	DeleteIndexFiles ( RT_INDEX_FILE_NAME );
+}
+
+void TestRankerFactors ()
+{
+	const char * dFields[] = {
+		"Seven lies multiplied by seven", "",
+		"Multiplied by seven again", "",
+		"Seven lies multiplied by seven", "Multiplied by seven again",
+
+		"Mary vs Lamb", "Mary had a little lamb little lamb little lamb",
+		"Mary vs Lamb 2: Return of The Lamb", "...whose fleece was white as snow",
+		"Mary vs Lamb 3: The Resurrection", "Snow! Bloody snow!",
+
+		"the who", "what the foo"
+	};
+	const char * dQueries[] = {
+		"seven !(angels !by)", // matched by 0-2
+		"Mary lamb", // matched by 3-5
+		"(the who) | (the foo)", // matched by 6
+	};
+
+	DeleteIndexFiles ( RT_INDEX_FILE_NAME );
+	printf ( "testing ranker factors... " );
+
+	TestRTInit ();
+
+	CSphString sError, sWarning;
+	CSphDictSettings tDictSettings;
+	tDictSettings.m_bWordDict = false;
+
+	ISphTokenizer * pTok = sphCreateUTF8Tokenizer();
+	CSphDict * pDict = sphCreateDictionaryCRC ( tDictSettings, NULL, pTok, "rt", sError );
+
+	CSphColumnInfo tCol;
+	CSphSchema tSrcSchema;
+
+	CSphSourceSettings tParams;
+	tSrcSchema.Reset();
+
+	tCol.m_sName = "title";
+	tSrcSchema.m_dFields.Add ( tCol );
+
+	tCol.m_sName = "content";
+	tSrcSchema.m_dFields.Add ( tCol );
+
+	tCol.m_sName = "idd";
+	tCol.m_eAttrType = SPH_ATTR_INTEGER;
+	tSrcSchema.AddAttr ( tCol, true );
+
+	CSphSource * pSrc = new SphTestDoc_c ( tSrcSchema, (BYTE **)dFields, sizeof(dFields)/sizeof(dFields[0])/2, 2 );
+
+	pSrc->SetTokenizer ( pTok );
+	pSrc->SetDict ( pDict );
+
+	pSrc->Setup ( tParams );
+	Verify ( pSrc->Connect ( sError ) );
+	Verify ( pSrc->IterateStart ( sError ) );
+
+	Verify ( pSrc->UpdateSchema ( &tSrcSchema, sError ) );
+
+	CSphSchema tSchema; // source schema must be all dynamic attrs; but index ones must be static
+	tSchema.m_dFields = tSrcSchema.m_dFields;
+	for ( int i=0; i<tSrcSchema.GetAttrsCount(); i++ )
+		tSchema.AddAttr ( tSrcSchema.GetAttr(i), false );
+
+	ISphRtIndex * pIndex = sphCreateIndexRT ( tSchema, "testrt", 128*1024, RT_INDEX_FILE_NAME, false );
+
+	pIndex->SetTokenizer ( pTok ); // index will own this pair from now on
+	pIndex->SetDictionary ( pDict );
+	pIndex->PostSetup();
+	Verify ( pIndex->Prealloc ( false, false, sError ) );
+
+	CSphVector<DWORD> dMvas;
+	for ( ;; )
+	{
+		Verify ( pSrc->IterateDocument ( sError ) );
+		if ( !pSrc->m_tDocInfo.m_uDocID )
+			break;
+
+		ISphHits * pHits = pSrc->IterateHits ( sError );
+		if ( !pHits )
+			break;
+
+		pIndex->AddDocument ( pHits, pSrc->m_tDocInfo, NULL, dMvas, sError, sWarning );
+	}
+	pIndex->Commit ();
+	pSrc->Disconnect();
+
+	CSphQuery tQuery;
+	CSphQueryItem & tFactor = tQuery.m_dItems.Add();
+	tFactor.m_sExpr = "packedfactors()";
+	tFactor.m_sAlias = "pf";
+	tQuery.m_sRankerExpr = "1";
+	tQuery.m_eRanker = SPH_RANK_EXPR;
+	tQuery.m_eMode = SPH_MATCH_EXTENDED2;
+	tQuery.m_eSort = SPH_SORT_EXTENDED;
+	tQuery.m_sSortBy = "@weight desc";
+	tQuery.m_sOrderBy = "@weight desc";
+	CSphQueryResult tResult;
+	CSphMultiQueryArgs tArgs ( CSphVector<SphDocID_t>(), 1 );
+	SphQueueSettings_t tQueueSettings ( tQuery, pIndex->GetMatchSchema(), tResult.m_sError, NULL );
+	tQueueSettings.m_bComputeItems = true;
+	tArgs.m_uPackedFactorFlags = SPH_FACTOR_ENABLE | SPH_FACTOR_CALC_ATC;
+
+	ISphMatchSorter * pSorter = sphCreateQueue ( tQueueSettings );
+	assert ( pSorter );
+
+	for ( int iQuery=0; (uint64_t)iQuery<sizeof(dQueries)/sizeof(dQueries[0]); iQuery++ )
+	{
+		tQuery.m_sQuery = dQueries[iQuery];
+
+		Verify ( pIndex->MultiQuery ( &tQuery, &tResult, 1, &pSorter, tArgs ) );
+		sphFlattenQueue ( pSorter, &tResult, 0 );
+
+		tResult.m_tSchema = pSorter->GetSchema(); // can SwapOut
+		const CSphAttrLocator & tLoc = tResult.m_tSchema.GetAttr ( "pf" )->m_tLocator;
+
+		for ( int iMatch=0; iMatch<tResult.m_dMatches.GetLength(); iMatch++ )
+		{
+			const unsigned int * pFactors = (const unsigned int *)tResult.m_dMatches[iMatch].GetAttr ( tLoc );
+			assert ( pFactors );
+
+			SPH_UDF_FACTORS tUnpacked;
+			sphinx_factors_init ( &tUnpacked );
+			sphinx_factors_unpack ( pFactors, &tUnpacked );
+
+			// doc level factors
+			assert ( tUnpacked.doc_bm25==sphinx_get_doc_factor_int ( pFactors, SPH_DOCF_BM25 ) );
+			assert ( tUnpacked.doc_bm25a==sphinx_get_doc_factor_float ( pFactors, SPH_DOCF_BM25A ) );
+			assert ( (int)tUnpacked.matched_fields==sphinx_get_doc_factor_int ( pFactors, SPH_DOCF_MATCHED_FIELDS ) );
+			assert ( tUnpacked.doc_word_count==sphinx_get_doc_factor_int ( pFactors, SPH_DOCF_DOC_WORD_COUNT ) );
+			assert ( tUnpacked.num_fields==sphinx_get_doc_factor_int ( pFactors, SPH_DOCF_NUM_FIELDS ) );
+			assert ( tUnpacked.max_uniq_qpos==sphinx_get_doc_factor_int ( pFactors, SPH_DOCF_MAX_UNIQ_QPOS ) );
+
+			// field level factors
+			for ( int iField=0; iField<tUnpacked.num_fields; iField++ )
+			{
+				if ( !tUnpacked.field[iField].hit_count )
+					continue;
+
+				const unsigned int * pField = sphinx_get_field_factors ( pFactors, iField );
+				assert ( pField );
+				assert ( (int)tUnpacked.field[iField].hit_count==sphinx_get_field_factor_int ( pField, SPH_FIELDF_HIT_COUNT ) );
+				assert ( (int)tUnpacked.field[iField].lcs==sphinx_get_field_factor_int ( pField, SPH_FIELDF_LCS ) );
+				assert ( (int)tUnpacked.field[iField].word_count==sphinx_get_field_factor_int ( pField, SPH_FIELDF_WORD_COUNT ) );
+				assert ( tUnpacked.field[iField].tf_idf==sphinx_get_field_factor_float ( pField, SPH_FIELDF_TF_IDF ) );
+				assert ( tUnpacked.field[iField].min_idf==sphinx_get_field_factor_float ( pField, SPH_FIELDF_MIN_IDF ) );
+				assert ( tUnpacked.field[iField].max_idf==sphinx_get_field_factor_float ( pField, SPH_FIELDF_MAX_IDF ) );
+				assert ( tUnpacked.field[iField].sum_idf==sphinx_get_field_factor_float ( pField, SPH_FIELDF_SUM_IDF ) );
+				assert ( tUnpacked.field[iField].min_hit_pos==sphinx_get_field_factor_int ( pField, SPH_FIELDF_MIN_HIT_POS ) );
+				assert ( tUnpacked.field[iField].min_best_span_pos==sphinx_get_field_factor_int ( pField, SPH_FIELDF_MIN_BEST_SPAN_POS ) );
+				assert ( tUnpacked.field[iField].max_window_hits==sphinx_get_field_factor_int ( pField, SPH_FIELDF_MAX_WINDOW_HITS ) );
+				assert ( tUnpacked.field[iField].min_gaps==sphinx_get_field_factor_int ( pField, SPH_FIELDF_MIN_GAPS ) );
+				assert ( tUnpacked.field[iField].atc==sphinx_get_field_factor_float ( pField, SPH_FIELDF_ATC ) );
+				assert ( tUnpacked.field[iField].lccs==sphinx_get_field_factor_int ( pField, SPH_FIELDF_LCCS ) );
+				assert ( tUnpacked.field[iField].wlccs==sphinx_get_field_factor_float ( pField, SPH_FIELDF_WLCCS ) );
+				bool bExactHitSame = ( ( ( tUnpacked.field[iField].exact_hit << iField ) & sphinx_get_doc_factor_int ( pFactors, SPH_DOCF_EXACT_HIT_MASK ) )!=0 );
+				assert ( tUnpacked.field[iField].exact_hit==0 || bExactHitSame );
+				bool bExactOrderSame = ( ( ( tUnpacked.field[iField].exact_order << iField ) & sphinx_get_doc_factor_int ( pFactors, SPH_DOCF_EXACT_ORDER_MASK ) )!=0 );
+				assert ( tUnpacked.field[iField].exact_order==0 || bExactOrderSame );
+			}
+
+			// term level factors
+			for ( int iWord=0; iWord<tUnpacked.max_uniq_qpos; iWord++ )
+			{
+				if ( !tUnpacked.term[iWord].keyword_mask )
+					continue;
+
+				const unsigned int * pTerm = sphinx_get_term_factors ( pFactors, iWord+1 );
+				assert ( pTerm );
+				assert ( tUnpacked.term[iWord].tf==sphinx_get_term_factor_int ( pTerm, SPH_TERMF_TF ) );
+				assert ( tUnpacked.term[iWord].idf==sphinx_get_term_factor_float ( pTerm, SPH_TERMF_IDF ) );
+			}
+
+			sphinx_factors_deinit ( &tUnpacked );
+		}
+	}
+
+	SafeDelete ( pSorter );
+	SafeDelete ( pIndex );
+	SafeDelete ( pSrc );
 
 	sphRTDone ();
 
@@ -2475,7 +2706,6 @@ void TestSentenceTokenizer()
 	printf ( "testing sentence detection in tokenizer... " );
 
 	CSphTokenizerSettings tSettings;
-	tSettings.m_iType = TOKENIZER_SBCS;
 	tSettings.m_iMinWordLen = 1;
 
 	CSphString sError;
@@ -2585,7 +2815,7 @@ void BenchStemmer ()
 	printf ( "read %d bytes\n", iLen );
 	fclose ( fp );
 
-	ISphTokenizer * pTok = sphCreateSBCSTokenizer();
+	ISphTokenizer * pTok = sphCreateUTF8Tokenizer();
 	if ( !pTok->SetCaseFolding ( "A..Z->a..z, a..z", sError ) )
 		sphDie ( "oops: %s", sError.cstr() );
 
@@ -2946,6 +3176,372 @@ void BenchAppendf()
 
 //////////////////////////////////////////////////////////////////////////
 
+// conversion between degrees and radians
+static const double MY_PI = 3.14159265358979323846;
+static const double TO_RADD = MY_PI / 180.0;
+static const double TO_RADD2 = MY_PI / 360.0;
+static const double TO_DEGD = 180.0 / MY_PI;
+
+static inline float GeodistVincenty ( double lat1, double lon1, double lat2, double lon2 )
+{
+	lat1 *= TO_RADD;
+	lon1 *= TO_RADD;
+	lat2 *= TO_RADD;
+	lon2 *= TO_RADD;
+	const double a = 6378137;
+	const double b = 6356752.314245;
+	double f = (a-b)/a;
+	double L = lon2 - lon1;
+	double u1 = atan ( (1-f) * tan(lat1) );
+	double u2 = atan ( (1-f) * tan(lat2) );
+	double sin_u1 = sin(u1);
+	double cos_u1 = cos(u1);
+	double sin_u2 = sin(u2);
+	double cos_u2 = cos(u2);
+	double lambda = L;
+	double lambda_pi = 2*MY_PI;
+	double sin_sigma = 0, cos_sigma = 0, sigma = 0, cos_sq_alpha = 0, cos2sigma_m = 0;
+	while ( fabs ( lambda-lambda_pi ) > 1e-12 )
+	{
+		double sin_lambda = sin(lambda);
+		double cos_lambda = cos(lambda);
+		sin_sigma = sqrt ( (cos_u2 * sin_lambda) * (cos_u2*sin_lambda) +
+			( cos_u1*sin_u2-sin_u1*cos_u2*cos_lambda ) * ( cos_u1*sin_u2-sin_u1*cos_u2*cos_lambda ) );
+		cos_sigma = sin_u1*sin_u2 + cos_u1*cos_u2*cos_lambda;
+		sigma = atan2 ( sin_sigma, cos_sigma );
+		double alpha = asin ( cos_u1 * cos_u2 * sin_lambda / sin_sigma );
+		cos_sq_alpha = cos(alpha) * cos(alpha);
+		cos2sigma_m = cos_sigma - 2*sin_u1*sin_u2/cos_sq_alpha;
+		double cc = f/16*cos_sq_alpha*(4+f*(4-3*cos_sq_alpha));
+		lambda_pi = lambda;
+		lambda = L + (1-cc) * f * sin(alpha) *
+			(sigma + cc*sin_sigma*(cos2sigma_m+cc*cos_sigma*(-1+2*cos2sigma_m*cos2sigma_m)));
+	}
+	double usq = cos_sq_alpha*(a*a-b*b)/(b*b);
+	double aa = 1 + usq/16384*(4096+usq*(-768+usq*(320-175*usq)));
+	double bb = usq/1024 * (256+usq*(-128+usq*(74-47*usq)));
+	double delta_sigma = bb*sin_sigma*(cos2sigma_m+bb/4*(cos_sigma*(-1+2*cos2sigma_m*cos2sigma_m)-
+		bb/6*cos2sigma_m*(-3+4*sin_sigma*sin_sigma)*(-3+4*cos2sigma_m*cos2sigma_m)));
+	double c = b*aa*(sigma-delta_sigma);
+	return (float)c;
+}
+
+void DestVincenty ( double lat1, double lon1, double brng, double dist, double *lat2, double *lon2 )
+{
+	double a = 6378137, b = 6356752.3142, f = 1/298.257223563; // WGS-84 ellipsiod
+	double s = dist;
+	double alpha1 = brng*TO_RADD;
+	double sinAlpha1 = sin(alpha1);
+	double cosAlpha1 = cos(alpha1);
+
+	double tanU1 = (1-f) * tan ( lat1*TO_RADD );
+	double cosU1 = 1 / sqrt ( 1 + tanU1*tanU1 ), sinU1 = tanU1*cosU1;
+	double sigma1 = atan2 ( tanU1, cosAlpha1 );
+	double sinAlpha = cosU1 * sinAlpha1;
+	double cosSqAlpha = 1 - sinAlpha*sinAlpha;
+	double uSq = cosSqAlpha * (a*a - b*b) / (b*b);
+	double A = 1 + uSq/16384*(4096+uSq*(-768+uSq*(320-175*uSq)));
+	double B = uSq/1024 * (256+uSq*(-128+uSq*(74-47*uSq)));
+
+	double sigma = s / (b*A), sigmaP = 2*MY_PI;
+	double cos2SigmaM = 0, sinSigma = 0, cosSigma = 0;
+	while ( fabs ( sigma-sigmaP ) > 1e-12 )
+	{
+		cos2SigmaM = cos ( 2*sigma1 + sigma );
+		sinSigma = sin(sigma);
+		cosSigma = cos(sigma);
+		double deltaSigma = B*sinSigma*(cos2SigmaM+B/4*(cosSigma*(-1+2*cos2SigmaM*cos2SigmaM)-
+			B/6*cos2SigmaM*(-3+4*sinSigma*sinSigma)*(-3+4*cos2SigmaM*cos2SigmaM)));
+		sigmaP = sigma;
+		sigma = s / (b*A) + deltaSigma;
+	}
+
+	double tmp = sinU1*sinSigma - cosU1*cosSigma*cosAlpha1;
+	*lat2 = atan2 ( sinU1*cosSigma + cosU1*sinSigma*cosAlpha1,
+		(1-f)*sqrt ( sinAlpha*sinAlpha + tmp*tmp ) );
+	double lambda = atan2 ( sinSigma*sinAlpha1, cosU1*cosSigma - sinU1*sinSigma*cosAlpha1 );
+	double C = f/16*cosSqAlpha*(4+f*(4-3*cosSqAlpha));
+	double L = lambda - (1-C) * f * sinAlpha *
+		(sigma + C*sinSigma*(cos2SigmaM+C*cosSigma*(-1+2*cos2SigmaM*cos2SigmaM)));
+	*lon2 = (lon1*TO_RADD+L+3*MY_PI);
+	while ( *lon2>2*MY_PI )
+		*lon2 -= 2*MY_PI;
+	*lon2 -= MY_PI;
+	*lat2 *= TO_DEGD;
+	*lon2 *= TO_DEGD;
+}
+
+static const int NFUNCS = 3;
+
+float CalcGeofunc ( int iFunc, double * t )
+{
+	switch ( iFunc )
+	{
+		case 0: return GeodistSphereDeg ( float(t[0]), float(t[1]), float(t[2]), float(t[3]) ); break;
+		case 1: return GeodistAdaptiveDeg ( float(t[0]), float(t[1]), float(t[2]), float(t[3]) ); break;
+		case 2: return GeodistFlatDeg ( float(t[0]), float(t[1]), float(t[2]), float(t[3]) ); break;
+	}
+	return 0;
+}
+
+
+class GeodistStatic
+{
+public:
+	float m_lat1;
+	float m_lon1;
+	double m_cos1d2;
+	double m_sin1;
+
+public:
+	GeodistStatic ( float lat1, float lon1 )
+	{
+		m_lat1 = lat1;
+		m_lon1 = lon1;
+		m_cos1d2 = 111415.13 * 0.5 * cos ( TO_RADD*lat1 );
+		m_sin1 = 111415.13 * sin ( TO_RADD*lat1 );
+	}
+
+	float Dist ( float lat2, float lon2 )
+	{
+		float dlat = m_lat1 - lat2;
+		float dlon = m_lon1 - lon2;
+
+		// fallback to haversine for distant enough points
+		if ( dlat>16 || dlon>16 || dlat<-16 || dlon<-16 )
+			return GeodistSphereDeg ( m_lat1, m_lon1, lat2, lon2 );
+
+		// we approximate cos() using Taylor expansions
+		// even in 2013, this is still quicker
+		// midpoint = lat1 + (lat2-lat1)/2 = lat1 + b
+		// b <= 16*pi/180 ~= 0.2792
+		// cos(midpoint) = cos(lat1)*cos(b) - sin(lat1)*sin(b)
+		// cos(b) = 1 - b^2/2 + b^4/24 ... ~= 1-b*b/2 because b^4/24 <= 0.0002
+		// sin(b) = b - b^3/6 + b^5/120 ... ~= b because b^3/6 <= 0.036
+		// cos(midpoint) ~= cos(lat1) - cos(lat1)*b*b/2 + sin(lat1)*b
+		double b = (lat2-m_lat1)*TO_RADD2;
+		double k2 = 2*m_cos1d2 - m_cos1d2*b*b - m_sin1*b; // cos(midpoint)
+		return (float)sqrt ( 111132.09*111132.09*dlat*dlat + k2*k2*dlon*dlon );
+	}
+};
+
+inline float MaxErr ( float fMax, float fRes, double fRef )
+{
+	float fErr = (float)( fabs ( fRes-fRef )*100 / fRef );
+	return fErr > fMax ? fErr : fMax;
+}
+
+void TestGeodist()
+{
+	CSphVector<double> dBench;
+	for ( int adist=10; adist<=10*1000*1000; adist*=10 )
+		for ( int dist=adist; dist<10*adist && dist<20*1000*1000; dist+=2*adist )
+	{
+		double avgerr[NFUNCS] = {0}, maxerr[NFUNCS] = {0};
+		int n = 0;
+		for ( int lat=-80; lat<=80; lat+=10 )
+		{
+			for ( int lon=-179; lon<180; lon+=3 )
+			{
+				for ( int b=0; b<360; b+=3, n++ )
+				{
+					double t[4] = { lat, lon, 0, 0 };
+					DestVincenty ( t[0], t[1], b, dist, t+2, t+3 );
+					for ( int j=0; j<4; j++ )
+						dBench.Add ( t[j] );
+					for ( int f=0; f<NFUNCS; f++ )
+					{
+						float fDist = CalcGeofunc ( f, t );
+						double err = fabs ( 100*( double(fDist) - double(dist) ) / double(dist) ); // relative error, in percents
+						avgerr[f] += err;
+						maxerr[f] = Max ( err, maxerr[f] );
+					}
+				}
+			}
+		}
+		if ( dist>=1000 )
+			printf ( "%5dkm", dist/1000 );
+		else
+			printf ( "%6dm", dist );
+		for ( int f=0; f<NFUNCS; f++ )
+			printf ( ", f%d %5.2f%% %5.2f%%", f, avgerr[f]/n, maxerr[f] );
+		printf ( "\n" );
+	}
+
+	const int RUNS = 10;
+	float fDist = 0;
+	double * tmax = dBench.Begin() + dBench.GetLength();
+	int64_t tm;
+	printf ( "%d calls in bench\n", RUNS*dBench.GetLength() );
+
+	tm = sphMicroTimer();
+	for ( int r=0; r<RUNS; r++ )
+		for ( double * t = dBench.Begin(); t<tmax; t+=4 )
+			fDist += GeodistSphereDeg ( float(t[0]), float(t[1]), float(t[2]), float(t[3]) );
+	printf ( INT64_FMT" us sphere\n", sphMicroTimer()-tm );
+
+	tm = sphMicroTimer();
+	for ( int r=0; r<RUNS; r++ )
+		for ( double * t = dBench.Begin(); t<tmax; t+=4 )
+			fDist += GeodistFlatDeg ( float(t[0]), float(t[1]), float(t[2]), float(t[3]) );
+	printf ( INT64_FMT" us flat\n", sphMicroTimer()-tm );
+
+	tm = sphMicroTimer();
+	for ( int r=0; r<RUNS; r++ )
+		for ( double * t = dBench.Begin(); t<tmax; t+=4 )
+			fDist += GeodistAdaptiveDeg ( float(t[0]), float(t[1]), float(t[2]), float(t[3]) );
+	printf ( INT64_FMT" us adaptive\n", sphMicroTimer()-tm );
+
+	printf ( "res %f\n", fDist );
+
+#if 0
+	// coordinates from Wikimapia/Googlemaps
+	//
+	// distances by Wolfram Alpha (supposedly defaults to Vincenty method)
+	// geodistance[{51.5007788, -0.1246771}, {46.2041222, 6.1524349}]
+	//
+	// 40.6890895, -74.0446899 center of the torch of the Statue of Liberty, New York, USA
+	// 40.7041146, -74.0152399 center of The Sphere in Battery Park, New York, USA
+	// 40.7643929, -73.9997683 tip of Lockheed A-12 (SR-71) on Intrepid, NY, USA
+	// 40.7642578, -73.9994565 tail of Lockheed A-12 (SR-71) on Intrepid, NY, USA
+	// 55.7535204, 37.6195371 center of Senatskaya tower, Red Square, Moscow, Russia
+	// 51.6606654, 39.1999751 center of Lenin statue, Lenin Square, Voronezh, Russia
+	// 49.2055275, -123.2014474 NW corner of Runway 08L-26R, YVR airport, Vancouver, Canada
+	// 49.2007563, -123.1596478 NE corner of Runway 08L-26R, YVR airport, Vancouver, Canada
+	// 37.6284983, -122.3927365 N corner of L on Runway 10L-28R, SFO airport, San Francisco, USA
+	// 37.6137799, -122.3577954 S corner of R on Runway 10L-28R, SFO airport, San Francisco, USA
+	// 68.974714, 33.0611873 tip of Lenin icebreaker, Murmansk, Russia
+	// -22.9519125, -43.2105616 center of the head of Christ the Redeemer statue, Rio de Janeiro, Brazil
+	// 51.5007788, -0.1246771 tip of Big Ben tower, London, England
+	// 29.97973, 31.1342695 tip of Pyramid of Cheops, Cairo, Egypt
+	// 41.4034549, 2.1741718 tip of the southern tower of Sagrada Familia, Barcelona, Spain
+	// 42.6848586, 23.3188623 tip of National Palace of Culture, Sofia, Bulgaria
+	// 46.2041222, 6.1524349 center of the fountain in English garden, Geneva, Switzerland
+	// 37.8106517, -122.4174678 tip of SS Jeremiah O'Brien, Pier 45, San Francisco, USA
+	// 37.8114358, -122.4186279 tail of SS Jeremiah O'Brien, Pier 45, San Francisco, USA
+	// 64.1475975, -21.9224185 center of Sun Voyager in Reykjavik, Iceland
+	// 63.8079982, -19.5589042 center of Eyjafjallajokull volcano, Iceland
+	double dTest[][5] =
+	{
+		{ 40.7643929, -73.9997683, 40.7642578, -73.9994565, 30.3013 }, // Lockheed A-12 (SR-71) length (30.97m per wiki)
+		{ 37.8106517, -122.4174678, 37.8114358, -122.4186279, 134.20 }, // SS Jeremiah O'Brien length ((134.57m per wiki)
+		{ 40.6890895, -74.0446899, 40.7041146, -74.0152399, 2996.59 }, // Statue of Liberty to The Sphere
+		{ 49.2055275, -123.2014474, 49.2007563, -123.1596478, 3091.96 }, // YVR Runway 08L-26R length (3030m per wiki)
+		{ 37.6284983, -122.3927365, 37.6137799, -122.3577954, 3490.54 }, // SFO Runway 10L-28R length (3618m per wiki)
+		{ 64.1475975, -21.9224185, 63.8079982, -19.5589042, 121768.14 }, // Reykjavik to Eyjafjallajokull
+		{ 55.7535204, 37.6195371, 51.6606654, 39.1999751, 467301.55 }, // Moscow to Voronezh
+		{ 51.5007788, -0.1246771, 46.2041222, 6.1524349, 747189.88 }, // London to Geneva
+		{ 51.5007788, -0.1246771, 41.4034549, 2.1741718, 1136075.00 }, // London to Barcelona
+		{ 51.5007788, -0.1246771, 42.6848586, 23.3188623, 2019138.10 }, // London to Sofia
+		{ 51.5007788, -0.1246771, 29.97973, 31.1342695, 3513002.04 }, // London to Cairo
+		{ 68.974714, 33.0611873, -22.9519125, -43.2105616, 11833803.11 }, // Murmansk to Rio
+		{ 0, 0, 0.5, 179.5, 19936288.579 }, // antipodes, direct Vincenty killer
+		// { 0, 0, 0.5, 179.7, 19944127.421 }, // antipodes, inverse Vincenty killer
+	};
+
+	for ( int i=0; i<sizeof(dTest)/sizeof(dTest[0]); i++ )
+	{
+		double * t = dTest[i];
+		printf ( "%2d: ref %10.1f", i, t[4] );
+		for ( int iFunc=0; iFunc<NFUNCS; iFunc++ )
+		{
+			float fDist = CalcGeofunc ( iFunc, t );
+			printf ( ", f%d %5.2f%%", iFunc, 100*(fDist-t[4])/t[4] );
+		}
+		printf ( "\n" );
+	}
+	printf ( "\n" );
+#endif
+}
+
+void TestSource ()
+{
+	printf ( "testing csv data source... " );
+
+	int iWriteStride = 7;
+	const char * dTest[] = {
+		"1,\"a,b \"\" c\",\"d \"\"a\"\" c\",\"the\tdox\n fox\",tmp,tmp,tmp,11\n",
+		"a,b \" c", "d \"a\" c", "the\tdox\n fox", "tmp", "tmp", "tmp",
+
+		"2,\"abc, defghijk. \"Lmnopqrs, \"tuv,\"\" wxyz.\",...,tmp,tmp,tmp,11\n",
+		"abc, defghijk. Lmnopqrs", " tuv,\" wxyz.", "...", "tmp", "tmp", "tmp",
+
+		"3,\",\",\"\",tmp,tmp,tmp,tmp,11\n",
+		",", "", "tmp", "tmp", "tmp", "tmp",
+
+		"4,\"Sup, \"\"puper\"\", duper\",tmp,tmp,tmp,tmp,tmp,11\n",
+		"Sup, \"puper\", duper", "tmp", "tmp", "tmp", "tmp", "tmp",
+
+		"5,\"Sup, \"\"puper\"\" duper\",tmp,tmp,tmp,tmp,tmp,11\n",
+		"Sup, \"puper\" duper", "tmp", "tmp", "tmp", "tmp", "tmp",
+
+		"6,\"Sup, \"\"puper\"\"\","",tmp,tmp,tmp,tmp,11\n",
+		"Sup, \"puper\"", "", "tmp", "tmp", "tmp", "tmp",
+
+		"7,\"Sup, \"\"puper, duper\"\"\",,tmp,tmp,tmp,tmp,11\n",
+		"Sup, \"puper, duper\"", "", "tmp", "tmp", "tmp", "tmp",
+
+		"8,cool,so far,\"Sup\n extra, duper,\",tmp,tmp,tmp,11\n",
+		"cool", "so far", "Sup\n extra, duper,", "tmp", "tmp", "tmp",
+
+		NULL };
+
+	// write csv file
+	FILE * fp = fopen ( g_sTmpfile, "wb" );
+	for ( int iTest=0; dTest[iTest]!=NULL; iTest+=iWriteStride )
+		fwrite ( dTest[iTest], 1, strlen ( dTest[iTest] ), fp );
+	fclose ( fp );
+
+	// open csv pipe
+	fp = fopen ( g_sTmpfile, "rb" );
+
+	// make config for 6 fields and attribute
+	CSphConfigSection tConf;
+	Verify ( tConf.Add ( CSphVariant ( "f0", 0 ), "csvpipe_field" ) );
+	CSphVariant & tTail = tConf["csvpipe_field"];
+	tTail.m_pNext = new CSphVariant ( "f1", 1 );
+	tTail.m_pNext->m_pNext = new CSphVariant ( "f2", 2 );
+	tTail.m_pNext->m_pNext->m_pNext = new CSphVariant ( "f3", 3 );
+	tTail.m_pNext->m_pNext->m_pNext->m_pNext = new CSphVariant ( "f4", 4 );
+	tTail.m_pNext->m_pNext->m_pNext->m_pNext->m_pNext = new CSphVariant ( "f5", 5 );
+	Verify ( tConf.Add ( CSphVariant ( "gid", 6 ), "csvpipe_attr_uint" ) );
+
+	// setup source
+	CSphSource_Document * pCSV = (CSphSource_Document *)sphCreateSourceCSVpipe ( &tConf, fp, "csv", false );
+	CSphString sError;
+	Verify ( pCSV->Connect ( sError ) );
+	Verify ( pCSV->IterateStart ( sError ) );
+
+	// verify that config matches to source schema
+	CSphSchema tSchema;
+	Verify ( pCSV->UpdateSchema ( &tSchema, sError ) );
+	int iColumns = tSchema.m_dFields.GetLength();
+
+	// check parsed fields
+	for ( int iTest=1; ; )
+	{
+		BYTE ** pFields = pCSV->NextDocument ( sError );
+		assert ( pFields || pCSV->m_tDocInfo.m_uDocID==0 );
+		if ( pCSV->m_tDocInfo.m_uDocID==0 )
+			break;
+
+		for ( int i=0; i<iColumns;i++ )
+		{
+			CSphString sTmp ( (const char *)pFields[i] );
+			assert ( sTmp==dTest[iTest+i] );
+		}
+
+		iTest += iWriteStride;
+	}
+
+	// clean up
+	SafeDelete ( pCSV );
+
+	printf ( "ok\n" );
+}
+
+//////////////////////////////////////////////////////////////////////////
+
 int main ()
 {
 	// threads should be initialized before memory allocations
@@ -2953,9 +3549,13 @@ int main ()
 	sphThreadInit();
 	MemorizeStack ( &cTopOfMainStack );
 
+	setvbuf ( stdout, NULL, _IONBF, 0 );
+
 	printf ( "RUNNING INTERNAL LIBSPHINX TESTS\n\n" );
 
 #if 0
+	GeodistInit();
+	TestGeodist();
 	BenchSort ();
 #endif
 
@@ -2963,8 +3563,7 @@ int main ()
 	BenchAppendf();
 	BenchMisc();
 	BenchStripper ();
-	BenchTokenizer ( false );
-	BenchTokenizer ( true );
+	BenchTokenizer ();
 	BenchExpr ();
 	BenchLocators ();
 	BenchThreads ();
@@ -2973,8 +3572,7 @@ int main ()
 	TestQueryParser ();
 	TestQueryTransforms ();
 	TestStripper ();
-	TestTokenizer ( false );
-	TestTokenizer ( true );
+	TestTokenizer ();
 	TestExpr ();
 	TestMisc ();
 	TestRwlock ();
@@ -2988,6 +3586,8 @@ int main ()
 	TestWildcards();
 	TestLog2();
 	TestArabicStemmer();
+	TestSource ();
+	TestRankerFactors ();
 #endif
 
 	unlink ( g_sTmpfile );
@@ -2996,5 +3596,6 @@ int main ()
 }
 
 //
-// $Id: tests.cpp 4521 2014-01-30 10:23:05Z tomat $
+// $Id: tests.cpp 4539 2014-02-05 16:52:03Z kevg $
 //
+

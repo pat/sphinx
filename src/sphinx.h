@@ -1,5 +1,5 @@
 //
-// $Id: sphinx.h 4675 2014-04-28 05:30:12Z deogar $
+// $Id: sphinx.h 4690 2014-05-13 15:11:01Z deogar $
 //
 
 //
@@ -24,9 +24,9 @@
 	#define USE_ODBC		1	/// whether to compile ODBC support
 	#define USE_LIBEXPAT	1	/// whether to compile libexpat support
 	#define USE_LIBICONV	1	/// whether to compile iconv support
-	#define USE_LIBXML		0	/// whether to compile libxml support
 	#define	USE_LIBSTEMMER	0	/// whether to compile libstemmber support
 	#define	USE_RE2			0	/// whether to compile RE2 support
+	#define USE_RLP			0	/// whether to compile RLP support
 	#define USE_WINDOWS		1	/// whether to compile for Windows
 	#define USE_SYSLOG		0	/// whether to use syslog for logging
 
@@ -80,7 +80,7 @@ typedef off_t				SphOffset_t;
 /////////////////////////////////////////////////////////////////////////////
 
 #ifndef USE_64BIT
-#define USE_64BIT 0
+#define USE_64BIT 1
 #endif
 
 #if USE_64BIT
@@ -196,10 +196,10 @@ inline const	DWORD *	STATIC2DOCINFO ( const DWORD * pAttrs )	{ return STATIC2DOC
 #include "sphinxversion.h"
 
 #ifndef SPHINX_TAG
-#define SPHINX_TAG "-release"
+#define SPHINX_TAG "-beta"
 #endif
 
-#define SPHINX_VERSION			"2.1.8" SPHINX_BITS_TAG SPHINX_TAG " (" SPH_SVN_TAGREV ")"
+#define SPHINX_VERSION			"2.2.3" SPHINX_BITS_TAG SPHINX_TAG " (" SPH_SVN_TAGREV ")"
 #define SPHINX_BANNER			"Sphinx " SPHINX_VERSION "\nCopyright (c) 2001-2014, Andrew Aksyonoff\nCopyright (c) 2008-2014, Sphinx Technologies Inc (http://sphinxsearch.com)\n\n"
 #define SPHINX_SEARCHD_PROTO	1
 #define SPHINX_CLIENT_VERSION	1
@@ -221,21 +221,21 @@ extern int64_t g_iIndexerPoolStartHit;
 
 /// Sphinx CRC32 implementation
 extern DWORD	g_dSphinxCRC32 [ 256 ];
-DWORD			sphCRC32 ( const BYTE * pString );
-DWORD			sphCRC32 ( const BYTE * pString, int iLen );
-DWORD			sphCRC32 ( const BYTE * pString, int iLen, DWORD uPrevCRC );
+DWORD			sphCRC32 ( const void * pString );
+DWORD			sphCRC32 ( const void * pString, int iLen );
+DWORD			sphCRC32 ( const void * pString, int iLen, DWORD uPrevCRC );
+
+/// Fast check if our endianess is correct
+const char*		sphCheckEndian();
 
 /// Sphinx FNV64 implementation
 const uint64_t	SPH_FNV64_SEED = 0xcbf29ce484222325ULL;
-uint64_t		sphFNV64 ( const BYTE * pString );
-uint64_t		sphFNV64 ( const BYTE * s, int iLen, uint64_t uPrev = SPH_FNV64_SEED );
-uint64_t		sphFNV64cont ( const BYTE * pString, uint64_t uPrev );
+uint64_t		sphFNV64 ( const void * pString );
+uint64_t		sphFNV64 ( const void * s, int iLen, uint64_t uPrev = SPH_FNV64_SEED );
+uint64_t		sphFNV64cont ( const void * pString, uint64_t uPrev );
 
 /// calculate file crc32
 bool			sphCalcFileCRC32 ( const char * szFilename, DWORD & uCRC32 );
-
-/// replaces all occurrences of sMacro in sTemplate with textual representation of uValue
-char *			sphStrMacro ( const char * sTemplate, const char * sMacro, SphDocID_t uValue );
 
 /// try to obtain an exclusive lock on specified file
 /// bWait specifies whether to wait
@@ -337,7 +337,23 @@ void sphUnalignedWrite ( void * pPtr, const T & tVal )
 		*pDst++ = *pSrc++;
 }
 
+#endif // unalgined
+
+
+#if UNALIGNED_RAM_ACCESS && USE_LITTLE_ENDIAN
+/// get a dword from memory, intel version
+inline DWORD sphGetDword ( const BYTE * p )
+{
+	return *(const DWORD*)p;
+}
+#else
+/// get a dword from memory, non-intel version
+inline DWORD sphGetDword ( const BYTE * p )
+{
+	return p[0] + ( p[1]<<8 ) + ( p[2]<<16 ) + ( p[3]<<24 );
+}
 #endif
+
 
 int sphUTF8Len ( const char * pStr );
 
@@ -352,7 +368,6 @@ inline int sphIsAttr ( int c )
 // TOKENIZERS
 /////////////////////////////////////////////////////////////////////////////
 
-extern const char *		SPHINX_DEFAULT_SBCS_TABLE;
 extern const char *		SPHINX_DEFAULT_UTF8_TABLE;
 
 /////////////////////////////////////////////////////////////////////////////
@@ -390,7 +405,7 @@ class CSphLowercaser
 	friend class ISphTokenizer;
 	friend class CSphTokenizerBase;
 	friend class CSphTokenizer_UTF8_Base;
-	template<bool> friend class CSphTokenizerBase2;
+	friend class CSphTokenizerBase2;
 
 public:
 				CSphLowercaser ();
@@ -458,6 +473,8 @@ struct CSphEmbeddedFiles
 	CSphVector<CSphSavedFile>	m_dWordformFiles;
 
 								CSphEmbeddedFiles ();
+
+	void						Reset();
 };
 
 
@@ -473,6 +490,7 @@ struct CSphTokenizerSettings
 	CSphString			m_sNgramChars;
 	CSphString			m_sBlendChars;
 	CSphString			m_sBlendMode;
+	CSphString			m_sIndexingPlugin;	///< this tokenizer wants an external plugin to process its raw output
 
 						CSphTokenizerSettings ();
 };
@@ -524,7 +542,7 @@ public:
 	/// add additional character as valid (with folding to itself)
 	virtual void					AddPlainChar ( char c );
 
-	/// add special chars to translation table (SBCS only, for now)
+	/// add special chars to translation table
 	/// updates lowercaser so that these remap to -1
 	virtual void					AddSpecials ( const char * sSpecials );
 
@@ -564,6 +582,21 @@ public:
 	/// create a token filter
 	static ISphTokenizer *			CreateBigramFilter ( ISphTokenizer * pTokenizer, ESphBigram eBigramIndex, const CSphString & sBigramWords, CSphString & sError );
 
+	/// create a plugin filter
+	/// sSspec is a library, name, and options specification string, eg "myplugins.dll:myfilter1:arg1=123"
+	static ISphTokenizer *			CreatePluginFilter ( ISphTokenizer * pTokenizer, const CSphString & sSpec, CSphString & sError );
+
+#if USE_RLP
+	/// create a RLP token filter
+	static ISphTokenizer *			CreateRLPFilter ( ISphTokenizer * pTokenizer, bool bChineseRLP, const char * szRLPRoot,	const char * szRLPEnv, const char * szRLPCtx, bool bStandalone, CSphString & sError );
+
+	/// create a filter to split an RLP-processed token stream into tokens
+	static ISphTokenizer *			CreateRLPResultSplitter ( ISphTokenizer * pTokenizer, const char * szRLPCtx );
+
+	/// create a filter that first splits data to tokens and performs RLP processing later
+	static ISphTokenizer *			CreateRLPQueryFilter ( ISphTokenizer * pTokenizer, bool bChineseRLP, const char * szRLPRoot, const char * szRLPEnv, const char * szRLPCtx, CSphString & sError );
+#endif
+
 	/// save tokenizer settings to a stream
 	virtual const CSphTokenizerSettings &	GetSettings () const { return m_tSettings; }
 
@@ -572,8 +605,16 @@ public:
 
 public:
 	/// pass next buffer
-	/// buffer is non-const because we fixup zeroes with spaces; everything else is const
-	virtual void					SetBuffer ( BYTE * sBuffer, int iLength ) = 0;
+	virtual void					SetBuffer ( const BYTE * sBuffer, int iLength ) = 0;
+
+	/// set current index schema (only intended for the token filter plugins)
+	virtual bool					SetFilterSchema ( const CSphSchema &, CSphString & ) { return true; }
+
+	/// set per-document options from INSERT
+	virtual bool					SetFilterOptions ( const char *, CSphString & ) { return true; }
+
+	/// notify tokenizer that we now begin indexing a field with a given number (only intended for the token filter plugins)
+	virtual void					BeginField ( int ) {}
 
 	/// get next token
 	virtual BYTE *					GetToken () = 0;
@@ -589,6 +630,9 @@ public:
 
 	/// enable zone indexing
 	virtual bool					EnableZoneIndexing ( CSphString & sError );
+
+	// shows whether morphology needs to be applied to this token or not
+	virtual bool					GetMorphFlag () const { return true; }
 
 	/// enable tokenized multiform tracking
 	virtual void					EnableTokenizedMultiformTracking () {}
@@ -620,12 +664,11 @@ public:
 	virtual bool					TokenIsBlendedPart () const { return m_bBlendedPart; }
 	virtual int						SkipBlended () { return 0; }
 
+	virtual ISphTokenizer *			GetEmbeddedTokenizer () const { return NULL; }
+
 public:
 	/// spawn a clone of my own
 	virtual ISphTokenizer *			Clone ( ESphTokenizerClone eMode ) const = 0;
-
-	/// SBCS or UTF-8?
-	virtual bool					IsUtf8 () const = 0;
 
 	/// start buffer point of last token
 	virtual const char *			GetTokenStart () const = 0;
@@ -643,10 +686,13 @@ public:
 	virtual void					SetBufferPtr ( const char * sNewPtr ) = 0;
 
 	/// get settings hash
-	virtual uint64_t				GetSettingsFNV () const { return m_tLC.GetFNV(); }
+	virtual uint64_t				GetSettingsFNV () const;
 
 	/// get (readonly) lowercaser
 	const CSphLowercaser &			GetLowercaser() const { return m_tLC; }
+
+	/// get an RLP context path (if any)
+	virtual const char * GetRLPContext () const { return NULL; }
 
 protected:
 	virtual bool					RemapCharacters ( const char * sConfig, DWORD uFlags, const char * sSource, bool bCanRemap, CSphString & sError );
@@ -692,9 +738,6 @@ public:
 /// parse charset table
 bool					sphParseCharset ( const char * sCharset, CSphVector<CSphRemapRange> & dRemaps );
 
-/// create SBCS tokenizer
-ISphTokenizer *			sphCreateSBCSTokenizer ();
-
 /// create UTF-8 tokenizer
 ISphTokenizer *			sphCreateUTF8Tokenizer ();
 
@@ -718,7 +761,7 @@ struct CSphDictSettings
 
 	CSphDictSettings ()
 		: m_iMinStemmingLen ( 1 )
-		, m_bWordDict ( false )
+		, m_bWordDict ( true )
 		, m_bCrc32 ( !USE_64BIT )
 		, m_bStopwordsUnstemmed ( false )
 	{}
@@ -730,7 +773,7 @@ struct CSphDictSettings
 struct CSphDictEntry
 {
 	SphWordID_t		m_uWordID;			///< keyword id (for dict=crc)
-	BYTE *			m_sKeyword;			///< keyword text (for dict=keywords)
+	const BYTE *	m_sKeyword;			///< keyword text (for dict=keywords)
 	int				m_iDocs;			///< number of matching documents
 	int				m_iHits;			///< number of occurrences
 	SphOffset_t		m_iDoclistOffset;	///< absolute document list offset (into .spd)
@@ -784,8 +827,10 @@ public:
 	/// virtualizing dtor
 	virtual				~CSphDict () {}
 
-	/// get word ID by word, "text" version
+	/// Get word ID by word, "text" version
 	/// may apply stemming and modify word inplace
+	/// modified word may become bigger than the original one, so make sure you have enough space in buffer which is pointer by pWord
+	/// a general practice is to use char[3*SPH_MAX_WORD_LEN+4] as a buffer
 	/// returns 0 for stopwords
 	virtual SphWordID_t	GetWordID ( BYTE * pWord ) = 0;
 
@@ -834,7 +879,7 @@ public:
 
 	/// set morphology
 	/// returns 0 on success, 1 on hard error, 2 on a warning (see ST_xxx constants)
-	virtual int			SetMorphology ( const char * szMorph, bool bUseUTF8, CSphString & sMessage ) = 0;
+	virtual int			SetMorphology ( const char * szMorph, CSphString & sMessage ) = 0;
 
 	/// are there any morphological processors?
 	virtual bool		HasMorphology () const { return false; }
@@ -899,16 +944,25 @@ public:
 	/// make a clone
 	virtual CSphDict *		Clone () const { return NULL; }
 
+	/// get settings hash
+	virtual uint64_t		GetSettingsFNV () const = 0;
+
+	/// apply morphology or not
+	virtual void			SetApplyMorph ( bool bApply ) = 0;
+
 protected:
 	CSphString				m_sMorphFingerprint;
 };
 
 
+/// traits dictionary factory (no storage, only tokenizing, lemmatizing, etc.)
+CSphDict * sphCreateDictionaryTemplate ( const CSphDictSettings & tSettings, const CSphEmbeddedFiles * pFiles, const ISphTokenizer * pTokenizer, const char * sIndex, CSphString & sError );
+
 /// CRC32/FNV64 dictionary factory
 CSphDict * sphCreateDictionaryCRC ( const CSphDictSettings & tSettings, const CSphEmbeddedFiles * pFiles, const ISphTokenizer * pTokenizer, const char * sIndex, CSphString & sError );
 
 /// keyword-storing dictionary factory
-CSphDict * sphCreateDictionaryKeywords ( const CSphDictSettings & tSettings, const CSphEmbeddedFiles * pFiles, ISphTokenizer * pTokenizer, const char * sIndex, CSphString & sError );
+CSphDict * sphCreateDictionaryKeywords ( const CSphDictSettings & tSettings, const CSphEmbeddedFiles * pFiles, const ISphTokenizer * pTokenizer, const char * sIndex, CSphString & sError );
 
 /// clear wordform cache
 void sphShutdownWordforms ();
@@ -930,7 +984,10 @@ typedef DWORD Hitpos_t;
 #define EMPTY_HIT 0
 
 /// hit processing tools
-/// (because we now allow multiple actual formats within a single storage type!)
+/// Hitpos_t consists of three things:
+/// 1) high bits store field number
+/// 2) middle bit - field end marker
+/// 3) lower bits store hit position in field
 template < int FIELD_BITS >
 class Hitman_c
 {
@@ -941,7 +998,7 @@ protected:
 		FIELD_OFF		= 32 - FIELD_BITS,
 		FIELDEND_OFF	= 31 - FIELD_BITS,
 		FIELDEND_MASK	= (1UL << POS_BITS),
-		POS_MASK		= (1UL << POS_BITS) - 1,
+		POS_MASK		= (1UL << POS_BITS) - 1
 	};
 
 public:
@@ -970,7 +1027,7 @@ public:
 		return ( uHitpos & FIELDEND_MASK )!=0;
 	}
 
-	static inline DWORD GetLCS ( Hitpos_t uHitpos )
+	static inline DWORD GetPosWithField ( Hitpos_t uHitpos )
 	{
 		return uHitpos & ~FIELDEND_MASK;
 	}
@@ -993,12 +1050,97 @@ public:
 	}
 };
 
+// this could be just DWORD[] but it's methods are very handy
+// used to store field information e.g. which fields do we need to search in
+struct FieldMask_t
+{
+	static const int SIZE = SPH_MAX_FIELDS/32;
+	STATIC_ASSERT ( ( SPH_MAX_FIELDS%32 )==0, ASSUME_MAX_FIELDS_ARE_REPRESENTABLE_BY_DWORD );
+	DWORD m_dMask [ SIZE ];
+
+	// no custom cstr and d-tor - to be usable from inside unions
+	// deep copy for it is ok - so, no explicit copying constructor and operator=
+
+	// old-fashion layer to work with DWORD (32-bit) mask.
+	// all bits above 32 assumed to be unset.
+	void Assign32 ( DWORD uMask )
+	{
+		UnsetAll();
+		m_dMask[0] = uMask;
+	}
+
+	DWORD GetMask32 () const
+	{
+		return m_dMask[0];
+	}
+
+	DWORD operator[] ( int iIdx ) const
+	{
+		assert ( 0<=iIdx && iIdx<SIZE );
+		return m_dMask [ iIdx ];
+	}
+
+	DWORD & operator[] ( int iIdx )
+	{
+		assert ( 0<=iIdx && iIdx<SIZE );
+		return m_dMask [ iIdx ];
+	}
+
+	// set n-th bit
+	void Set ( int iIdx )
+	{
+		assert ( 0<=iIdx && iIdx<(int)sizeof(m_dMask)*8 );
+		m_dMask [ iIdx/32 ] |= 1 << ( iIdx%32 );
+	}
+
+	// set all bits
+	void SetAll()
+	{
+		memset ( m_dMask, 0xff, sizeof(m_dMask) );
+	}
+
+	// unset n-th bit, or all
+	void Unset ( int iIdx )
+	{
+		assert ( 0<=iIdx && iIdx<(int)sizeof(m_dMask)*8 );
+		m_dMask [ iIdx/32 ] &= ~(1 << ( iIdx%32 ));
+	}
+
+	void UnsetAll()
+	{
+		memset ( m_dMask, 0, sizeof(m_dMask) );
+	}
+
+	// test if n-th bit is set
+	bool Test ( int iIdx ) const
+	{
+		assert ( iIdx>=0 && iIdx<(int)sizeof(m_dMask)*8 );
+		return ( m_dMask [ iIdx/32 ] & ( 1 << ( iIdx%32 ) ) )!=0;
+	}
+
+	// test if all bits are set or unset
+	bool TestAll ( bool bSet ) const
+	{
+		DWORD uTest = bSet ? 0xffffffff : 0;
+		for ( int i=0; i<SIZE; i++ )
+			if ( m_dMask[i]!=uTest )
+				return false;
+		return true;
+	}
+
+	void Negate()
+	{
+		for ( int i=0; i<SIZE; i++ )
+			m_dMask[i] = ~m_dMask[i];
+	}
+};
+
 /// hit info
 struct CSphWordHit
 {
-	SphDocID_t		m_iDocID;		///< document ID
-	SphWordID_t		m_iWordID;		///< word ID in current dictionary
-	Hitpos_t		m_iWordPos;		///< word position in current document
+	SphDocID_t		m_uDocID;		///< document ID
+	SphWordID_t		m_uWordID;		///< word ID in current dictionary
+	Hitpos_t		m_uWordPos;		///< word position in current document
 };
 
 
@@ -1044,6 +1186,11 @@ struct CSphAttrLocator
 		return ( m_iBitOffset + m_iBitCount - 1 ) / ROWITEM_BITS;
 	}
 #endif
+
+	bool operator == ( const CSphAttrLocator & rhs ) const
+	{
+		return m_iBitOffset==rhs.m_iBitOffset && m_iBitCount==rhs.m_iBitCount && m_bDynamic==rhs.m_bDynamic;
+	}
 };
 
 
@@ -1138,9 +1285,11 @@ inline int sphUnpackStr ( const BYTE * pRow, const BYTE ** ppStr )
 /// search query match (document info plus weight/tag)
 class CSphMatch
 {
-	friend struct CSphSchema;
+	friend class ISphSchema;
+	friend class CSphRsetSchema;
+
 public:
-	SphDocID_t				m_iDocID;		///< document ID
+	SphDocID_t				m_uDocID;		///< document ID
 	const CSphRowitem *		m_pStatic;		///< static part (stored in and owned by the index)
 	CSphRowitem *			m_pDynamic;		///< dynamic part (computed per query; owned by the match)
 	int						m_iWeight;		///< my computed weight
@@ -1149,7 +1298,7 @@ public:
 public:
 	/// ctor. clears everything
 	CSphMatch ()
-		: m_iDocID ( 0 )
+		: m_uDocID ( 0 )
 		, m_pStatic ( NULL )
 		, m_pDynamic ( NULL )
 		, m_iWeight ( 0 )
@@ -1184,7 +1333,7 @@ public:
 		assert ( iDynamic>=0 );
 		assert ( !m_pDynamic || iDynamic==(int)m_pDynamic[-1] );
 
-		m_iDocID = 0;
+		m_uDocID = 0;
 		if ( !m_pDynamic && iDynamic )
 		{
 #ifndef NDEBUG
@@ -1201,16 +1350,19 @@ public:
 
 private:
 	/// assignment
-	void Clone ( const CSphMatch & rhs, int iDynamic )
+	void Combine ( const CSphMatch & rhs, int iDynamic )
 	{
 		// check that we're either initializing a new one, or NOT changing the current size
 		assert ( iDynamic>=0 );
 		assert ( !m_pDynamic || iDynamic==(int)m_pDynamic[-1] );
 
-		m_iDocID = rhs.m_iDocID;
-		m_iWeight = rhs.m_iWeight;
-		m_pStatic = rhs.m_pStatic;
-		m_iTag = rhs.m_iTag;
+		if ( this!=&rhs )
+		{
+			m_uDocID = rhs.m_uDocID;
+			m_iWeight = rhs.m_iWeight;
+			m_pStatic = rhs.m_pStatic;
+			m_iTag = rhs.m_iTag;
+		}
 
 		if ( iDynamic )
 		{
@@ -1224,9 +1376,12 @@ private:
 #endif
 			}
 
-			assert ( rhs.m_pDynamic );
-			assert ( m_pDynamic[-1]==rhs.m_pDynamic[-1] ); // ensure we're not changing X to Y
-			memcpy ( m_pDynamic, rhs.m_pDynamic, iDynamic*sizeof(CSphRowitem) );
+			if ( this!=&rhs )
+			{
+				assert ( rhs.m_pDynamic );
+				assert ( m_pDynamic[-1]==rhs.m_pDynamic[-1] ); // ensure we're not changing X to Y
+				memcpy ( m_pDynamic, rhs.m_pDynamic, iDynamic*sizeof(CSphRowitem) );
+			}
 		}
 	}
 
@@ -1239,7 +1394,7 @@ public:
 		if ( tLoc.m_iBitOffset>=0 )
 			return sphGetRowAttr ( tLoc.m_bDynamic ? m_pDynamic : m_pStatic, tLoc );
 		if ( tLoc.IsID() )
-			return m_iDocID;
+			return m_uDocID;
 		assert ( false && "Unknown negative-bitoffset locator" );
 		return 0;
 	}
@@ -1283,7 +1438,7 @@ private:
 /// specialized swapper
 inline void Swap ( CSphMatch & a, CSphMatch & b )
 {
-	Swap ( a.m_iDocID, b.m_iDocID );
+	Swap ( a.m_uDocID, b.m_uDocID );
 	Swap ( a.m_pStatic, b.m_pStatic );
 	Swap ( a.m_pDynamic, b.m_pDynamic );
 	Swap ( a.m_iWeight, b.m_iWeight );
@@ -1311,6 +1466,7 @@ struct CSphSourceStats
 	}
 };
 
+//////////////////////////////////////////////////////////////////////////
 
 /// known multi-valued attr sources
 enum ESphAttrSrc
@@ -1391,11 +1547,87 @@ struct CSphColumnInfo
 };
 
 
-/// source schema
-struct CSphSchema
+/// barebones schema interface
+/// everything that is needed from every implementation of a schema
+class ISphSchema
 {
-	CSphString						m_sName;		///< my human-readable name
-	CSphVector<CSphColumnInfo>		m_dFields;		///< my fulltext-searchable fields
+protected:
+	CSphVector<CSphNamedInt>		m_dPtrAttrs;		///< names and rowitems of STRINGPTR and other ptrs to copy and delete
+	CSphVector<CSphNamedInt>		m_dFactorAttrs;		///< names and rowitems of SPH_ATTR_FACTORS attributes
+
+public:
+	/// get row size (static+dynamic combined)
+	virtual int						GetRowSize() const = 0;
+
+	/// get static row part size
+	virtual int						GetStaticSize() const = 0;
+
+	/// get dynamic row part size
+	virtual int						GetDynamicSize() const = 0;
+
+	/// get attrs count
+	virtual int						GetAttrsCount() const = 0;
+
+	/// get attribute index by name, returns -1 if not found
+	virtual int						GetAttrIndex ( const char * sName ) const = 0;
+
+	/// get attr by index
+	virtual const CSphColumnInfo &	GetAttr ( int iIndex ) const = 0;
+
+	/// get attr by name
+	virtual const CSphColumnInfo *	GetAttr ( const char * sName ) const = 0;
+
+	/// assign current schema to rset schema (kind of a visitor operator)
+	virtual void					AssignTo ( class CSphRsetSchema & lhs ) const = 0;
+
+public:
+	/// full copy, for purely dynamic matches
+	void							CloneWholeMatch ( CSphMatch * pDst, const CSphMatch & rhs ) const;
+
+	/// free the linked strings and/or just initialize the pointers with NULL
+	void							FreeStringPtrs ( CSphMatch * pMatch ) const;
+
+	/// ???
+	void							CopyPtrs ( CSphMatch * pDst, const CSphMatch & rhs ) const;
+
+protected:
+	/// generic InsertAttr() implementation that tracks STRINGPTR, FACTORS attributes
+	void							InsertAttr ( CSphVector<CSphColumnInfo> & dAttrs, CSphVector<int> & dUsed, int iPos, const CSphColumnInfo & tCol, bool dDynamic );
+
+	/// reset my trackers
+	void							Reset();
+
+	/// dtor
+	virtual ~ISphSchema () {}
+};
+
+
+/// plain good old schema
+/// container that actually holds and owns all the fields, columns, etc
+///
+/// NOTE that while this one can be used everywhere where we need a schema
+/// it might be huge (say 1000+ attributes) and expensive to copy, modify, etc!
+/// so for most of the online query work, consider CSphRsetSchema
+class CSphSchema : public ISphSchema
+{
+	friend class CSphRsetSchema;
+
+protected:
+	static const int			HASH_THRESH		= 32;
+	static const int			BUCKET_COUNT	= 256;
+
+public:
+	CSphString					m_sName;		///< my human-readable name
+	CSphVector<CSphColumnInfo>	m_dFields;		///< my fulltext-searchable fields
+
+
+	CSphVector<CSphColumnInfo>	m_dAttrs;		///< all my attributes
+	CSphVector<int>				m_dStaticUsed;	///< static row part map (amount of used bits in each rowitem)
+	CSphVector<int>				m_dDynamicUsed;	///< dynamic row part map
+	int							m_iStaticSize;	///< static row size (can be different from m_dStaticUsed.GetLength() because of gaps)
+
+protected:
+	WORD						m_dBuckets [ BUCKET_COUNT ];	///< uses indexes in m_dAttrs as ptrs; 0xffff is like NULL in this hash
 
 public:
 
@@ -1417,9 +1649,6 @@ public:
 	/// reset fields and attrs
 	void					Reset ();
 
-	/// reset attrs only
-	void					ResetAttrs ();
-
 	/// get row size (static+dynamic combined)
 	int						GetRowSize () const				{ return m_iStaticSize + m_dDynamicUsed.GetLength(); }
 
@@ -1438,57 +1667,80 @@ public:
 	/// get attr by name
 	const CSphColumnInfo *	GetAttr ( const char * sName ) const;
 
+	/// insert attr
+	void					InsertAttr ( int iPos, const CSphColumnInfo & tAggr, bool bDynamic );
+
 	/// add attr
 	void					AddAttr ( const CSphColumnInfo & tAttr, bool bDynamic );
 
-	/// remove static attr (but do NOT recompute locations; for overrides)
-	/// WARNING, THIS IS A HACK THAT WILL LIKELY BREAK THE SCHEMA, DO NOT USE THIS UNLESS ABSOLUTELY SURE!
-	void					RemoveAttr ( int iIndex );
+	/// remove attr
+	void					RemoveAttr ( const char * szAttr, bool bDynamic );
 
-	/// copy ptr attrs from another schema
-	void					AdoptPtrAttrs ( const CSphSchema & tSrc );
-
-public:
-	// also let the schema to clone the matches when necessary
-	void CopyStrings ( CSphMatch * pDst, const CSphMatch & rhs, int iUpBound=-1 ) const;
-
-	// simple copy - clone the fields, copy the dynamic part.
-	void CloneMatch ( CSphMatch * pDst, const CSphMatch & rhs ) const;
-
-	// full copy - for pure dynamic matches.
-	void CloneWholeMatch ( CSphMatch * pDst, const CSphMatch & rhs ) const;
-
-	// free the linked strings and/or just initialize the pointers with NULL
-	void FreeStringPtrs ( CSphMatch * pMatch, int iUpBound=-1 ) const;
-
-	// returns 0xFFFF if bucket list is empty and position otherwise
-	WORD & GetBucketPos ( const char * sName );
-
-	void RebuildHash ();
+	static bool				IsReserved ( const char * szToken );
 
 protected:
-	CSphVector<CSphColumnInfo>		m_dAttrs;			///< all my attributes
-	CSphVector<int>					m_dStaticUsed;		///< static row part map (amount of used bits in each rowitem)
-	CSphVector<int>					m_dDynamicUsed;		///< dynamic row part map
-	int								m_iStaticSize;		///< static row size (can be different from m_dStaticUsed.GetLength() because of gaps)
+	/// returns 0xffff if bucket list is empty and position otherwise
+	WORD &					GetBucketPos ( const char * sName );
 
-	void UpdateHash ( int iStartIdx, int iAddVal );
+	/// reset hash and re-add all attributes
+	void					RebuildHash ();
 
-	static const int	HASH_THRESH		= 32;
-	static const int	BUCKET_COUNT	= 256;
-	WORD				m_dBuckets [ BUCKET_COUNT ];	///< uses indexes in m_dAttrs as ptrs; 0xffff is like NULL in this hash
+	/// add iAddVal to all indexes strictly greater than iStartIdx in hash structures
+	void					UpdateHash ( int iStartIdx, int iAddVal );
 
-	struct PtrAttr_t
-	{
-		int			m_iOffset;
-		CSphString	m_sName;
-	};
-
-	friend void FixupPtrAttrs ( const CSphVector<PtrAttr_t> &, const CSphVector<CSphColumnInfo> &, CSphVector<PtrAttr_t> & );
-
-	CSphVector<PtrAttr_t>			m_dPtrAttrs;		///< attributes which have to be copied and deleted
-	CSphVector<PtrAttr_t>			m_dFactorAttrs;		///< these are the names and offsets of SPH_ATTR_FACTORS attributes
+	/// visitor-style uber-virtual assignment implementation
+	void					AssignTo ( CSphRsetSchema & lhs ) const;
 };
+
+
+/// lightweight schema to be used in sorters, result sets, etc
+/// avoids copying of static attributes part by keeping a pointer
+/// manages the additional dynamic attributes on its own
+///
+/// NOTE that for that reason CSphRsetSchema needs the originating index to exist
+/// (in case it keeps and uses a pointer to original schema in that index)
+class CSphRsetSchema : public ISphSchema
+{
+protected:
+	const CSphSchema *			m_pIndexSchema;		///< original index schema, for the static part
+	CSphVector<CSphColumnInfo>	m_dExtraAttrs;		///< additional dynamic attributes, for the dynamic one
+	CSphVector<int>				m_dDynamicUsed;		///< dynamic row part map
+	CSphVector<int>				m_dRemoved;			///< original indexes that are suppressed from the index schema by RemoveStaticAttr()
+
+public:
+	CSphVector<CSphColumnInfo>	m_dFields;			///< standalone case (agent result set), fields container
+
+public:
+								CSphRsetSchema();
+	CSphRsetSchema &			operator = ( const ISphSchema & rhs );
+	CSphRsetSchema &			operator = ( const CSphSchema & rhs );
+	virtual void				AssignTo ( CSphRsetSchema & lhs ) const		{ lhs = *this; }
+
+public:
+	int							GetRowSize() const;
+	int							GetStaticSize() const;
+	int							GetDynamicSize() const;
+	int							GetAttrsCount() const;
+	int							GetAttrIndex ( const char * sName ) const;
+	const CSphColumnInfo &		GetAttr ( int iIndex ) const;
+	const CSphColumnInfo *		GetAttr ( const char * sName ) const;
+
+public:
+	void						AddDynamicAttr ( const CSphColumnInfo & tCol );
+	void						RemoveStaticAttr ( int iAttr );
+	void						Reset();
+
+public:
+	/// simple copy; clones either the entire dynamic part, or a part thereof
+	void CloneMatch ( CSphMatch * pDst, const CSphMatch & rhs ) const;
+
+	/// swap in a subset of current attributes, with not necessarily (!) unique names
+	/// used to create a network result set (ie. rset to be sent and then discarded)
+	/// WARNING, DO NOT USE THIS UNLESS ABSOLUTELY SURE!
+	void SwapAttrs ( CSphVector<CSphColumnInfo> & dAttrs );
+};
+
+//////////////////////////////////////////////////////////////////////////
 
 /// HTML stripper
 class CSphHTMLStripper
@@ -1597,9 +1849,9 @@ public:
 		if ( uWordid )
 		{
 			CSphWordHit & tHit = m_dData.Add();
-			tHit.m_iDocID = uDocid;
-			tHit.m_iWordID = uWordid;
-			tHit.m_iWordPos = uPos;
+			tHit.m_uDocID = uDocid;
+			tHit.m_uWordID = uWordid;
+			tHit.m_uWordPos = uPos;
 		}
 	}
 
@@ -1616,7 +1868,6 @@ struct SphRange_t
 
 struct CSphFieldFilterSettings
 {
-	bool					m_bUTF8;
 	CSphVector<CSphString>	m_dRegexps;
 };
 
@@ -1707,7 +1958,7 @@ public:
 	/// to be implemented by descendants
 	/// returns false on error
 	/// returns true and fills m_tDocInfo on success
-	/// returns true and sets m_tDocInfo.m_iDocID to 0 on eof
+	/// returns true and sets m_tDocInfo.m_uDocID to 0 on eof
 	virtual bool						IterateDocument ( CSphString & sError ) = 0;
 
 	/// get next hits chunk for current document
@@ -1739,7 +1990,7 @@ public:
 	virtual bool						IterateKillListStart ( CSphString & sError ) = 0;
 
 	/// get next kill list doc id
-	virtual bool						IterateKillListNext ( SphDocID_t & tDocId ) = 0;
+	virtual bool						IterateKillListNext ( SphDocID_t & uDocId ) = 0;
 
 	/// post-index callback
 	/// gets called when the indexing is succesfully (!) over
@@ -1799,7 +2050,7 @@ public:
 	virtual bool			HasJoinedFields () { return m_iPlainFieldsLength!=m_tSchema.m_dFields.GetLength(); }
 
 protected:
-	int						ParseFieldMVA ( CSphVector < DWORD > & dMva, const char * szValue, bool bMva64 );
+	int						ParseFieldMVA ( CSphVector < DWORD > & dMva, const char * szValue, bool bMva64 ) const;
 	bool					CheckFileField ( const BYTE * sField );
 	int						LoadFileField ( BYTE ** ppField, CSphString & sError );
 
@@ -1849,6 +2100,8 @@ protected:
 
 		CSphBuildHitsState_t ();
 		~CSphBuildHitsState_t ();
+
+		void Reset ();
 	};
 
 	CSphBuildHitsState_t	m_tState;
@@ -2096,7 +2349,6 @@ struct CSphSourceParams_ODBC: CSphSourceParams_SQL
 	CSphString	m_sOdbcDSN;			///< ODBC DSN
 	CSphString	m_sColBuffers;		///< column buffer sizes (eg "col1=2M, col2=4M")
 	bool		m_bWinAuth;			///< auth type (MS SQL only)
-	bool		m_bUnicode;			///< whether to ask for Unicode or SBCS (C char) data (MS SQL only)
 
 				CSphSourceParams_ODBC ();
 };
@@ -2125,7 +2377,6 @@ protected:
 protected:
 	CSphString				m_sOdbcDSN;
 	bool					m_bWinAuth;
-	bool					m_bUnicode;
 
 	SQLHENV					m_hEnv;
 	SQLHDBC					m_hDBC;
@@ -2165,107 +2416,10 @@ struct CSphSource_MSSQL : public CSphSource_ODBC
 #endif // USE_ODBC
 
 
-/// XML pipe source implementation
-class CSphSource_XMLPipe : public CSphSource
-{
-public:
-					CSphSource_XMLPipe ( BYTE * dInitialBuf, int iBufLen, const char * sName );	///< ctor
-					~CSphSource_XMLPipe ();						///< dtor
-
-	bool			Setup ( FILE * pPipe, const char * sCommand );			///< memorize the command
-	virtual bool	Connect ( CSphString & sError );			///< run the command and open the pipe
-	virtual void	Disconnect ();								///< close the pipe
-
-	virtual bool		IterateStart ( CSphString & ) { return true; }	///< Connect() starts getting documents automatically, so this one is empty
-	virtual bool		IterateDocument ( CSphString & sError );		///< parse incoming chunk and emit document
-	virtual ISphHits *	IterateHits ( CSphString & sError );									///< parse incoming chunk and emit some hits
-
-	virtual bool	HasAttrsConfigured ()							{ return true; }	///< xmlpipe always has some attrs for now
-	virtual bool	IterateMultivaluedStart ( int, CSphString & )	{ return false; }	///< xmlpipe does not support multi-valued attrs for now
-	virtual bool	IterateMultivaluedNext ()						{ return false; }	///< xmlpipe does not support multi-valued attrs for now
-	virtual SphRange_t	IterateFieldMVAStart ( int );
-	virtual bool	IterateKillListStart ( CSphString & )			{ return false; }
-	virtual bool	IterateKillListNext ( SphDocID_t & )			{ return false; }
-
-
-private:
-	enum Tag_e
-	{
-		TAG_DOCUMENT = 0,
-		TAG_ID,
-		TAG_GROUP,
-		TAG_TITLE,
-		TAG_BODY
-	};
-
-private:
-	CSphString		m_sCommand;			///< my command
-
-	const char *	m_pTag;				///< tag name
-	int				m_iTagLength;		///< tag name length
-	int				m_iBufferSize;		///< buffer size
-	bool			m_bEOF;				///< EOF encountered
-	bool			m_bWarned;			///< warned of buffer size already
-	int				m_iInitialBufLen;	///< initial buffer len
-
-	FILE *			m_pPipe;			///< incoming stream
-	BYTE *			m_sBuffer;			///< buffer
-	BYTE *			m_pBuffer;			///< current buffer pos
-	BYTE *			m_pBufferEnd;		///< buffered end pos
-
-	int				m_iWordPos;			///< current word position
-
-	ISphHits		m_tHits;			///< my hitvector
-	bool			m_bHitsReady;
-
-private:
-	/// set current tag
-	void			SetTag ( const char * sTag );
-
-	/// read in some more data
-	/// moves everything from current ptr (m_pBuffer) to the beginng
-	/// reads in as much data as possible to the end
-	/// returns false on EOF
-	bool			UpdateBuffer ();
-
-	/// skips whitespace
-	/// does buffer updates
-	/// returns false on EOF
-	bool			SkipWhitespace ();
-
-	/// check if what's at current pos is either opening/closing current tag (m_pTag)
-	/// return false on failure
-	bool			CheckTag ( bool bOpen, CSphString & sError );
-
-	/// skips whitespace and opening/closing current tag (m_pTag)
-	/// returns false on failure
-	bool			SkipTag ( bool bOpen, CSphString & sError );
-
-	/// scan for tag with integer value
-	bool			ScanInt ( const char * sTag, DWORD * pRes, CSphString & sError );
-
-	/// scan for tag with integer value
-	bool			ScanInt ( const char * sTag, uint64_t * pRes, CSphString & sError );
-
-	/// scan for tag with integer value
-	bool			ScanInt ( const char * sTag, int64_t * pRes, CSphString & sError ) { return ScanInt ( sTag, (uint64_t*)pRes, sError ); }
-
-	/// scan for tag with string value
-	bool			ScanStr ( const char * sTag, char * pRes, int iMaxLength, CSphString & sError );
-
-	/// check for hits overun hits buffer
-	void			CheckHitsCount ( const char * sField );
-};
-
-
-#if USE_LIBEXPAT || USE_LIBXML
-
+#if USE_LIBEXPAT
 class CSphConfigSection;
-CSphSource * sphCreateSourceXmlpipe2 ( const CSphConfigSection * pSource, FILE * pPipe, BYTE * dInitialBuf, int iBufLen, const char * szSourceName, int iMaxFieldLen );
-
+CSphSource * sphCreateSourceXmlpipe2 ( const CSphConfigSection * pSource, FILE * pPipe, const char * szSourceName, int iMaxFieldLen, bool bProxy, CSphString & sError );
 #endif
-
-FILE * sphDetectXMLPipe ( const char * szCommand, BYTE * dBuf, int & iBufSize, int iMaxBufSize, bool & bUsePipe2 );
 
 
 /////////////////////////////////////////////////////////////////////////////
@@ -2314,6 +2468,7 @@ enum ESphRankMode
 	SPH_RANK_SPH04				= 7,	///< codename SPH04, phrase proximity + bm25 + head/exact boost
 	SPH_RANK_EXPR				= 8,	///< rank by user expression (eg. "sum(lcs*user_weight)*1000+bm25")
 	SPH_RANK_EXPORT				= 9,	///< rank by BM25, but compute and export all user expression factors
+	SPH_RANK_PLUGIN				= 10,	///< user-defined ranker
 
 	SPH_RANK_TOTAL,
 	SPH_RANK_DEFAULT			= SPH_RANK_PROXIMITY_BM25
@@ -2340,6 +2495,7 @@ enum ESphFilter
 	SPH_FILTER_RANGE		= 1,	///< filter by integer range
 	SPH_FILTER_FLOATRANGE	= 2,	///< filter by float range
 	SPH_FILTER_STRING		= 3,	///< filter by string value
+	SPH_FILTER_NULL			= 4,	///< filter by NULL
 	SPH_FILTER_USERVAR		= 5		///< filter by @uservar
 };
 
@@ -2383,8 +2539,6 @@ public:
 protected:
 	const SphAttr_t *	m_pValues;		///< external value array
 	int					m_nValues;		///< external array size
-
-						CSphFilterSettings ( const CSphFilterSettings & rhs );
 };
 
 
@@ -2395,7 +2549,17 @@ struct CSphKeywordInfo
 	CSphString		m_sNormalized;
 	int				m_iDocs;
 	int				m_iHits;
+	int				m_iQpos;
 };
+
+inline void Swap ( CSphKeywordInfo & v1, CSphKeywordInfo & v2 )
+{
+	v1.m_sTokenized.Swap ( v2.m_sTokenized );
+	v1.m_sNormalized.Swap ( v2.m_sNormalized );
+	::Swap ( v1.m_iDocs, v2.m_iDocs );
+	::Swap ( v1.m_iHits, v2.m_iHits );
+	::Swap ( v1.m_iQpos, v2.m_iQpos );
+}
 
 
 /// per-attribute value overrides
@@ -2448,6 +2612,19 @@ enum ESphCollation
 };
 
 
+/// table function interface
+class CSphQuery;
+struct AggrResult_t;
+class ISphTableFunc
+{
+public:
+	virtual			~ISphTableFunc() {}
+	virtual bool	ValidateArgs ( const CSphVector<CSphString> & dArgs, const CSphQuery & tQuery, CSphString & sError ) = 0;
+	virtual bool	Process ( AggrResult_t * pResult, CSphString & sError ) = 0;
+	virtual bool	LimitPushdown ( int, int ) { return false; } // FIXME! implement this
+};
+
+
 /// search query
 class CSphQuery
 {
@@ -2463,18 +2640,23 @@ public:
 	ESphMatchMode	m_eMode;		///< match mode. default is "match all"
 	ESphRankMode	m_eRanker;		///< ranking mode, default is proximity+BM25
 	CSphString		m_sRankerExpr;	///< ranking expression for SPH_RANK_EXPR
+	CSphString		m_sUDRanker;	///< user-defined ranker name
+	CSphString		m_sUDRankerOpts;	///< user-defined ranker options
 	ESphSortOrder	m_eSort;		///< sort mode
 	CSphString		m_sSortBy;		///< attribute to sort by
 	int				m_iMaxMatches;	///< max matches to retrieve, default is 1000. more matches use more memory and CPU time to hold and sort them
 	bool			m_bSortKbuffer;	///< whether to use PQ or K-buffer sorting algorithm
 	bool			m_bZSlist;		///< whether the ranker has to fetch the zonespanlist with this query
 	bool			m_bSimplify;	///< whether to apply boolean simplification
-	bool			m_bPlainIDF;	///< whether to use PlainIDF=log(N/n) or NormalizedIDF=log((N-n+1)/n)
-	bool			m_bGlobalIDF;	///< whether to use local indexes or a global idf file
+	bool			m_bPlainIDF;		///< whether to use PlainIDF=log(N/n) or NormalizedIDF=log((N-n+1)/n)
+	bool			m_bGlobalIDF;		///< whether to use local indexes or a global idf file
+	bool			m_bNormalizedTFIDF;	///< whether to scale IDFs by query word count, so that TF*IDF is normalized
+	bool			m_bLocalDF;			///< whether to use calculate DF among local indexes
 
 	CSphVector<CSphFilterSettings>	m_dFilters;	///< filters
 
 	CSphString		m_sGroupBy;			///< group-by attribute name(s)
+	CSphString		m_sFacetBy;			///< facet-by attribute name(s)
 	ESphGroupBy		m_eGroupFunc;		///< function to pre-process group-by attribute value with
 	CSphString		m_sGroupSortBy;		///< sorting clause for groups in group-by mode
 	CSphString		m_sGroupDistinct;	///< count distinct values for this attribute
@@ -2511,33 +2693,47 @@ public:
 	bool			m_bReverseScan;		///< perform scan in reverse order
 	bool			m_bIgnoreNonexistent; ///< whether to warning or not about non-existent columns in select list
 	bool			m_bIgnoreNonexistentIndexes; ///< whether to error or not about non-existent indexes in index list
+	bool			m_bStrict;			///< whether to warning or not about incompatible types
 
+	ISphTableFunc *	m_pTableFunc;		///< post-query NOT OWNED, WILL NOT BE FREED in dtor.
+	CSphFilterSettings	m_tHaving;		///< post aggregate filtering (got applied only on master)
+
+public:
 	int				m_iSQLSelectStart;	///< SQL parser helper
 	int				m_iSQLSelectEnd;	///< SQL parser helper
 
-public:
-	int				m_iOldVersion;		///< version, to fixup old queries
-	int				m_iOldGroups;		///< 0.9.6 group filter values count
-	DWORD *			m_pOldGroups;		///< 0.9.6 group filter values
-	DWORD			m_iOldMinTS;		///< 0.9.6 min timestamp
-	DWORD			m_iOldMaxTS;		///< 0.9.6 max timestamp
-	DWORD			m_iOldMinGID;		///< 0.9.6 min group id
-	DWORD			m_iOldMaxGID;		///< 0.9.6 max group id
+	int				m_iGroupbyLimit;	///< number of elems within group
 
 public:
 	CSphVector<CSphQueryItem>	m_dItems;		///< parsed select-list
 	ESphCollation				m_eCollation;	///< ORDER BY collation
 	bool						m_bAgent;		///< agent mode (may need extra cols on output)
 
+	CSphString		m_sQueryTokenFilterLib;		///< token filter library name
+	CSphString		m_sQueryTokenFilterName;	///< token filter name
+	CSphString		m_sQueryTokenFilterOpts;	///< token filter options
+
 public:
 					CSphQuery ();		///< ctor, fills defaults
 					~CSphQuery ();		///< dtor, frees owned stuff
 
-	/// return index weight from m_dIndexWeights; or 1 by default
-	int				GetIndexWeight ( const char * sName ) const;
-
 	/// parse select list string into items
 	bool			ParseSelectList ( CSphString & sError );
+	bool			m_bFacet;			///< whether this a facet query
+};
+
+
+/// some low-level query stats
+struct CSphQueryStats
+{
+	int64_t *	m_pNanoBudget;		///< pointer to max_predicted_time budget (counted in nanosec)
+	DWORD		m_iFetchedDocs;		///< processed documents
+	DWORD		m_iFetchedHits;		///< processed hits (aka positions)
+	DWORD		m_iSkips;			///< number of Skip() calls
+
+				CSphQueryStats();
+
+	void		Add ( const CSphQueryStats & tStats );
 };
 
 
@@ -2554,12 +2750,10 @@ public:
 	{
 		int64_t					m_iDocs;			///< document count for this term
 		int64_t					m_iHits;			///< hit count for this term
-		bool				m_bExpanded;		///< is this term from query itself or was expanded
 
 		WordStat_t()
 			: m_iDocs ( 0 )
 			, m_iHits ( 0 )
-			, m_bExpanded ( false )
 		{}
 	};
 	SmallStringHash_T<WordStat_t>	m_hWordStats; ///< hash of i-th search term (normalized word form)
@@ -2571,15 +2765,21 @@ public:
 	int64_t					m_iAgentCpuTime;	///< agent cpu time (for distributed searches)
 	CSphIOStats				m_tAgentIOStats;	///< agent IO stats (for distributed searches)
 
+	int64_t					m_iPredictedTime;		///< local predicted time
+	int64_t					m_iAgentPredictedTime;	///< distributed predicted time
+	DWORD					m_iAgentFetchedDocs;	///< distributed fetched docs
+	DWORD					m_iAgentFetchedHits;	///< distributed fetched hits
+	DWORD					m_iAgentFetchedSkips;	///< distributed fetched skips
+
+	CSphQueryStats 			m_tStats;			///< query prediction counters
+	bool					m_bHasPrediction;	///< is prediction counters set?
+
 	CSphString				m_sError;			///< error message
 	CSphString				m_sWarning;			///< warning message
 
 	CSphQueryResultMeta ();													///< ctor
 	virtual					~CSphQueryResultMeta () {}						///< dtor
-	void					AddStat ( const CSphString & sWord, int64_t iDocs, int64_t iHits, bool bExpanded );
-
-	CSphQueryResultMeta ( const CSphQueryResultMeta & tMeta );				///< copy ctor
-	CSphQueryResultMeta & operator= ( const CSphQueryResultMeta & tMeta );	///< copy
+	void					AddStat ( const CSphString & sWord, int64_t iDocs, int64_t iHits );
 };
 
 
@@ -2590,7 +2790,7 @@ class CSphQueryResult : public CSphQueryResultMeta
 public:
 	CSphSwapVector<CSphMatch>	m_dMatches;			///< top matching documents, no more than MAX_MATCHES
 
-	CSphSchema				m_tSchema;			///< result schema
+	CSphRsetSchema			m_tSchema;			///< result schema
 	const DWORD *			m_pMva;				///< pointer to MVA storage
 	const BYTE *			m_pStrings;			///< pointer to strings storage
 
@@ -2616,15 +2816,25 @@ public:
 
 struct CSphAttrUpdate
 {
-	CSphVector<CSphColumnInfo>		m_dAttrs;		///< update schema (ie. what attrs to update)
+	CSphVector<char*>				m_dAttrs;		///< update schema, attr names to update
+	CSphVector<ESphAttr>			m_dTypes;		///< update schema, attr types to update
 	CSphVector<DWORD>				m_dPool;		///< update values pool
 	CSphVector<SphDocID_t>			m_dDocids;		///< document IDs vector
 	CSphVector<const CSphRowitem*>	m_dRows;		///< document attribute's vector, used instead of m_dDocids.
 	CSphVector<int>					m_dRowOffset;	///< document row offsets in the pool (1 per doc, i.e. the length is the same as of m_dDocids)
 	bool							m_bIgnoreNonexistent;	///< whether to warn about non-existen attrs, or just silently ignore them
+	bool							m_bStrict;		///< whether to check for incompatible types first, or just ignore them
 
-	CSphAttrUpdate() : m_bIgnoreNonexistent ( false )
+	CSphAttrUpdate()
+		: m_bIgnoreNonexistent ( false )
+		, m_bStrict ( false )
 	{}
+
+	~CSphAttrUpdate()
+	{
+		ARRAY_FOREACH ( i, m_dAttrs )
+			SafeDeleteArray ( m_dAttrs[i] );
+	}
 };
 
 /////////////////////////////////////////////////////////////////////////////
@@ -2698,7 +2908,6 @@ enum ESphSortFunc
 	FUNC_GENERIC3,
 	FUNC_GENERIC4,
 	FUNC_GENERIC5,
-	FUNC_CUSTOM,
 	FUNC_EXPR
 };
 
@@ -2732,7 +2941,7 @@ struct JsonKey_t
 	int				m_iLen;		///< name length, in bytes
 
 	JsonKey_t ();
-	explicit JsonKey_t ( const char * sKey );
+	explicit JsonKey_t ( const char * sKey, int iLen );
 };
 
 typedef int ( *SphStringCmp_fn )( const BYTE * pStr1, const BYTE * pStr2, bool bPacked );
@@ -2745,6 +2954,8 @@ struct CSphMatchComparatorState
 	ESphSortKeyPart		m_eKeypart[MAX_ATTRS];		///< sort-by key part type
 	CSphAttrLocator		m_tLocator[MAX_ATTRS];		///< sort-by attr locator
 	JsonKey_t			m_tSubKeys[MAX_ATTRS];		///< sort-by attr sub-locator
+	ISphExpr *			m_tSubExpr[MAX_ATTRS];		///< sort-by attr expression
+	ESphAttr			m_tSubType[MAX_ATTRS];		///< sort-by expression type
 	int					m_dAttrs[MAX_ATTRS];		///< sort-by attr index
 
 	DWORD				m_uAttrDesc;				///< sort order mask (if i-th bit is set, i-th attr order is DESC)
@@ -2795,6 +3006,14 @@ struct CSphMatchComparatorState
 };
 
 
+/// match processor interface
+struct ISphMatchProcessor
+{
+	virtual ~ISphMatchProcessor () {}
+	virtual void Process ( CSphMatch * pMatch ) = 0;
+};
+
+
 /// generic match sorter interface
 class ISphMatchSorter
 {
@@ -2805,7 +3024,8 @@ public:
 	CSphTightVector<SphDocID_t> m_dJustPopped;
 
 protected:
-	CSphSchema			m_tSchema;		///< sorter schema (adds dynamic attributes on top of index schema)
+	CSphRsetSchema				m_tSchema;		///< sorter schema (adds dynamic attributes on top of index schema)
+	CSphMatchComparatorState	m_tState;		///< protected to set m_iNow automatically on SetState() calls
 
 public:
 	/// ctor
@@ -2824,7 +3044,10 @@ public:
 	virtual bool		IsGroupby () const = 0;
 
 	/// set match comparator state
-	virtual void		SetState ( const CSphMatchComparatorState & ) = 0;
+	virtual void		SetState ( const CSphMatchComparatorState & tState );
+
+	/// get match comparator stat
+	virtual CSphMatchComparatorState &	GetState() { return m_tState; }
 
 	/// set group comparator state
 	virtual void		SetGroupState ( const CSphMatchComparatorState & ) {}
@@ -2835,21 +3058,21 @@ public:
 	/// set string pool pointer (for string+groupby sorters)
 	virtual void		SetStringPool ( const BYTE * ) {}
 
-	/// set schemas
-	virtual void				SetSchema ( const CSphSchema & tSchema ) { m_tSchema = tSchema; }
+	/// set sorter schema by swapping in and (optionally) adjusting the argument
+	virtual void		SetSchema ( CSphRsetSchema & tSchema ) { m_tSchema = tSchema; }
 
 	/// get incoming schema
-	virtual const CSphSchema &	GetSchema () const { return m_tSchema; }
+	virtual const CSphRsetSchema &	GetSchema () const { return m_tSchema; }
 
 	/// base push
 	/// returns false if the entry was rejected as duplicate
 	/// returns true otherwise (even if it was not actually inserted)
 	virtual bool		Push ( const CSphMatch & tEntry ) = 0;
 
-	/// submit pre-grouped match
-	virtual bool		PushGrouped ( const CSphMatch & tEntry ) = 0;
+	/// submit pre-grouped match. bNewSet indicates that the match begins the bunch of matches got from one source
+	virtual bool		PushGrouped ( const CSphMatch & tEntry, bool bNewSet ) = 0;
 
-	/// get entries count
+	/// get	rough entries count, due of aggregate filtering phase
 	virtual int			GetLength () const = 0;
 
 	/// get internal buffer length
@@ -2858,19 +3081,17 @@ public:
 	/// get total count of non-duplicates Push()ed through this queue
 	virtual int64_t		GetTotalCount () const { return m_iTotal; }
 
-	/// get first entry ptr
-	/// used for docinfo lookup
-	/// entries order does NOT matter and is NOT guaranteed
-	/// however top GetLength() entries MUST be stored linearly starting from Finalize()
-	virtual CSphMatch *	Finalize () = 0;
+	/// process collected entries up to length count
+	virtual void		Finalize ( ISphMatchProcessor & tProcessor, bool bCallProcessInResultSetOrder ) = 0;
 
 	/// store all entries into specified location and remove them from the queue
 	/// entries are stored in properly sorted order,
 	/// if iTag is non-negative, entries are also tagged; otherwise, their tag's unchanged
-	virtual void		Flatten ( CSphMatch * pTo, int iTag ) = 0;
+	/// return sored entries count, might be less than length due of aggregate filtering phase
+	virtual int			Flatten ( CSphMatch * pTo, int iTag ) = 0;
 
-	/// compute sorted indexes
-	virtual void		BuildFlatIndexes ( CSphVector<int> & ) {}
+	/// get a pointer to the worst element, NULL if there is no fixed location
+	virtual const CSphMatch *	GetWorst() const { return NULL; }
 };
 
 
@@ -2887,14 +3108,22 @@ enum ESphHitless
 {
 	SPH_HITLESS_NONE		= 0,	///< all hits are present
 	SPH_HITLESS_SOME		= 1,	///< some of the hits might be omitted (check the flag bit)
-	SPH_HITLESS_ALL			= 2,	///< no hits in this index
+	SPH_HITLESS_ALL			= 2	///< no hits in this index
 };
 
 
 enum ESphHitFormat
 {
 	SPH_HIT_FORMAT_PLAIN	= 0,	///< all hits are stored in hitlist
-	SPH_HIT_FORMAT_INLINE	= 1,	///< hits can be split and inlined into doclist (aka 9-23)
+	SPH_HIT_FORMAT_INLINE	= 1	///< hits can be split and inlined into doclist (aka 9-23)
+};
+
+
+enum ESphRLPFilter
+{
+	SPH_RLP_NONE			= 0,	///< rlp not used
+	SPH_RLP_PLAIN			= 1,	///< rlp used to tokenize every document
+	SPH_RLP_BATCHED			= 2		///< rlp used to batch documents and tokenize several documents at once
 };
 
 
@@ -2915,7 +3144,11 @@ struct CSphIndexSettings : public CSphSourceSettings
 	CSphString				m_sBigramWords;
 	CSphVector<CSphString>	m_dBigramWords;
 
-	bool			m_bAotFilter;	///< lemmatize_ru_all forces us to transform queries on the index level too
+	DWORD			m_uAotFilterMask;		///< lemmatize_XX_all forces us to transform queries on the index level too
+	ESphRLPFilter	m_eChineseRLP;			///< chinese RLP filter
+	CSphString		m_sRLPContext;			///< path to RLP context file
+
+	CSphString		m_sIndexTokenFilter;	///< indexing time token filter spec string (pretty useless for disk, vital for RT)
 
 					CSphIndexSettings ();
 };
@@ -2931,13 +3164,39 @@ struct ISphFilter;
 struct ISphKeywordsStat
 {
 	virtual			~ISphKeywordsStat() {}
-	virtual bool	FillKeywords ( CSphVector <CSphKeywordInfo> & dKeywords, CSphString & sError ) const = 0;
+	virtual bool	FillKeywords ( CSphVector <CSphKeywordInfo> & dKeywords ) const = 0;
 };
 
 
 struct CSphIndexStatus
 {
 	int64_t			m_iRamUse;
+	int64_t			m_iDiskUse;
+	int64_t			m_iRamChunkSize; // not used for plain
+	int				m_iNumChunks; // not used for plain
+	int64_t			m_iMemLimit; // not used for plain
+
+	CSphIndexStatus()
+		: m_iRamUse ( 0 )
+		, m_iDiskUse ( 0 )
+		, m_iRamChunkSize ( 0 )
+		, m_iNumChunks ( 0 )
+		, m_iMemLimit ( 0 )
+	{}
+};
+
+
+struct CSphMultiQueryArgs : public ISphNoncopyable
+{
+	const CSphVector<SphDocID_t> &			m_dKillList;
+	const int								m_iIndexWeight;
+	int										m_iTag;
+	DWORD									m_uPackedFactorFlags;
+	bool									m_bLocalDF;
+	const SmallStringHash_T<int64_t> *		m_pLocalDocs;
+	int64_t									m_iTotalDocs;
+
+	CSphMultiQueryArgs ( const CSphVector<SphDocID_t> & dKillList, int iIndexWeight );
 };
 
 
@@ -2949,7 +3208,8 @@ public:
 	enum
 	{
 		ATTRS_UPDATED			= ( 1UL<<0 ),
-		ATTRS_MVA_UPDATED		= ( 1UL<<1 )
+		ATTRS_MVA_UPDATED		= ( 1UL<<1 ),
+		ATTRS_STRINGS_UPDATED	= ( 1UL<<2 )
 	};
 
 public:
@@ -2963,7 +3223,6 @@ public:
 	virtual	void				SetProgressCallback ( CSphIndexProgress::IndexingProgress_fn pfnProgress ) = 0;
 	virtual void				SetInplaceSettings ( int iHitGap, int iDocinfoGap, float fRelocFactor, float fWriteFactor );
 	virtual void				SetPreopen ( bool bValue ) { m_bKeepFilesOpen = bValue; }
-	virtual void				SetWordlistPreload ( bool bValue ) { m_bPreloadWordlist = bValue; }
 	void						SetFieldFilter ( ISphFieldFilter * pFilter );
 	void						SetTokenizer ( ISphTokenizer * pTokenizer );
 	void						SetupQueryTokenizer();
@@ -2977,16 +3236,14 @@ public:
 	void						Setup ( const CSphIndexSettings & tSettings );
 	const CSphIndexSettings &	GetSettings () const { return m_tSettings; }
 	bool						IsStripperInited () const { return m_bStripperInited; }
-	virtual SphAttr_t *			GetKillList () const = 0;
+	virtual SphDocID_t *		GetKillList () const = 0;
 	virtual int					GetKillListSize () const = 0;
 	virtual bool				HasDocid ( SphDocID_t uDocid ) const = 0;
 	virtual bool				IsRT() const { return false; }
 	void						SetBinlog ( bool bBinlog ) { m_bBinlog = bBinlog; }
 	virtual int64_t *			GetFieldLens() const { return NULL; }
 
-	virtual bool				IsStarDict() const { return m_bEnableStar; } // disk index overrides this to support super-old legacy formats
-	virtual void				SetEnableStar ( bool bEnableStar ) { m_bEnableStar = bEnableStar; }
-	bool						IsStarEnabled () const { return m_bEnableStar; }
+	virtual bool				IsStarDict() const { return true; }
 
 public:
 	/// build index by indexing given sources
@@ -3021,6 +3278,9 @@ public:
 	/// relock shared RAM (only on daemonization)
 	virtual bool				Mlock () = 0;
 
+	/// keep attributes on disk and map them via file memory mapping
+	virtual void				SetEnableOndiskAttributes ( bool ) {}
+
 	/// called when index is loaded and prepared to work
 	virtual void				PostSetup() = 0;
 
@@ -3029,27 +3289,31 @@ public:
 	virtual const CSphSourceStats &		GetStats () const = 0;
 
 	/// return additional index info
-	virtual CSphIndexStatus				GetStatus () const = 0;
+	virtual void				GetStatus ( CSphIndexStatus* ) const = 0;
 
 public:
 	virtual bool				EarlyReject ( CSphQueryContext * pCtx, CSphMatch & tMatch ) const = 0;
 	void						SetCacheSize ( int iMaxCachedDocs, int iMaxCachedHits );
-	virtual bool				MultiQuery ( const CSphQuery * pQuery, CSphQueryResult * pResult, int iSorters, ISphMatchSorter ** ppSorters, const CSphVector<CSphFilterSettings> * pExtraFilters, int iTag=0, bool bFactors = false ) const = 0;
-	virtual bool				MultiQueryEx ( int iQueries, const CSphQuery * ppQueries, CSphQueryResult ** ppResults, ISphMatchSorter ** ppSorters, const CSphVector<CSphFilterSettings> * pExtraFilters, int iTag=0, bool bFactors = false ) const = 0;
-	virtual bool				GetKeywords ( CSphVector <CSphKeywordInfo> & dKeywords, const char * szQuery, bool bGetStats, CSphString & sError ) const = 0;
-	virtual bool				FillKeywords ( CSphVector <CSphKeywordInfo> & , CSphString & ) const { return false; }
+	virtual bool				MultiQuery ( const CSphQuery * pQuery, CSphQueryResult * pResult, int iSorters, ISphMatchSorter ** ppSorters, const CSphMultiQueryArgs & tArgs ) const = 0;
+	virtual bool				MultiQueryEx ( int iQueries, const CSphQuery * ppQueries, CSphQueryResult ** ppResults, ISphMatchSorter ** ppSorters, const CSphMultiQueryArgs & tArgs ) const = 0;
+	virtual bool				GetKeywords ( CSphVector <CSphKeywordInfo> & dKeywords, const char * szQuery, bool bGetStats, CSphString * pError ) const = 0;
+	virtual bool				FillKeywords ( CSphVector <CSphKeywordInfo> & dKeywords ) const = 0;
 
 public:
 	/// updates memory-cached attributes in real time
 	/// returns non-negative amount of actually found and updated records on success
 	/// on failure, -1 is returned and GetLastError() contains error message
-	virtual int					UpdateAttributes ( const CSphAttrUpdate & tUpd, int iIndex, CSphString & sError ) = 0;
+	virtual int					UpdateAttributes ( const CSphAttrUpdate & tUpd, int iIndex, CSphString & sError, CSphString & sWarning ) = 0;
 
 	/// saves memory-cached attributes, if there were any updates to them
 	/// on failure, false is returned and GetLastError() contains error message
 	virtual bool				SaveAttributes ( CSphString & sError ) const = 0;
 
 	virtual DWORD				GetAttributeStatus () const = 0;
+
+	virtual bool				CreateModifiedFiles ( bool bAddAttr, const CSphString & sAttrName, ESphAttr eAttrType, int iPos, CSphString & sError ) = 0;
+
+	virtual bool				AddRemoveAttribute ( bool bAdd, const CSphString & sAttrName, ESphAttr eAttrType, int iPos, CSphString & sError ) = 0;
 
 public:
 	/// internal debugging hook, DO NOT USE
@@ -3066,6 +3330,7 @@ public:
 
 	/// internal debugging hook, DO NOT USE
 	virtual int					DebugCheck ( FILE * fp ) = 0;
+	virtual void				SetDebugCheck () {}
 
 	/// getter for name
 	const char *				GetName () { return m_sIndexName.cstr(); }
@@ -3074,6 +3339,12 @@ public:
 
 	/// get for the base file name
 	const char *				GetFilename () const { return m_sFilename.cstr(); }
+
+	/// internal make document id list from external docinfo, DO NOT USE
+	virtual bool BuildDocList ( SphAttr_t ** ppDocList, int64_t * pCount, CSphString * pError ) const;
+
+	/// internal replace kill-list and rewrite spk file, DO NOT USE
+	virtual bool				ReplaceKillList ( const SphDocID_t *, int ) { return true; }
 
 public:
 	int64_t						m_iTID;
@@ -3094,11 +3365,9 @@ protected:
 	float						m_fWriteFactor;
 
 	bool						m_bKeepFilesOpen;		///< keep files open to avoid race on seamless rotation
-	bool						m_bPreloadWordlist;		///< preload wordlists or keep them on disk
 	bool						m_bBinlog;
 
 	bool						m_bStripperInited;		///< was stripper initialized (old index version (<9) handling)
-	bool						m_bEnableStar;			///< enable star-syntax
 
 public:
 	bool						m_bId32to64;			///< did we convert id32 to id64 on startup
@@ -3118,7 +3387,7 @@ protected:
 
 public:
 	void						SetGlobalIDFPath ( const CSphString & sPath ) { m_sGlobalIDFPath = sPath; }
-	float						GetGlobalIDF ( const CSphString & sWord, int iDocsLocal, int iQwords, bool bPlainIDF ) const;
+	float						GetGlobalIDF ( const CSphString & sWord, int64_t iDocsLocal, bool bPlainIDF ) const;
 
 protected:
 	CSphString					m_sGlobalIDFPath;
@@ -3130,19 +3399,55 @@ struct CSphAttrUpdateEx
 	const CSphAttrUpdate *	m_pUpdate;		///< the unchangeable update pool
 	CSphIndex *				m_pIndex;		///< the index on which the update should happen
 	CSphString *			m_pError;		///< the error, if any
+	CSphString *			m_pWarning;		///< the warning, if any
 	int						m_iAffected;	///< num of updated rows.
 	CSphAttrUpdateEx()
 		: m_pUpdate ( NULL )
 		, m_pIndex ( NULL )
 		, m_pError ( NULL )
+		, m_pWarning ( NULL )
 		, m_iAffected ( 0 )
 	{}
 };
 
+struct SphQueueSettings_t : public ISphNoncopyable
+{
+	const CSphQuery &			m_tQuery;
+	const ISphSchema &			m_tSchema;
+	CSphString &				m_sError;
+	CSphQueryProfile *			m_pProfiler;
+	bool						m_bComputeItems;
+	CSphSchema *				m_pExtra;
+	CSphAttrUpdateEx *			m_pUpdate;
+	CSphVector<SphDocID_t> *	m_pDeletes;
+	bool						m_bZonespanlist;
+	DWORD						m_uPackedFactorFlags;
+	ISphExprHook *				m_pHook;
+	const CSphFilterSettings *	m_pAggrFilter;
+
+	SphQueueSettings_t ( const CSphQuery & tQuery, const ISphSchema & tSchema, CSphString & sError, CSphQueryProfile * pProfiler )
+		: m_tQuery ( tQuery )
+		, m_tSchema ( tSchema )
+		, m_sError ( sError )
+		, m_pProfiler ( pProfiler )
+		, m_bComputeItems ( true )
+		, m_pExtra ( NULL )
+		, m_pUpdate ( NULL )
+		, m_pDeletes ( NULL )
+		, m_bZonespanlist ( false )
+		, m_uPackedFactorFlags ( SPH_FACTOR_DISABLE )
+		, m_pHook ( NULL )
+		, m_pAggrFilter ( NULL )
+	{ }
+};
+
 /////////////////////////////////////////////////////////////////////////////
 
-/// create phrase fulltext index implemntation
+/// create phrase fulltext index implementation
 CSphIndex *			sphCreateIndexPhrase ( const char* szIndexName, const char * sFilename );
+
+/// create template (tokenizer) index implementation
+CSphIndex *			sphCreateIndexTemplate ( );
 
 /// tell libsphinx to be quiet or not (logs and loglevels to come later)
 void				sphSetQuiet ( bool bQuiet );
@@ -3155,19 +3460,17 @@ void				sphSetJsonOptions ( bool bStrict, bool bAutoconvNumbers, bool bKeynamesT
 
 /// parses sort clause, using a given schema
 /// fills eFunc and tState and optionally sError, returns result code
-ESortClauseParseResult	sphParseSortClause ( const CSphQuery * pQuery, const char * sClause, const CSphSchema & tSchema,
+ESortClauseParseResult	sphParseSortClause ( const CSphQuery * pQuery, const char * sClause, const ISphSchema & tSchema,
 	ESphSortFunc & eFunc, CSphMatchComparatorState & tState, CSphString & sError );
 
 /// creates proper queue for given query
 /// may return NULL on error; in this case, error message is placed in sError
 /// if the pUpdate is given, creates the updater's queue and perform the index update
 /// instead of searching
-ISphMatchSorter *	sphCreateQueue ( const CSphQuery * pQuery, const CSphSchema & tSchema, CSphString & sError,
-	CSphQueryProfile * pProfiler, bool bComputeItems=true, CSphSchema * pExtra=NULL, CSphAttrUpdateEx * pUpdate=NULL, bool * pZonespanlist=NULL,
-	bool * pPackedFactors=NULL, ISphExprHook * pHook=NULL );
+ISphMatchSorter *	sphCreateQueue ( SphQueueSettings_t & tQueue );
 
 /// convert queue to sorted array, and add its entries to result's matches array
-void				sphFlattenQueue ( ISphMatchSorter * pQueue, CSphQueryResult * pResult, int iTag );
+int					sphFlattenQueue ( ISphMatchSorter * pQueue, CSphQueryResult * pResult, int iTag );
 
 /// setup per-keyword read buffer sizes
 void				sphSetReadBuffers ( int iReadBuffer, int iReadUnhinted );
@@ -3181,6 +3484,13 @@ void				sphCollationInit ();
 //////////////////////////////////////////////////////////////////////////
 
 extern CSphString g_sLemmatizerBase;
+
+#if USE_RLP
+extern CSphString g_sRLPRoot;
+extern CSphString g_sRLPEnv;
+extern int g_iRLPMaxBatchSize;
+extern int g_iRLPMaxBatchDocs;
+#endif
 
 /////////////////////////////////////////////////////////////////////////////
 
@@ -3198,5 +3508,5 @@ extern CSphString g_sLemmatizerBase;
 #endif // _sphinx_
 
 //
-// $Id: sphinx.h 4675 2014-04-28 05:30:12Z deogar $
+// $Id: sphinx.h 4690 2014-05-13 15:11:01Z deogar $
 //

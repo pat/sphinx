@@ -1,5 +1,5 @@
 //
-// $Id: sphinxstd.cpp 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxstd.cpp 4685 2014-05-12 11:32:02Z kevg $
 //
 
 //
@@ -25,7 +25,7 @@
 
 #endif
 
-int g_iThreadStackSize = 65536;
+int g_iThreadStackSize = 1024*1024;
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -358,10 +358,10 @@ struct MemCategorized_t
 	}
 };
 
-static Memory::Category_e sphMemStatGet ();
+static MemCategory_e sphMemStatGet ();
 
 // memory categories storage
-static MemCategorized_t g_dMemCategoryStat[Memory::SPH_MEM_TOTAL];
+static MemCategorized_t g_dMemCategoryStat [ MEM_TOTAL ];
 
 //////////////////////////////////////////////////////////////////////////
 // ALLOCATIONS COUNT/SIZE PROFILER
@@ -374,7 +374,7 @@ void * sphDebugNew ( size_t iSize )
 		sphDie ( "out of memory (unable to allocate %"PRIu64" bytes)", (uint64_t)iSize ); // FIXME! this may fail with malloc error too
 
 	const int iMemType = sphMemStatGet();
-	assert ( iMemType>=0 && iMemType<Memory::SPH_MEM_TOTAL );
+	assert ( iMemType>=0 && iMemType<MEM_TOTAL );
 
 	g_tAllocsMutex.Lock ();
 
@@ -407,7 +407,7 @@ void sphDebugDelete ( void * pPtr )
 
 	const int iSize = pBlock[0];
 	const int iMemType = pBlock[1];
-	assert ( iMemType>=0 && iMemType<Memory::SPH_MEM_TOTAL );
+	assert ( iMemType>=0 && iMemType<MEM_TOTAL );
 
 	g_tAllocsMutex.Lock ();
 
@@ -444,17 +444,18 @@ void operator delete [] ( void * pPtr )						{ sphDebugDelete ( pPtr ); }
 
 //////////////////////////////////////////////////////////////////////////////
 // MEMORY STATISTICS
+//////////////////////////////////////////////////////////////////////////////
 
 /// TLS key of memory category stack
 SphThreadKey_t g_tTLSMemCategory;
 
-STATIC_ASSERT ( Memory::SPH_MEM_TOTAL<255, MEMORY_CATEGORY_EXCEED_LIMIT );
+STATIC_ASSERT ( MEM_TOTAL<255, TOO_MANY_MEMORY_CATEGORIES );
 
 // stack of memory categories as we move deeper and deeper
 class MemCategoryStack_t // NOLINT
 {
-#define MEM_STACK_MAX_DEPHT 1024
-	BYTE m_dStack[MEM_STACK_MAX_DEPHT];
+#define MEM_STACK_MAX 1024
+	BYTE m_dStack[MEM_STACK_MAX];
 	int m_iDepth;
 
 public:
@@ -463,22 +464,22 @@ public:
 	void Reset ()
 	{
 		m_iDepth = 0;
-		m_dStack[0] = Memory::SPH_MEM_CORE;
+		m_dStack[0] = MEM_CORE;
 	}
 
-	void Push ( Memory::Category_e eCategory )
+	void Push ( MemCategory_e eCategory )
 	{
-		assert ( eCategory>=0 && eCategory<Memory::SPH_MEM_TOTAL );
-		assert ( m_iDepth+1<MEM_STACK_MAX_DEPHT );
+		assert ( eCategory>=0 && eCategory<MEM_TOTAL );
+		assert ( m_iDepth+1<MEM_STACK_MAX );
 		m_dStack[++m_iDepth] = (BYTE)eCategory;
 	}
 
 #ifndef NDEBUG
-	void Pop ( Memory::Category_e eCategory )
+	void Pop ( MemCategory_e eCategory )
 	{
-		assert ( eCategory>=0 && eCategory<Memory::SPH_MEM_TOTAL );
+		assert ( eCategory>=0 && eCategory<MEM_TOTAL );
 #else
-	void Pop ( Memory::Category_e )
+	void Pop ( MemCategory_e )
 	{
 #endif
 
@@ -487,11 +488,11 @@ public:
 		m_iDepth--;
 	}
 
-	Memory::Category_e Top () const
+	MemCategory_e Top () const
 	{
-		assert ( m_iDepth>= 0 && m_iDepth<MEM_STACK_MAX_DEPHT );
-		assert ( m_dStack[m_iDepth]>=0 && m_dStack[m_iDepth]<Memory::SPH_MEM_TOTAL );
-		return Memory::Category_e ( m_dStack[m_iDepth] );
+		assert ( m_iDepth>= 0 && m_iDepth<MEM_STACK_MAX );
+		assert ( m_dStack[m_iDepth]>=0 && m_dStack[m_iDepth]<MEM_TOTAL );
+		return MemCategory_e ( m_dStack[m_iDepth] );
 	}
 };
 
@@ -544,8 +545,8 @@ void sphMemStatMMapAdd ( int64_t iSize )
 	g_iPeakAllocs = Max ( g_iCurAllocs, g_iPeakAllocs );
 	g_iPeakBytes = Max ( g_iCurBytes, g_iPeakBytes );
 
-	g_dMemCategoryStat[Memory::SPH_MEM_MMAPED].m_iSize += iSize;
-	g_dMemCategoryStat[Memory::SPH_MEM_MMAPED].m_iCount++;
+	g_dMemCategoryStat[MEM_MMAPED].m_iSize += iSize;
+	g_dMemCategoryStat[MEM_MMAPED].m_iCount++;
 
 	g_tAllocsMutex.Unlock ();
 }
@@ -557,14 +558,14 @@ void sphMemStatMMapDel ( int64_t iSize )
 	g_iCurAllocs--;
 	g_iCurBytes -= iSize;
 
-	g_dMemCategoryStat[Memory::SPH_MEM_MMAPED].m_iSize -= iSize;
-	g_dMemCategoryStat[Memory::SPH_MEM_MMAPED].m_iCount--;
+	g_dMemCategoryStat[MEM_MMAPED].m_iSize -= iSize;
+	g_dMemCategoryStat[MEM_MMAPED].m_iCount--;
 
 	g_tAllocsMutex.Unlock ();
 }
 
 // push new category on arrival
-void sphMemStatPush ( Memory::Category_e eCategory )
+void sphMemStatPush ( MemCategory_e eCategory )
 {
 	MemCategoryStack_t * pTLS = (MemCategoryStack_t*) sphThreadGet ( g_tTLSMemCategory );
 	if ( pTLS )
@@ -572,7 +573,7 @@ void sphMemStatPush ( Memory::Category_e eCategory )
 };
 
 // restore last category
-void sphMemStatPop ( Memory::Category_e eCategory )
+void sphMemStatPop ( MemCategory_e eCategory )
 {
 	MemCategoryStack_t * pTLS = (MemCategoryStack_t*) sphThreadGet ( g_tTLSMemCategory );
 	if ( pTLS )
@@ -580,30 +581,24 @@ void sphMemStatPop ( Memory::Category_e eCategory )
 };
 
 // get current category
-static Memory::Category_e sphMemStatGet ()
+static MemCategory_e sphMemStatGet ()
 {
 	MemCategoryStack_t * pTLS = (MemCategoryStack_t*) sphThreadGet ( g_tTLSMemCategory );
-	return pTLS ? pTLS->Top() : Memory::SPH_MEM_CORE;
+	return pTLS ? pTLS->Top() : MEM_CORE;
 }
 
-// human readable category names
-static const char* g_dMemCategoryName[] = {
-	"core"
-	, "index_disk", "index_rt", "index_rt_accum"
-	, "mmaped", "binlog"
-	, "hnd_disk", "hnd_sql"
-	, "search_disk", "query_disk", "insert_sql", "select_sql", "delete_sql", "commit_set_sql", "commit_start_t_sql", "commit_sql"
-	, "mquery_disk", "mqueryex_disk", "mquery_rt"
-	, "rt_res_matches", "rt_res_strings"
-	};
-STATIC_ASSERT ( sizeof(g_dMemCategoryName)/sizeof(g_dMemCategoryName[0])==Memory::SPH_MEM_TOTAL, MEM_STAT_NAME_MISMATCH );
 
-// output of memory statistic's
+// human readable category names
+#define MEM_CATEGORY(_arg) #_arg
+static const char* g_dMemCategoryName[] = { MEM_CATEGORIES };
+#undef MEM_CATEGORY
+
+
 void sphMemStatDump ( int iFD )
 {
 	int64_t iSize = 0;
 	int iCount = 0;
-	for ( int i=0; i<Memory::SPH_MEM_TOTAL; i++ )
+	for ( int i=0; i<MEM_TOTAL; i++ )
 	{
 		iSize += (int64_t) g_dMemCategoryStat[i].m_iSize;
 		iCount += g_dMemCategoryStat[i].m_iCount;
@@ -612,7 +607,7 @@ void sphMemStatDump ( int iFD )
 	sphSafeInfo ( iFD, "%-24s allocs-count=%d, mem-total=%d.%d Mb", "(total)", iCount,
 		(int)(iSize/1048576), (int)( (iSize*10/1048576)%10 ) );
 
-	for ( int i=0; i<Memory::SPH_MEM_TOTAL; i++ )
+	for ( int i=0; i<MEM_TOTAL; i++ )
 		if ( g_dMemCategoryStat[i].m_iCount>0 )
 	{
 		iSize = (int64_t) g_dMemCategoryStat[i].m_iSize;
@@ -862,13 +857,18 @@ CSphProcessSharedMutex::~CSphProcessSharedMutex()
 }
 #else
 CSphProcessSharedMutex::CSphProcessSharedMutex ( int )
-{}
+{
+	m_tLock.Init();
+}
+
 CSphProcessSharedMutex::~CSphProcessSharedMutex()
-{}
+{
+	m_tLock.Done();
+}
 #endif
 
 
-void CSphProcessSharedMutex::Lock () const
+void CSphProcessSharedMutex::Lock ()
 {
 #if !USE_WINDOWS
 #ifdef __FreeBSD__
@@ -878,11 +878,13 @@ void CSphProcessSharedMutex::Lock () const
 	if ( m_pMutex )
 		pthread_mutex_lock ( m_pMutex );
 #endif
+#else
+	m_tLock.Lock();
 #endif
 }
 
 
-void CSphProcessSharedMutex::Unlock () const
+void CSphProcessSharedMutex::Unlock ()
 {
 #if !USE_WINDOWS
 #ifdef __FreeBSD__
@@ -892,6 +894,8 @@ void CSphProcessSharedMutex::Unlock () const
 	if ( m_pMutex )
 		pthread_mutex_unlock ( m_pMutex );
 #endif
+#else
+	m_tLock.Unlock();
 #endif
 }
 
@@ -981,6 +985,13 @@ const char * CSphProcessSharedMutex::GetError() const
 // THREADING FUNCTIONS
 //////////////////////////////////////////////////////////////////////////
 
+// This is a working context for a thread wrapper. It wraps every thread to
+// store information about it's stack size, cleanup threads and something else.
+// This struct always should be allocated in the heap, cause wrapper need
+// to see it all the time and it frees it out of the heap by itself. Wrapper thread function
+// receives as an argument a pointer to ThreadCall_t with one function pointer to
+// a main thread function. Afterwards, thread can set up one or more cleanup functions
+// which will be executed by a wrapper in the linked list order after it dies.
 struct ThreadCall_t
 {
 	void			( *m_pCall )( void * pArg );
@@ -1004,7 +1015,12 @@ static SphThreadKey_t g_tMyThreadStack;
 
 SPH_THDFUNC sphThreadProcWrapper ( void * pArg )
 {
-	// this is the first local variable in the new thread. So, it's address is the top of the stack.
+	// This is the first local variable in the new thread. So, its address is the top of the stack.
+	// We need to know thread stack size for both expression and query evaluating engines.
+	// We store expressions as a linked tree of structs and execution is a calls of mutually
+	// recursive methods. Before executing we compute tree height and multiply it by a constant
+	// with experimentally measured value to check whether we have enough stack to execute current query.
+	// The check is not ideal and do not work for all compilers and compiler settings.
 	char	cTopOfMyStack;
 	assert ( sphThreadGet ( g_tThreadCleanupKey )==NULL );
 	assert ( sphThreadGet ( g_tMyThreadStack )==NULL );
@@ -1110,8 +1126,8 @@ void sphThreadDone ( int )
 
 bool sphThreadCreate ( SphThread_t * pThread, void (*fnThread)(void*), void * pArg, bool bDetached )
 {
-	// we can not merely put this on current stack
-	// as it might get destroyed before wrapper sees it
+	// we can not put this on current stack because wrapper need to see
+	// it all the time and it will destroy this data from heap by itself
 	ThreadCall_t * pCall = new ThreadCall_t;
 	pCall->m_pCall = fnThread;
 	pCall->m_pArg = pArg;
@@ -1167,7 +1183,10 @@ bool sphThreadJoin ( SphThread_t * pThread )
 #endif
 }
 
-
+// Adds a function call (a new task for a wrapper) to a linked list
+// of thread contexts. They will be executed one by one right after
+// the main thread ends its execution. This is a way for a wrapper
+// to free local resources allocated by its main thread.
 void sphThreadOnExit ( void (*fnCleanup)(void*), void * pArg )
 {
 	ThreadCall_t * pCleanup = new ThreadCall_t;
@@ -1221,10 +1240,7 @@ int64_t sphGetStackUsed()
 	if ( !pStackTop )
 		return 0;
 	int64_t iHeight = pStackTop - &cStack;
-	if ( iHeight>=0 )
-		return iHeight;
-	else
-		return -iHeight;
+	return ( iHeight>=0 ) ? iHeight : -iHeight;
 }
 
 void sphSetMyStackSize ( int iStackSize )
@@ -1393,9 +1409,8 @@ void CSphAutoEvent::SetEvent ()
 {
 	if ( !m_bInitialized )
 		return;
-// pthread_mutex_lock ( m_pMutex ); // locking is done from outside
-	pthread_cond_signal ( &m_tCond );
-// pthread_mutex_unlock ( m_pMutex );
+
+	pthread_cond_signal ( &m_tCond ); // locking is done from outside
 	m_bSent = true;
 }
 
@@ -1405,7 +1420,7 @@ bool CSphAutoEvent::WaitEvent ()
 		return true;
 	pthread_mutex_lock ( m_pMutex );
 	if ( !m_bSent )
-	pthread_cond_wait ( &m_tCond, m_pMutex );
+		pthread_cond_wait ( &m_tCond, m_pMutex );
 	m_bSent = false;
 	pthread_mutex_unlock ( m_pMutex );
 	return true;
@@ -1429,7 +1444,7 @@ CSphRwlock::CSphRwlock ()
 {}
 
 
-bool CSphRwlock::Init ()
+bool CSphRwlock::Init ( bool )
 {
 	assert ( !m_bInitialized );
 	assert ( !m_hWriteMutex && !m_hReadEvent && !m_iReaders );
@@ -1466,6 +1481,12 @@ bool CSphRwlock::Done ()
 	m_iReaders = 0;
 	m_bInitialized = false;
 	return true;
+}
+
+
+const char * CSphRwlock::GetError () const
+{
+	return m_sError.cstr();
 }
 
 
@@ -1547,12 +1568,63 @@ CSphRwlock::CSphRwlock ()
 	: m_bInitialized ( false )
 {}
 
-bool CSphRwlock::Init ()
+bool CSphRwlock::Init ( bool bProcessShared )
 {
 	assert ( !m_bInitialized );
 
-	m_bInitialized = ( pthread_rwlock_init ( &m_tLock, NULL )==0 );
-	return m_bInitialized;
+#ifdef __FreeBSD__
+	if ( bProcessShared )
+	{
+		m_sError = "process shared rwlock is not supported by FreeBSD";
+		return false;
+	}
+#endif
+
+	pthread_rwlockattr_t tAttr;
+	pthread_rwlockattr_t * pAttrUsed = NULL;
+	int iRes;
+
+	if ( bProcessShared )
+	{
+		iRes = pthread_rwlockattr_init ( &tAttr );
+		if ( iRes )
+		{
+			m_sError.SetSprintf ( "pthread_rwlockattr_init, errno=%d", iRes );
+			return false;
+		}
+		iRes = pthread_rwlockattr_setpshared ( &tAttr, PTHREAD_PROCESS_SHARED );
+		if ( iRes )
+		{
+			m_sError.SetSprintf ( "pthread_rwlockattr_setpshared, errno = %d", iRes );
+			pthread_rwlockattr_destroy ( &tAttr );
+			return false;
+		}
+
+		pAttrUsed = &tAttr;
+	}
+
+	iRes = pthread_rwlock_init ( &m_tLock, pAttrUsed );
+	if ( iRes )
+	{
+		m_sError.SetSprintf ( "pthread_rwlock_init, errno = %d", iRes );
+		if ( pAttrUsed )
+			pthread_rwlockattr_destroy ( pAttrUsed );
+		return false;
+	}
+
+	if ( pAttrUsed )
+	{
+		iRes = pthread_rwlockattr_destroy ( pAttrUsed );
+		if ( iRes )
+		{
+			m_sError.SetSprintf ( "pthread_rwlockattr_destroy, errno = %d", iRes );
+			return false;
+		}
+	}
+
+	m_bInitialized = true;
+
+	return true;
 }
 
 bool CSphRwlock::Done ()
@@ -1562,6 +1634,11 @@ bool CSphRwlock::Done ()
 
 	m_bInitialized = !( pthread_rwlock_destroy ( &m_tLock )==0 );
 	return !m_bInitialized;
+}
+
+const char * CSphRwlock::GetError () const
+{
+	return m_sError.cstr();
 }
 
 bool CSphRwlock::ReadLock ()
@@ -1630,7 +1707,7 @@ int64_t sphMicroTimer()
 
 int CSphStrHashFunc::Hash ( const CSphString & sKey )
 {
-	return sKey.IsEmpty() ? 0 : sphCRC32 ( (const BYTE *)sKey.cstr() );
+	return sKey.IsEmpty() ? 0 : sphCRC32 ( sKey.cstr() );
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -1704,33 +1781,81 @@ DWORD g_dSphinxCRC32 [ 256 ] =
 };
 
 
-DWORD sphCRC32 ( const BYTE * pString )
+DWORD sphCRC32 ( const void * s )
 {
 	// calc CRC
 	DWORD crc = ~((DWORD)0);
-	for ( const BYTE * p=pString; *p; p++ )
+	for ( const BYTE * p=(const BYTE*)s; *p; p++ )
 		crc = (crc >> 8) ^ g_dSphinxCRC32 [ (crc ^ (*p)) & 0xff ];
 	return ~crc;
 }
 
-DWORD sphCRC32 ( const BYTE * pString, int iLen )
+DWORD sphCRC32 ( const void * s, int iLen )
 {
 	// calc CRC
 	DWORD crc = ~((DWORD)0);
-	for ( int i=0; i<iLen; i++ )
-		crc = (crc >> 8) ^ g_dSphinxCRC32 [ (crc ^ pString[i]) & 0xff ];
+	const BYTE * p = (const BYTE*)s;
+	const BYTE * pMax = p + iLen;
+	while ( p<pMax )
+		crc = (crc >> 8) ^ g_dSphinxCRC32 [ (crc ^ *p++) & 0xff ];
 	return ~crc;
 }
 
-DWORD sphCRC32 ( const BYTE * pString, int iLen, DWORD uPrevCRC )
+DWORD sphCRC32 ( const void * s, int iLen, DWORD uPrevCRC )
 {
 	// calc CRC
 	DWORD crc = ~((DWORD)uPrevCRC);
-	for ( int i=0; i<iLen; i++ )
-		crc = (crc >> 8) ^ g_dSphinxCRC32 [ (crc ^ pString[i]) & 0xff ];
+	const BYTE * p = (const BYTE*)s;
+	const BYTE * pMax = p + iLen;
+	while ( p<pMax )
+		crc = (crc >> 8) ^ g_dSphinxCRC32 [ (crc ^ *p++) & 0xff ];
 	return ~crc;
 }
 
+#if USE_WINDOWS
+template<>
+CSphAtomic<long>::operator long()
+{
+	return InterlockedExchangeAdd ( &m_iValue, 0 );
+}
+template<>
+long CSphAtomic<long>::Inc()
+{
+	return InterlockedIncrement ( &m_iValue )-1;
+}
+template<>
+long CSphAtomic<long>::Dec()
+{
+	return InterlockedDecrement ( &m_iValue )+1;
+}
+#endif
+
+// fast check if we are built with right endianess settings
+const char*		sphCheckEndian()
+{
+	const char* sErrorMsg = "Oops! It seems that sphinx was built with wrong endianess (cross-compiling?)\n"
+#if USE_LITTLE_ENDIAN
+		"either reconfigure and rebuild, defining ac_cv_c_bigendian=yes in the environment of ./configure script,\n"
+		"either ensure that '#define USE_LITTLE_ENDIAN = 0' in config/config.h\n";
+#else
+		"either reconfigure and rebuild, defining ac_cv_c_bigendian=no in the environment of ./configure script,\n"
+		"either ensure that '#define USE_LITTLE_ENDIAN = 1' in config/config.h\n";
+#endif
+
+	char sMagic[] = "\x01\x02\x03\x04\x05\x06\x07\x08";
+	unsigned long *pMagic;
+	unsigned long uResult;
+	pMagic = (unsigned long*)sMagic;
+	uResult = 0xFFFFFFFF & (*pMagic);
+#if USE_LITTLE_ENDIAN
+	if ( uResult==0x01020304 || uResult==0x05060708 )
+#else
+	if ( uResult==0x08070605 || uResult==0x04030201 )
+#endif
+		return sErrorMsg;
+	return NULL;
+}
+
 //
-// $Id: sphinxstd.cpp 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxstd.cpp 4685 2014-05-12 11:32:02Z kevg $
 //

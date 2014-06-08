@@ -12,7 +12,6 @@ indexer
 searchd
 {
 	<searchd_settings/>
-compat_sphinxql_magics = 1
 	workers = threads
 }
 
@@ -29,11 +28,8 @@ index plain
 {
 	source			= src
     docinfo			= extern
-    charset_type	= utf-8
 	path			= <data_path/>/plain
 	stopwords		= <this_test/>/stopwords.txt
-	blend_chars = .
-	blend_mode = trim_both, trim_head	
 	blend_chars = .
 	blend_mode = trim_both, trim_head	
 }
@@ -42,7 +38,6 @@ index rt
 {
 	type			= rt
     docinfo			= extern
-    charset_type	= utf-8
 	path			= <data_path/>/rt
 	stopwords		= <this_test/>/stopwords.txt
 

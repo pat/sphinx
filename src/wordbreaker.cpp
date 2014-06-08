@@ -351,14 +351,12 @@ void UrlBreak ( Split_t & tBest, const char * sWord )
 				tFull.AddSplitPos ( tTail, iLen );
 
 				// check if the full one is our new best full one
-				bool bNewBest = false;
 				if ( tBest < tFull )
 				{
 					// FIXME? we do this even when the new split is *not* all-keywords,
 					// but the old best split was; is this ever a problem?
 					tBest = tFull;
 //					tBest.Dump ( sWord, "new-best" );
-					bNewBest = true;
 				}
 
 				// check if the resulting partial split is worth scanning further
@@ -455,7 +453,9 @@ void UrlBreakTest ( const char * sTestFile )
 	int64_t tmWall = sphMicroTimer();
 	ARRAY_FOREACH ( iTest, dTests )
 	{
+#ifndef NDEBUG
 		int64_t tmWord = sphMicroTimer();
+#endif
 		const char * sWord = dTests[iTest][0].cstr();
 
 		// break into keywords

@@ -7,7 +7,6 @@
 searchd
 {
 	<searchd_settings/>
-compat_sphinxql_magics = 1
 }
 
 source test
@@ -22,7 +21,6 @@ index test
 	source			= test
 	path			= <data_path/>/test
 
-	charset_type		= utf-8
 	morphology			= stem_en
 	index_exact_words	= 1
 }
@@ -31,7 +29,6 @@ index tstar : test
 {
 	path						= <data_path/>/tstar1
 	min_prefix_len		= 1
-	enable_star			= 1	
 	morphology			= stem_enru
 }
 
@@ -39,7 +36,6 @@ index stars : test
 {
 	path						= <data_path/>/tstar2
 	min_infix_len		= 1
-	enable_star			= 1	
 	morphology			= stem_en
 }
 

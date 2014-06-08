@@ -13,7 +13,6 @@ searchd
 	subtree_docs_cache 	= 0
 	subtree_hits_cache 	= 0
 	<searchd_settings/>
-compat_sphinxql_magics = 1
 }
 
 source srctest
@@ -28,7 +27,6 @@ index test_idx
 {
 	source			= srctest
 	path			= <Data_Path/>/test
-    charset_type	= utf-8
 }
 
 source src_str
@@ -45,7 +43,6 @@ index str
 {
 	source			= src_str
 	path			= <Data_Path/>/str
-    charset_type	= utf-8
 	docinfo			= extern
 }
 

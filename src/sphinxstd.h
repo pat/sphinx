@@ -1,5 +1,5 @@
 //
-// $Id: sphinxstd.h 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxstd.h 4686 2014-05-12 15:43:54Z joric $
 //
 
 //
@@ -287,7 +287,7 @@ inline int sphLog2 ( uint64_t uValue )
 		return 33+uRes;
 	BitScanReverse ( &uRes, DWORD(uValue) );
 	return 1+uRes;
-#elif __GNUC__
+#elif __GNUC__ || __clang__
 	if ( !uValue )
 		return 0;
 	return 64 - __builtin_clzl(uValue);
@@ -318,6 +318,12 @@ inline double sphQW2D ( uint64_t d )	{ union { double f; uint64_t d; } u; u.d = 
 /// current UNIX timestamp in seconds multiplied by 1000000, plus microseconds since the beginning of current second
 int64_t		sphMicroTimer ();
 
+/// double argument squared
+inline double sqr ( double v ) { return v*v;}
+
+/// float argument squared
+inline float fsqr ( float v ) { return v*v; }
+
 //////////////////////////////////////////////////////////////////////////
 // RANDOM NUMBERS GENERATOR
 //////////////////////////////////////////////////////////////////////////
@@ -347,6 +353,7 @@ void sphAssert ( const char * sExpr, const char * sFile, int iLine );
 #endif // USE_WINDOWS
 
 
+// to avoid disappearing of _expr in release builds
 #ifndef NDEBUG
 #define Verify(_expr) assert(_expr)
 #else
@@ -357,8 +364,18 @@ void sphAssert ( const char * sExpr, const char * sFile, int iLine );
 // GENERICS
 /////////////////////////////////////////////////////////////////////////////
 
-#define Min(a,b)			((a)<(b)?(a):(b))
-#define Max(a,b)			((a)>(b)?(a):(b))
+template <typename T> T Min ( T a, T b ) { return a<b ? a : b; }
+template <typename T, typename U> T Min ( T a, U b )
+{
+	STATIC_ASSERT ( sizeof(U)<=sizeof(T), WIDEST_ARG_FIRST );
+	return a<b ? a : b;
+}
+template <typename T> T Max ( T a, T b ) { return a<b ? b : a; }
+template <typename T, typename U> T Max ( T a, U b )
+{
+	STATIC_ASSERT ( sizeof(U)<=sizeof(T), WIDEST_ARG_FIRST );
+	return a<b ? b : a;
+}
 #define SafeDelete(_x)		{ if (_x) { delete (_x); (_x) = NULL; } }
 #define SafeDeleteArray(_x)	{ if (_x) { delete [] (_x); (_x) = NULL; } }
 #define SafeRelease(_x)		{ if (_x) { (_x)->Release(); (_x) = NULL; } }
@@ -471,7 +488,7 @@ void sphSiftDown ( T * pData, int iStart, int iEnd, U COMP, V ACC )
 	{
 		int iChild = iStart*2+1;
 		if ( iChild>iEnd )
-			break;
+			return;
 
 		int iChild1 = iChild+1;
 		if ( iChild1<=iEnd && COMP.IsLess ( ACC.Key ( ACC.Add ( pData, iChild ) ), ACC.Key ( ACC.Add ( pData, iChild1 ) ) ) )
@@ -623,10 +640,18 @@ struct SphMemberFunctor_T
 	{
 		return (&a)->*m_pMember < (&b)->*m_pMember;
 	}
+
+	inline bool IsEq ( const CLASS & a, T b )
+	{
+		return ( (&a)->*m_pMember )==b;
+	}
 };
 
 
 /// handy member functor generator
+/// this sugar allows you to write like this
+/// dArr.Sort ( bind ( &CSphType::m_iMember ) );
+/// dArr.BinarySearch ( bind ( &CSphType::m_iMember ), iValue );
 template < typename T, typename CLASS >
 inline SphMemberFunctor_T < T, CLASS >
 bind ( T CLASS::* ptr )
@@ -684,6 +709,25 @@ T * sphBinarySearch ( T * pStart, T * pEnd, T & tRef )
 	return sphBinarySearch ( pStart, pEnd, SphIdentityFunctor_T<T>(), tRef );
 }
 
+/// generic uniq
+template < typename T, typename T_COUNTER >
+T_COUNTER sphUniq ( T * pData, T_COUNTER iCount )
+{
+	if ( !iCount )
+		return 0;
+
+	T_COUNTER iSrc = 1, iDst = 1;
+	while ( iSrc<iCount )
+	{
+		if ( pData[iDst-1]==pData[iSrc] )
+			iSrc++;
+		else
+			pData[iDst++] = pData[iSrc++];
+	}
+	return iDst;
+}
+
+
 //////////////////////////////////////////////////////////////////////////
 
 /// default vector policy
@@ -725,7 +769,7 @@ public:
 	}
 
 	/// ctor with initial size
-	CSphVector ( int iCount )
+	explicit CSphVector ( int iCount )
 		: m_iLength	( 0 )
 		, m_iLimit	( 0 )
 		, m_pData	( NULL )
@@ -822,12 +866,23 @@ public:
 	bool RemoveValue ( T tValue )
 	{
 		for ( int i=0; i<m_iLength; i++ )
-		{
 			if ( m_pData[i]==tValue )
-			{
-				Remove ( i );
-				return true;
-			}
+		{
+			Remove ( i );
+			return true;
+		}
+		return false;
+	}
+
+	/// remove element by value (warning, linear O(n) search)
+	template < typename FUNCTOR, typename U >
+	bool RemoveValue ( FUNCTOR COMP, U tValue )
+	{
+		for ( int i=0; i<m_iLength; i++ )
+			if ( COMP.IsEq ( m_pData[i], tValue ) )
+		{
+			Remove ( i );
+			return true;
 		}
 		return false;
 	}
@@ -868,7 +923,7 @@ public:
 	void Resize ( int iNewLength )
 	{
 		assert ( iNewLength>=0 );
-		if ( iNewLength>=m_iLength )
+		if ( (unsigned int)iNewLength>(unsigned int)m_iLength )
 			Reserve ( iNewLength );
 		m_iLength = iNewLength;
 	}
@@ -907,17 +962,8 @@ public:
 			return;
 
 		Sort ();
-
-		int iSrc = 1, iDst = 1;
-		while ( iSrc<m_iLength )
-		{
-			if ( m_pData[iDst-1]==m_pData[iSrc] )
-				iSrc++;
-			else
-				m_pData[iDst++] = m_pData[iSrc++];
-		}
-
-		Resize ( iDst );
+		int iLeft = sphUniq ( m_pData, m_iLength );
+		Resize ( iLeft );
 	}
 
 	/// default sort
@@ -1010,6 +1056,16 @@ public:
 	{
 		for ( int i=0; i<m_iLength; i++ )
 			if ( m_pData[i]==tRef )
+				return true;
+		return false;
+	}
+
+	/// generic linear search
+	template < typename FUNCTOR, typename U >
+	bool Contains ( FUNCTOR COMP, U tValue )
+	{
+		for ( int i=0; i<m_iLength; i++ )
+			if ( COMP.IsEq ( m_pData[i], tValue ) )
 				return true;
 		return false;
 	}
@@ -1171,12 +1227,26 @@ public:
 		Reset ( 0 );
 		return pData;
 	}
+
+	/// swap
+	void SwapData ( CSphFixedVector<T> & rhs )
+	{
+		Swap ( m_pData, rhs.m_pData );
+		Swap ( m_iSize, rhs.m_iSize );
+	}
+
+	const T * BinarySearch ( T tRef ) const
+	{
+		return sphBinarySearch ( m_pData, m_pData+m_iSize-1, tRef );
+	}
 };
 
 //////////////////////////////////////////////////////////////////////////
 
 /// simple dynamic hash
+/// implementation: fixed-size bucket + chaining
 /// keeps the order, so Iterate() return the entries in the order they was inserted
+/// WARNING: slow copy
 template < typename T, typename KEY, typename HASHFUNC, int LENGTH >
 class CSphOrderedHash
 {
@@ -1523,6 +1593,7 @@ private:
 };
 
 /// very popular and so, moved here
+/// use integer values as hash values (like document IDs, for example)
 struct IdentityHash_fn
 {
 	template <typename INT>
@@ -1550,6 +1621,12 @@ public:
 	{
 	}
 
+	// take a note this is not an explicit constructor
+	// so a lot of silent constructing and deleting of strings is possible
+	// Example:
+	// SmallStringHash_T<int> hHash;
+	// ...
+	// hHash.Exists ( "asdf" ); // implicit CSphString construction and deletion here
 	CSphString ( const CSphString & rhs )
 		: m_sValue ( NULL )
 	{
@@ -1564,6 +1641,11 @@ public:
 	const char * cstr () const
 	{
 		return m_sValue;
+	}
+
+	const char * scstr() const
+	{
+		return m_sValue ? m_sValue : "";
 	}
 
 	inline bool operator == ( const char * t ) const
@@ -1688,18 +1770,20 @@ public:
 		return ( (*m_sValue)=='\0' );
 	}
 
-	void ToLower ()
+	CSphString & ToLower ()
 	{
 		if ( m_sValue )
 			for ( char * s=m_sValue; *s; s++ )
 				*s = (char) tolower ( *s );
+		return *this;
 	}
 
-	void ToUpper ()
+	CSphString & ToUpper ()
 	{
 		if ( m_sValue )
 			for ( char * s=m_sValue; *s; s++ )
 				*s = (char) toupper ( *s );
+		return *this;
 	}
 
 	void Swap ( CSphString & rhs )
@@ -1767,6 +1851,16 @@ public:
 			return !m_sValue;
 		return strcmp ( m_sValue, b.m_sValue ) < 0;
 	}
+
+	void Unquote()
+	{
+		int l = Length();
+		if ( l && m_sValue[0]=='\'' && m_sValue[l-1]=='\'' )
+		{
+			memmove ( m_sValue, m_sValue+1, l-2 );
+			m_sValue[l-2] = '\0';
+		}
+	}
 };
 
 /// string swapper
@@ -1785,7 +1879,6 @@ protected:
 	char *	m_sBuffer;
 	int		m_iSize;
 	int		m_iUsed;
-	bool	m_bFirstSeparator;
 
 public:
 	CSphStringBuilder ()
@@ -1801,10 +1894,14 @@ public:
 	void Reset ()
 	{
 		m_iSize = 256;
-		m_iUsed = 0;
 		m_sBuffer = new char [ m_iSize ];
+		Clear ();
+	}
+
+	void Clear ()
+	{
 		m_sBuffer[0] = '\0';
-		m_bFirstSeparator = true;
+		m_iUsed = 0;
 	}
 
 	CSphStringBuilder & Appendf ( const char * sTemplate, ... ) __attribute__ ( ( format ( printf, 2, 3 ) ) )
@@ -1841,19 +1938,6 @@ public:
 		return *this;
 	}
 
-	void ResetSeparator ()
-	{
-		m_bFirstSeparator = true;
-	}
-
-	CSphStringBuilder & AppendSeparator ( const char * sSep )
-	{
-		if ( !m_bFirstSeparator )
-			*this += sSep;
-		m_bFirstSeparator = false;
-		return *this;
-	}
-
 	const char * cstr() const
 	{
 		return m_sBuffer;
@@ -1885,7 +1969,6 @@ public:
 		{
 			m_iUsed = rhs.m_iUsed;
 			m_iSize = rhs.m_iSize;
-			m_bFirstSeparator = rhs.m_bFirstSeparator;
 			SafeDeleteArray ( m_sBuffer );
 			m_sBuffer = new char [ m_iSize ];
 			memcpy ( m_sBuffer, rhs.m_sBuffer, m_iUsed+1 );
@@ -1893,6 +1976,7 @@ public:
 		return *this;
 	}
 
+	// FIXME? move escaping to another place
 	void AppendEscaped ( const char * sText, bool bEscape=true, bool bFixupSpace=true )
 	{
 		if ( !sText || !*sText )
@@ -1946,6 +2030,7 @@ private:
 /////////////////////////////////////////////////////////////////////////////
 
 /// immutable string/int/float variant list proxy
+/// used in config parsing
 struct CSphVariant : public CSphString
 {
 protected:
@@ -1955,7 +2040,9 @@ protected:
 
 public:
 	CSphVariant *	m_pNext;
-	bool			m_bTag;
+	// tags are used for handling multiple same keys
+	bool			m_bTag; // 'true' means override - no multi-valued; 'false' means multi-valued - chain them
+	int				m_iTag; // stores order like in config file
 
 public:
 	/// default ctor
@@ -1966,16 +2053,19 @@ public:
 		, m_fValue ( 0.0f )
 		, m_pNext ( NULL )
 		, m_bTag ( false )
+		, m_iTag ( 0 )
 	{
 	}
 
 	/// ctor from C string
-	CSphVariant ( const char * sString ) // NOLINT desired implicit conversion
+	CSphVariant ( const char * sString, int iTag )
 		: CSphString ( sString )
 		, m_iValue ( m_sValue ? atoi ( m_sValue ) : 0 )
 		, m_i64Value ( m_sValue ? (int64_t)strtoull ( m_sValue, NULL, 10 ) : 0 )
 		, m_fValue ( m_sValue ? (float)atof ( m_sValue ) : 0.0f )
 		, m_pNext ( NULL )
+		, m_bTag ( false )
+		, m_iTag ( iTag )
 	{
 	}
 
@@ -2026,6 +2116,8 @@ public:
 		m_iValue = rhs.m_iValue;
 		m_i64Value = rhs.m_i64Value;
 		m_fValue = rhs.m_fValue;
+		m_bTag = rhs.m_bTag;
+		m_iTag = rhs.m_iTag;
 
 		return *this;
 	}
@@ -2041,6 +2133,13 @@ struct CSphNamedInt
 
 	CSphNamedInt () : m_iValue ( 0 ) {}
 };
+
+inline void Swap ( CSphNamedInt & a, CSphNamedInt & b )
+{
+	a.m_sName.Swap ( b.m_sName );
+	Swap ( a.m_iValue, b.m_iValue );
+}
+
 
 /////////////////////////////////////////////////////////////////////////////
 
@@ -2133,23 +2232,90 @@ protected:
 
 //////////////////////////////////////////////////////////////////////////
 
+// parent process for forked children
 extern bool g_bHeadProcess;
 void sphWarn ( const char *, ... ) __attribute__ ( ( format ( printf, 1, 2 ) ) );
+void SafeClose ( int & iFD );
+
+/// open file for reading
+int				sphOpenFile ( const char * sFile, CSphString & sError );
+
+/// return size of file descriptor
+int64_t			sphGetFileSize ( int iFD, CSphString & sError );
+
+
+/// buffer trait that neither own buffer nor clean-up it on destroy
+template < typename T >
+class CSphBufferTrait : public ISphNoncopyable
+{
+public:
+	/// ctor
+	CSphBufferTrait ()
+		: m_pData ( NULL )
+		, m_iCount ( 0 )
+	{ }
+
+	/// dtor
+	virtual ~CSphBufferTrait () {}
+
+	/// accessor
+	inline const T & operator [] ( int64_t iIndex ) const
+	{
+		assert ( iIndex>=0 && iIndex<m_iCount );
+		return m_pData[iIndex];
+	}
+
+	/// get write address
+	T * GetWritePtr () const
+	{
+		return m_pData;
+	}
+
+	/// check if i'm empty
+	bool IsEmpty () const
+	{
+		return ( m_pData==NULL );
+	}
+
+	/// get length in bytes
+	size_t GetLengthBytes () const
+	{
+		return sizeof(T) * (size_t)m_iCount;
+	}
+
+	/// get length in entries
+	int64_t GetNumEntries () const
+	{
+		return m_iCount;
+	}
+
+	void Set ( T * pData, int64_t iCount )
+	{
+		m_pData = pData;
+		m_iCount = iCount;
+	}
+
+protected:
+	T *			m_pData;
+	int64_t		m_iCount;
+};
+
+
+//////////////////////////////////////////////////////////////////////////
 
 /// in-memory buffer shared between processes
-template < typename T > class CSphSharedBuffer
+template < typename T >
+class CSphSharedBuffer : public CSphBufferTrait < T >
 {
 public:
 	/// ctor
 	CSphSharedBuffer ()
-		: m_pData ( NULL )
-		, m_iLength ( 0 )
-		, m_iEntries ( 0 )
-		, m_bMlock ( false )
-	{}
+	{
+		m_bMlock = false;
+	}
 
 	/// dtor
-	~CSphSharedBuffer ()
+	virtual ~CSphSharedBuffer ()
 	{
 		Reset ();
 	}
@@ -2168,46 +2334,44 @@ public:
 	bool Alloc ( int64_t iEntries, CSphString & sError, CSphString & sWarning )
 #endif
 	{
-		assert ( !m_pData );
+		assert ( !this->GetWritePtr() );
 
 		int64_t uCheck = sizeof(T);
 		uCheck *= iEntries;
 
-		m_iLength = (size_t)uCheck;
-		if ( uCheck!=(int64_t)m_iLength )
+		int64_t iLength = (size_t)uCheck;
+		if ( uCheck!=iLength )
 		{
 			sError.SetSprintf ( "impossible to mmap() over 4 GB on 32-bit system" );
-			m_iLength = 0;
 			return false;
 		}
 
 #if USE_WINDOWS
-		m_pData = new T [ (size_t)iEntries ];
+		T * pData = new T [ (size_t)iEntries ];
 #else
-		m_pData = (T *) mmap ( NULL, m_iLength, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0 );
-		if ( m_pData==MAP_FAILED )
+		T * pData = (T *) mmap ( NULL, iLength, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0 );
+		if ( pData==MAP_FAILED )
 		{
-			if ( m_iLength>0x7fffffffUL )
+			if ( iLength>(int64_t)0x7fffffffUL )
 				sError.SetSprintf ( "mmap() failed: %s (length="INT64_FMT" is over 2GB, impossible on some 32-bit systems)",
-					strerror(errno), (int64_t)m_iLength );
+					strerror(errno), iLength );
 			else
-				sError.SetSprintf ( "mmap() failed: %s (length="INT64_FMT")", strerror(errno), (int64_t)m_iLength );
-			m_iLength = 0;
+				sError.SetSprintf ( "mmap() failed: %s (length="INT64_FMT")", strerror(errno), iLength );
 			return false;
 		}
 
 		if ( m_bMlock )
-			if ( -1==mlock ( m_pData, m_iLength ) )
+			if ( -1==mlock ( pData, iLength ) )
 				sWarning.SetSprintf ( "mlock() failed: %s", strerror(errno) );
 
 #if SPH_ALLOCS_PROFILER
-		sphMemStatMMapAdd ( m_iLength );
+		sphMemStatMMapAdd ( iLength );
 #endif
 
 #endif // USE_WINDOWS
 
-		assert ( m_pData );
-		m_iEntries = (size_t)iEntries;
+		assert ( pData );
+		this->Set ( pData, iEntries );
 		return true;
 	}
 
@@ -2224,13 +2388,13 @@ public:
 		if ( !m_bMlock )
 			return true;
 
-		if ( mlock ( m_pData, m_iLength )!=-1 )
+		if ( mlock ( this->GetWritePtr(), this->GetLengthBytes() )!=-1 )
 			return true;
 
 		if ( sError.IsEmpty() )
-			sError.SetSprintf ( "%s mlock() failed: bytes="INT64_FMT", error=%s", sPrefix, (int64_t)m_iLength, strerror(errno) );
+			sError.SetSprintf ( "%s mlock() failed: bytes="INT64_FMT", error=%s", sPrefix, (int64_t)this->GetLengthBytes(), strerror(errno) );
 		else
-			sError.SetSprintf ( "%s; %s mlock() failed: bytes="INT64_FMT", error=%s", sError.cstr(), sPrefix, (int64_t)m_iLength, strerror(errno) );
+			sError.SetSprintf ( "%s; %s mlock() failed: bytes="INT64_FMT", error=%s", sError.cstr(), sPrefix, (int64_t)this->GetLengthBytes(), strerror(errno) );
 		return false;
 	}
 #endif
@@ -2239,132 +2403,163 @@ public:
 	/// deallocate storage
 	void Reset ()
 	{
-		if ( !m_pData )
+		if ( !this->GetWritePtr() )
 			return;
 
 #if USE_WINDOWS
-		delete [] m_pData;
+		delete [] this->GetWritePtr();
 #else
-		if ( g_bHeadProcess )
-		{
-			int iRes = munmap ( m_pData, m_iLength );
-			if ( iRes )
-				sphWarn ( "munmap() failed: %s", strerror(errno) );
+		int iRes = munmap ( this->GetWritePtr(), this->GetLengthBytes() );
+		if ( iRes )
+			sphWarn ( "munmap() failed: %s", strerror(errno) );
 
 #if SPH_ALLOCS_PROFILER
-			sphMemStatMMapDel ( m_iLength );
+		sphMemStatMMapDel ( this->GetLengthBytes() );
 #endif
-		}
+
 #endif // USE_WINDOWS
 
-		m_pData = NULL;
-		m_iLength = 0;
-		m_iEntries = 0;
+		this->Set ( NULL, 0 );
 	}
 
 public:
-	/// accessor
-	inline const T & operator [] ( int64_t iIndex ) const
+	void Swap ( CSphSharedBuffer & tBuf )
 	{
-		assert ( iIndex>=0 && iIndex<(int64_t)m_iEntries );
-		return m_pData[iIndex];
-	}
-
-	/// get write address
-	T * GetWritePtr () const
-	{
-		return m_pData;
-	}
-
-	/// check if i'm empty
-	bool IsEmpty () const
-	{
-		return m_pData==NULL;
-	}
-
-	/// get length in bytes
-	size_t GetLength () const
-	{
-		return m_iLength;
-	}
-
-	/// get length in entries
-	size_t GetNumEntries () const
-	{
-		return m_iEntries;
+		::Swap ( this->m_pData, tBuf.m_pData );
+		::Swap ( this->m_iCount, tBuf.m_iCount );
+		::Swap ( m_bMlock, tBuf.m_bMlock );
 	}
 
 protected:
-	T *					m_pData;	///< data storage
-	size_t				m_iLength;	///< data length, bytes
-	size_t				m_iEntries;	///< data length, entries
 	bool				m_bMlock;	///< whether to lock data in RAM
 };
 
+
 //////////////////////////////////////////////////////////////////////////
 
-/// process-shared mutex that survives fork
-class CSphProcessSharedMutex
+template < typename T >
+class CSphMappedBuffer : public CSphBufferTrait < T >
 {
 public:
-	explicit CSphProcessSharedMutex ( int iExtraSize=0 );
-	~CSphProcessSharedMutex(); // not virtual for now.
-	void	Lock () const;
-	void	Unlock () const;
-	bool	TimedLock ( int tmSpin ) const; // wait at least tmSpin microseconds the lock will available
-	const char * GetError () const;
-	BYTE *	GetSharedData() const;
-
-protected:
-#if !USE_WINDOWS
-	CSphSharedBuffer<BYTE>		m_pStorage;
-#ifdef __FreeBSD__
-	sem_t *						m_pMutex;
+	/// ctor
+	CSphMappedBuffer ()
+	{
+#if USE_WINDOWS
+		m_iFD = INVALID_HANDLE_VALUE;
 #else
-	pthread_mutex_t *			m_pMutex;
+		m_iFD = -1;
 #endif
-	CSphString					m_sError;
-#endif
-};
+	}
 
-#if !USE_WINDOWS
-/// process-shared mutex variable that survives fork
-template < typename T > class CSphProcessSharedVariable : protected CSphProcessSharedMutex, public ISphNoncopyable
-{
-public:
-
-	explicit CSphProcessSharedVariable ( const T& tInitValue )
-		: CSphProcessSharedMutex ( sizeof(T) )
-		, m_pValue ( NULL )
+	/// dtor
+	virtual ~CSphMappedBuffer ()
 	{
-		if ( m_pMutex )
+		Close();
+	}
+
+	bool Setup ( const char * sFile, CSphString & sError )
+	{
+#if USE_WINDOWS
+		assert ( m_iFD==INVALID_HANDLE_VALUE );
+#else
+		assert ( m_iFD==-1 );
+#endif
+		assert ( !this->GetWritePtr() && !this->GetNumEntries() );
+
+		T * pData = NULL;
+		int64_t iCount = 0;
+
+#if USE_WINDOWS
+		HANDLE iFD = CreateFile ( sFile, GENERIC_READ, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0 );
+		if ( iFD==INVALID_HANDLE_VALUE )
 		{
-			m_pValue = reinterpret_cast<T*> ( GetSharedData() );
-			*m_pValue = tInitValue;
+			sError.SetSprintf ( "failed to open file '%s' (errno %d)", sFile, ::GetLastError() );
+			return false;
 		}
-	}
-	T ReadValue() const
-	{
-		if ( !m_pValue )
-			return 0;
-		Lock();
-		T val = *m_pValue;
-		Unlock();
-		return val;
-	}
-	void WriteValue ( const T& tNewValue )
-	{
-		if ( !m_pValue )
-			return;
-		Lock();
-		*m_pValue = tNewValue;
-		Unlock();
+		m_iFD = iFD;
+
+		LARGE_INTEGER tLen;
+		if ( GetFileSizeEx ( iFD, &tLen )==0 )
+		{
+			sError.SetSprintf ( "failed to fstat file '%s' (errno %d)", sFile, ::GetLastError() );
+			Close();
+			return false;
+		}
+
+		// FIXME!!! report abount tail, ie m_iLen*sizeof(T)!=tLen.QuadPart
+		iCount = tLen.QuadPart / sizeof(T);
+
+		// mmap fails to map zero-size file
+		if ( tLen.QuadPart>0 )
+		{
+			HANDLE hFile = ::CreateFileMapping ( iFD, NULL, PAGE_READONLY, 0, 0, NULL );
+			pData = (T *)::MapViewOfFile ( hFile, FILE_MAP_READ, 0, 0, 0 );
+			if ( !pData )
+			{
+				sError.SetSprintf ( "failed to map file '%s': (errno %d, length="INT64_FMT")", sFile, ::GetLastError(), (int64_t)tLen.QuadPart );
+				Close();
+				return false;
+			}
+		}
+#else
+
+		int iFD = sphOpenFile ( sFile, sError );
+		if ( iFD<0 )
+			return false;
+		m_iFD = iFD;
+
+		int64_t iFileSize = sphGetFileSize ( iFD, sError );
+		if ( iFileSize<0 )
+			return false;
+
+		// FIXME!!! report abount tail, ie m_iLen*sizeof(T)!=st.st_size
+		iCount = iFileSize / sizeof(T);
+
+		// mmap fails to map zero-size file
+		if ( iFileSize>0 )
+		{
+			pData = (T *)mmap ( NULL, iFileSize, PROT_READ, MAP_PRIVATE, iFD, 0 );
+			if ( pData==MAP_FAILED )
+			{
+				sError.SetSprintf ( "failed to mmap file '%s': %s (length="INT64_FMT")", sFile, strerror(errno), iFileSize );
+				Close();
+				return false;
+			}
+		}
+#endif
+
+		this->Set ( pData, iCount );
+		return true;
 	}
 
-protected:
-	T *		m_pValue;
+	void		Close ()
+	{
+#if USE_WINDOWS
+		if ( this->GetWritePtr() )
+			::UnmapViewOfFile ( this->GetWritePtr() );
+
+		if ( m_iFD!=INVALID_HANDLE_VALUE )
+			::CloseHandle ( m_iFD );
+
+		m_iFD = INVALID_HANDLE_VALUE;
+#else
+		if ( this->GetWritePtr() )
+			::munmap ( this->GetWritePtr(), this->GetLengthBytes() );
+
+		SafeClose ( m_iFD );
+#endif
+
+		this->Set ( NULL, 0 );
+	}
+
+private:
+#if USE_WINDOWS
+	HANDLE		m_iFD;
+#else
+	int			m_iFD;
+#endif
 };
-#endif // #if !USE_WINDOWS
+
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -2523,43 +2718,22 @@ protected:
 	T &	m_tMutexRef;
 };
 
-/// MT-aware refcounted base
-/// mutex protected, might be slow
-struct ISphRefcountedMT : public ISphNoncopyable
+
+/// scoped locked shared variable
+template < typename LOCK >
+class CSphScopedLockedShare : public CSphScopedLock<LOCK>
 {
-protected:
-	ISphRefcountedMT ()
-		: m_iRefCount ( 1 )
-	{
-		m_tLock.Init();
-	}
-
-	virtual ~ISphRefcountedMT ()
-	{
-		m_tLock.Done();
-	}
-
 public:
-	void AddRef () const
-	{
-		m_tLock.Lock();
-		m_iRefCount++;
-		m_tLock.Unlock();
-	}
+	/// lock on creation
+	explicit CSphScopedLockedShare ( LOCK & tMutex )
+		: CSphScopedLock<LOCK> ( tMutex )
+	{}
 
-	void Release () const
+	template <typename T>
+	inline T& SharedValue()
 	{
-		m_tLock.Lock();
-		int iRefs = --m_iRefCount;
-		assert ( iRefs>=0 );
-		m_tLock.Unlock();
-		if ( iRefs==0 )
-			delete this;
+		return *(T*)( this->m_tMutexRef.GetSharedData() );
 	}
-
-protected:
-	mutable int			m_iRefCount;
-	mutable CSphMutex	m_tLock;
 };
 
 
@@ -2570,8 +2744,10 @@ public:
 	CSphRwlock ();
 	~CSphRwlock () {}
 
-	bool Init ();
+	bool Init ( bool bProcessShared = false );
 	bool Done ();
+
+	const char * GetError () const;
 
 	bool ReadLock ();
 	bool WriteLock ();
@@ -2579,6 +2755,7 @@ public:
 
 private:
 	bool				m_bInitialized;
+	CSphString			m_sError;
 #if USE_WINDOWS
 	HANDLE				m_hWriteMutex;
 	HANDLE				m_hReadEvent;
@@ -2588,158 +2765,102 @@ private:
 #endif
 };
 
-// small bitvector of 256 elements.
-class CSphSmallBitvec
+
+/// scoped RW lock
+class CSphScopedRWLock : ISphNoncopyable
 {
 public:
-	static const int iTOTALBITS = 256;
-
-private:
-	static const int iELEMBITS = sizeof(DWORD) * 8;
-	static const int iBYTESIZE = iTOTALBITS / 8;
-	static const int IELEMENTS = iTOTALBITS / iELEMBITS;
-	static const DWORD uALLBITS = (DWORD)(~(0UL));
-
-	STATIC_ASSERT ( IELEMENTS>=1, 8_BITS_MINIMAL_SIZE_OF_VECTOR );
-
-public:
-	DWORD m_dFieldsMask[IELEMENTS];
-
-public:
-	// no custom cstr and d-tor - to be usable from inside unions
-	// deep copy for it is ok - so, no explicit copying constructor and operator=
-
-	// old-fashion layer to work with DWORD (32-bit) mask.
-	// all bits above 32 assumed to be unset.
-	void Assign32 ( DWORD uMask )
+	/// lock on creation
+	CSphScopedRWLock ( CSphRwlock & tLock, bool bRead )
+		: m_tLock ( tLock )
 	{
-		Unset();
-		m_dFieldsMask[0] = uMask;
-	}
-
-	DWORD GetMask32 () const
-	{
-		return (DWORD) ( m_dFieldsMask[0] & 0xFFFFFFFFUL );
-	}
-
-	// set n-th bit, or all
-	void Set ( int iIdx=-1 )
-	{
-		assert ( iIdx < iTOTALBITS );
-		if ( iIdx<0 )
-			for ( int i=0; i<IELEMENTS; i++ )
-				m_dFieldsMask[i] = uALLBITS;
+		if ( bRead )
+			m_tLock.ReadLock();
 		else
-			m_dFieldsMask[iIdx/iELEMBITS] |= 1UL << ( iIdx & ( iELEMBITS-1 ) );
+			m_tLock.WriteLock();
 	}
 
-	// unset n-th bit, or all
-	void Unset ( int iIdx=-1 )
+	/// unlock on going out of scope
+	~CSphScopedRWLock ()
 	{
-		assert ( iIdx < iTOTALBITS );
-		if ( iIdx<0 )
-			for ( int i=0; i<IELEMENTS; i++ )
-				m_dFieldsMask[i] = 0UL;
-		else
-			m_dFieldsMask[iIdx/iELEMBITS] &= ~(1UL << ( iIdx & ( iELEMBITS-1 ) ));
+		m_tLock.Unlock ();
 	}
 
-	// test if n-th bit is set
-	bool Test ( int iIdx ) const
-	{
-		assert ( iIdx>=0 && iIdx<iTOTALBITS );
-		return ( m_dFieldsMask[iIdx/iELEMBITS] & ( 1UL << ( iIdx & ( iELEMBITS-1 ) ) ) )!=0;
-	}
-
-	// test the given mask (with &-operator)
-	bool Test ( const CSphSmallBitvec& dParam ) const
-	{
-		for ( int i=0; i<IELEMENTS; i++ )
-			if ( m_dFieldsMask[i] & dParam.m_dFieldsMask[i] )
-				return true;
-		return false;
-	}
-
-	// test if all bits are set or unset
-	bool TestAll ( bool bSet ) const
-	{
-		DWORD uTest = bSet?uALLBITS:0;
-		for ( int i=0; i<IELEMENTS; i++ )
-			if ( m_dFieldsMask[i]!=uTest )
-				return false;
-		return true;
-	}
-
-	friend CSphSmallBitvec operator & ( const CSphSmallBitvec& dFirst, const CSphSmallBitvec& dSecond );
-	friend CSphSmallBitvec operator | ( const CSphSmallBitvec& dFirst, const CSphSmallBitvec& dSecond );
-	friend bool operator == ( const CSphSmallBitvec& dFirst, const CSphSmallBitvec& dSecond );
-	CSphSmallBitvec& operator |= ( const CSphSmallBitvec& dSecond )
-	{
-		if ( &dSecond!=this )
-			for ( int i=0; i<IELEMENTS; i++ )
-				m_dFieldsMask[i] |= dSecond.m_dFieldsMask[i];
-		return *this;
-	}
-
-	// cut out all the bits over given number
-	void LimitBits ( int iBits )
-	{
-		if ( iBits>=iTOTALBITS )
-			return;
-
-		int iMaskPos = iBits / iELEMBITS;
-		DWORD uMask = ( 1UL << ( iBits % iELEMBITS ) ) - 1;
-		m_dFieldsMask[iMaskPos++] &= uMask;
-		for ( ; iMaskPos < IELEMENTS; iMaskPos++ )
-			m_dFieldsMask[iMaskPos] = 0UL;
-	}
-
-	void Negate()
-	{
-		for ( int i=0; i<IELEMENTS; i++ )
-			m_dFieldsMask[i] = ~m_dFieldsMask[i];
-	}
+protected:
+	CSphRwlock & m_tLock;
 };
+
+
+/// process-shared mutex that survives fork
+class CSphProcessSharedMutex
+{
+public:
+	explicit CSphProcessSharedMutex ( int iExtraSize=0 );
+	~CSphProcessSharedMutex(); // not virtual for now.
+	void	Lock ();
+	void	Unlock ();
+	bool	TimedLock ( int tmSpin ) const; // wait at least tmSpin microseconds the lock will available
+	const char * GetError () const;
+	BYTE *	GetSharedData() const;
+
+protected:
+#if !USE_WINDOWS
+	CSphSharedBuffer<BYTE>		m_pStorage;
+#ifdef __FreeBSD__
+	sem_t *						m_pMutex;
+#else
+	pthread_mutex_t *			m_pMutex;
+#endif
+	CSphString					m_sError;
+#else
+	CSphMutex					m_tLock;
+#endif
+};
+
+#if !USE_WINDOWS
+/// process-shared mutex variable that survives fork
+template < typename T > class CSphProcessSharedVariable : protected CSphProcessSharedMutex, public ISphNoncopyable
+{
+public:
+
+	explicit CSphProcessSharedVariable ( const T& tInitValue )
+		: CSphProcessSharedMutex ( sizeof(T) )
+		, m_pValue ( NULL )
+	{
+		if ( m_pMutex )
+		{
+			m_pValue = reinterpret_cast<T*> ( GetSharedData() );
+			*m_pValue = tInitValue;
+		}
+	}
+	T ReadValue()
+	{
+		if ( !m_pValue )
+			return 0;
+		Lock();
+		T val = *m_pValue;
+		Unlock();
+		return val;
+	}
+	void WriteValue ( const T& tNewValue )
+	{
+		if ( !m_pValue )
+			return;
+		Lock();
+		*m_pValue = tNewValue;
+		Unlock();
+	}
+
+protected:
+	T *		m_pValue;
+};
+#endif // #if !USE_WINDOWS
+
 
 #if USE_WINDOWS
 #pragma warning(push,1)
 #pragma warning(disable:4701)
 #endif
-
-inline CSphSmallBitvec operator & ( const CSphSmallBitvec& dFirst, const CSphSmallBitvec& dSecond )
-{
-	if ( &dFirst==&dSecond )
-		return dFirst;
-
-	CSphSmallBitvec dResult;
-	for ( int i=0; i<CSphSmallBitvec::IELEMENTS; i++ )
-			dResult.m_dFieldsMask[i] = dFirst.m_dFieldsMask[i] & dSecond.m_dFieldsMask[i];
-	return dResult;
-}
-
-inline CSphSmallBitvec operator | ( const CSphSmallBitvec& dFirst, const CSphSmallBitvec& dSecond )
-{
-	if ( &dFirst==&dSecond )
-		return dFirst;
-
-	CSphSmallBitvec dResult;
-	for ( int i=0; i<CSphSmallBitvec::IELEMENTS; i++ )
-		dResult.m_dFieldsMask[i] = dFirst.m_dFieldsMask[i] | dSecond.m_dFieldsMask[i];
-	return dResult;
-}
-
-inline bool operator == ( const CSphSmallBitvec& dFirst, const CSphSmallBitvec& dSecond )
-{
-	if ( &dFirst==&dSecond )
-		return true;
-
-	return !memcmp ( &dFirst.m_dFieldsMask, &dSecond.m_dFieldsMask, CSphSmallBitvec::iBYTESIZE );
-}
-
-inline bool operator != ( const CSphSmallBitvec& dFirst, const CSphSmallBitvec& dSecond )
-{
-	return !( dFirst==dSecond );
-}
 
 #if USE_WINDOWS
 #pragma warning(pop)
@@ -2762,27 +2883,32 @@ public:
 		, m_iElements ( 0 )
 	{}
 
+	explicit CSphBitvec ( int iElements )
+	{
+		Init ( iElements );
+	}
+
 	~CSphBitvec ()
 	{
-		if ( m_pData && m_pData!=m_uStatic )
+		if ( m_pData!=m_uStatic )
 			SafeDeleteArray ( m_pData );
 	}
 
+	// huh, no copy ctor and operator= ?
+
 	void Init ( int iElements )
 	{
-		assert ( iElements>0 );
+		assert ( iElements>=0 );
 		m_iElements = iElements;
 		if ( iElements > int(sizeof(m_uStatic)*8) )
 		{
 			int iSize = GetSize();
 			m_pData = new DWORD [ iSize ];
-			memset ( m_pData, 0, sizeof(DWORD)*iSize );
 		} else
 		{
 			m_pData = m_uStatic;
-			for ( int i=0; i<int(sizeof(m_uStatic)/sizeof(m_uStatic[0])); i++ )
-				m_uStatic[i] = 0;
 		}
+		Clear();
 	}
 
 	void Clear ()
@@ -2818,9 +2944,19 @@ public:
 		return m_pData;
 	}
 
+	DWORD * Begin ()
+	{
+		return m_pData;
+	}
+
 	int GetSize() const
 	{
 		return (m_iElements+31)/32;
+	}
+
+	int GetBits() const
+	{
+		return m_iElements;
 	}
 
 	int BitCount () const
@@ -2833,9 +2969,132 @@ public:
 	}
 };
 
+//////////////////////////////////////////////////////////////////////////
+
+#if USE_WINDOWS
+#define DISABLE_CONST_COND_CHECK \
+	__pragma ( warning ( push ) ) \
+	__pragma ( warning ( disable:4127 ) )
+#define ENABLE_CONST_COND_CHECK \
+	__pragma ( warning ( pop ) )
+#else
+#define DISABLE_CONST_COND_CHECK
+#define ENABLE_CONST_COND_CHECK
+#endif
+
+#define if_const(_arg) \
+	DISABLE_CONST_COND_CHECK \
+	if ( _arg ) \
+	ENABLE_CONST_COND_CHECK
+
+//////////////////////////////////////////////////////////////////////////
+// interlocked (atomic) operation
+
+#if (USE_WINDOWS) || (HAVE_SYNC_FETCH)
+#define NO_ATOMIC 0
+#else
+#define NO_ATOMIC 1
+#endif
+
+template < typename INT >
+class CSphAtomic : public ISphNoncopyable
+{
+	volatile INT	m_iValue;
+#if NO_ATOMIC
+	CSphMutex		m_tLock;
+#endif
+
+public:
+	CSphAtomic ( INT iValue=0 )
+		: m_iValue ( iValue )
+	{
+#if NO_ATOMIC
+		m_tLock.Init();
+#endif
+	}
+
+	~CSphAtomic ()
+	{
+#if NO_ATOMIC
+		m_tLock.Done();
+#endif
+	}
+
+#ifdef HAVE_SYNC_FETCH
+	operator INT()
+	{
+		return __sync_fetch_and_add ( &m_iValue, 0 );
+	}
+
+	// return value here is original value, prior to operation took place
+	inline INT Inc()
+	{
+		return __sync_fetch_and_add ( &m_iValue, 1 );
+	}
+	inline INT Dec()
+	{
+		return __sync_fetch_and_sub ( &m_iValue, 1 );
+	}
+#elif USE_WINDOWS
+	operator INT();
+	INT Inc();
+	INT Dec();
+#endif
+
+#if NO_ATOMIC
+	operator INT()
+	{
+		CSphScopedLock<CSphMutex> tLock ( m_tLock );
+		return m_iValue;
+	}
+	inline INT Inc()
+	{
+		CSphScopedLock<CSphMutex> tLock ( m_tLock );
+		return m_iValue++;
+	}
+	inline INT Dec()
+	{
+		CSphScopedLock<CSphMutex> tLock ( m_tLock );
+		return m_iValue--;
+	}
+#endif
+};
+
+
+
+/// MT-aware refcounted base (might be a mutex protected and slow)
+struct ISphRefcountedMT : public ISphNoncopyable
+{
+protected:
+	ISphRefcountedMT ()
+		: m_iRefCount ( 1 )
+	{}
+
+	virtual ~ISphRefcountedMT ()
+	{}
+
+public:
+	void AddRef () const
+	{
+		m_iRefCount.Inc();
+	}
+
+	void Release () const
+	{
+		long uRefs = m_iRefCount.Dec();
+		assert ( uRefs>=1 );
+		if ( uRefs==1 )
+			delete this;
+	}
+
+protected:
+	mutable CSphAtomic<long>	m_iRefCount;
+};
+
+
 
 #endif // _sphinxstd_
 
 //
-// $Id: sphinxstd.h 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxstd.h 4686 2014-05-12 15:43:54Z joric $
 //

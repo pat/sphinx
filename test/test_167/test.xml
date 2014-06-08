@@ -12,7 +12,6 @@ indexer
 searchd
 {
 	<searchd_settings/>
-compat_sphinxql_magics = 1
 }
 
 source srctest
@@ -28,12 +27,9 @@ index test
 	source			= srctest
 	path			= <data_path/>/test
 	<Dynamic>
-	<Variant>charset_type	= sbcs</Variant>
-	<Variant>charset_type	= utf-8</Variant>
-	<Variant>charset_type	= utf-8
-		exceptions	= synonyms.txt</Variant>
+	<Variant></Variant>
+	<Variant>exceptions	= synonyms.txt</Variant>
 	</Dynamic>
-	enable_star		= 1
 
     <Dynamic>
       <Variant>	min_word_len = 3 </Variant>

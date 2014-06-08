@@ -1,5 +1,5 @@
 //
-// $Id: sphinxexcerpt.h 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxexcerpt.h 4522 2014-01-30 11:00:18Z tomat $
 //
 
 //
@@ -61,6 +61,7 @@ public:
 	int				m_iNext;			///< the next one in one-link list for batch processing. -1 terminate the list. -2 sign of other (out-of-the-lists)
 	CSphVector<BYTE>	m_dRes;				///< snippet result holder
 	CSphString		m_sError;			///< snippet error message
+	CSphString		m_sWarning;			///< snippet warning message
 	bool			m_bHasBeforePassageMacro;
 	bool			m_bHasAfterPassageMacro;
 	CSphString		m_sBeforeMatchPassage;
@@ -78,10 +79,10 @@ struct XQQuery_t;
 /// returns a newly allocated string in encoding specified by tokenizer on success
 /// returns NULL on failure
 void sphBuildExcerpt ( ExcerptQuery_t & tOptions, const CSphIndex * pIndex, const CSphHTMLStripper * pStripper, const XQQuery_t & tExtQuery,
-						DWORD eExtQuerySPZ, CSphString & sError, CSphDict * pDict, ISphTokenizer * pDocTokenizer, ISphTokenizer * pQueryTokenizer );
+						DWORD eExtQuerySPZ, CSphString & sWarning, CSphString & sError, CSphDict * pDict, ISphTokenizer * pDocTokenizer, ISphTokenizer * pQueryTokenizer );
 
 #endif // _sphinxexcerpt_
 
 //
-// $Id: sphinxexcerpt.h 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxexcerpt.h 4522 2014-01-30 11:00:18Z tomat $
 //

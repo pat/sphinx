@@ -12,7 +12,6 @@ indexer
 searchd
 {
 	<searchd_settings/>
-compat_sphinxql_magics = 1
 	workers = threads
 }
 
@@ -58,7 +57,6 @@ index rt_fix
 	min_infix_len = 1
 	dict = keywords
 	morphology = stem_en
-	enable_star = 1	
 }
 
 index wf
@@ -86,7 +84,6 @@ index kw_p
 	min_prefix_len = 3
 	morphology		= stem_en
 	index_exact_words = 1
-	enable_star = 1	
 }
 
 index kw_i
@@ -98,7 +95,6 @@ index kw_i
 	min_infix_len = 3
 	morphology		= stem_en
 	index_exact_words = 1
-	enable_star = 1	
 }
 
 index rt_p
@@ -112,7 +108,6 @@ index rt_p
 	min_prefix_len = 3
 	morphology		= stem_en
 	index_exact_words = 1
-	enable_star = 1	
 }
 
 index rt_i
@@ -126,26 +121,75 @@ index rt_i
 	min_infix_len = 3
 	morphology		= stem_en
 	index_exact_words = 1
-	enable_star = 1	
+}
+
+source src_phrase : srctest
+{
+	sql_query		= SELECT 1 id, 11 idd, 'it running fast as you but can not' title UNION SELECT 2 id, 11 idd, 'as it runs me' title UNION SELECT 3 id, 11 idd, 'it run and has fun' title
+	sql_attr_uint		= idd
+}
+
+index phrase_idx
+{
+	source			= src_phrase
+	path			= <data_path/>/phrase_idx
+	charset_table = 0..9, a..z, A..Z->a..z
+	dict = keywords
+	morphology		= stem_en
+	index_exact_words = 1	
+}
+
+source src_phrase_shift : srctest
+{
+	sql_query		= SELECT 1 id, 11 idd, 'that orange box might be and not yellow' title UNION SELECT 2 id, 11 idd, 'however that is a green box always apears here as usual' title UNION SELECT 3 id, 11 idd, 'that orange box might be not yellow' title
+	sql_attr_uint		= idd
+}
+
+index phrase_shift
+{
+	source			= src_phrase_shift
+	path			= <data_path/>/phrase_shift
+	charset_table = 0..9, a..z, A..Z->a..z
+	dict = keywords
+}
+
+index phrase_shift_star
+{
+	source			= src_phrase_shift
+	path			= <data_path/>/phrase_shift_star
+	charset_table = 0..9, a..z, A..Z->a..z
+	dict = keywords
+	min_prefix_len = 1
+}
+
+index phrase_shift_min_wlen
+{
+	source			= src_phrase_shift
+	path			= <data_path/>/phrase_shift_min_wlen
+	charset_table = 0..9, a..z, A..Z->a..z
+	dict = keywords
+	min_word_len = 2
 }
 
 source src_4codepoint : srctest
 {
-	sql_query		= SELECT 1 id, 5 idd, CONCAT ( 'the boxed state ', REPEAT( CHAR(0xf3be80bb), 7  ) ) as title
-	sql_attr_uint		= idd
+       sql_query               = SELECT 1 id, 5 idd, CONCAT ( 'the boxed state ', REPEAT( CHAR(0xf3be80bb), 7  ) ) as title
+       sql_attr_uint           = idd
 }
 
 index codepoint
 {
-	source			= src_4codepoint
-	path			= <data_path/>/codepoint
-	dict = keywords
-	min_infix_len = 3
-	morphology		= stem_en
-	index_exact_words = 1
-	enable_star = 1
-	charset_type	= utf-8
+       source                  = src_4codepoint
+       path                    = <data_path/>/codepoint
+       dict = keywords
+       min_infix_len = 3
+       morphology              = stem_en
+       index_exact_words = 1
+       enable_star = 1
+       charset_type    = utf-8
 }
+
+
 </config>
 
 <queries>
@@ -200,6 +244,15 @@ REPLACE INTO rt (id, id1, title) VALUES ( 1, 1, 'work worked working workings wo
 <sphinxql>SELECT * FROM wf WHERE MATCH('=runs')</sphinxql>
 <sphinxql>show meta</sphinxql>
 
+<!--regression substring search at RT index -->
+<sphinxql>REPLACE INTO rt_fix (id, id1, title) VALUES ( 2, 1, 'howdy all around' )</sphinxql>
+<sphinxql>SELECT * FROM rt_fix WHERE MATCH('*eop*')</sphinxql>
+<sphinxql>show meta</sphinxql>
+<sphinxql>SELECT * FROM rt_fix WHERE MATCH('*ar*')</sphinxql>
+<sphinxql>show meta</sphinxql>
+<sphinxql>SELECT * FROM rt_fix WHERE MATCH('ho*')</sphinxql>
+<sphinxql>show meta</sphinxql>
+
 <!--regression substring search vs stemmed terms -->
 <sphinxql>REPLACE INTO rt_p (id, idd, title) VALUES (1,11,'busy'), (2,11,'busi'), (3,11,'feet'), (4,11,'foot'), (5,11,'fbusy'), (6,11,'fbusi')</sphinxql>
 <sphinxql>REPLACE INTO rt_i (id, idd, title) VALUES (1,11,'busy'), (2,11,'busi'), (3,11,'feet'), (4,11,'foot'), (5,11,'fbusy'), (6,11,'fbusi')</sphinxql>
@@ -251,6 +304,30 @@ REPLACE INTO rt (id, id1, title) VALUES ( 1, 1, 'work worked working workings wo
 <sphinxql>show meta</sphinxql>
 <sphinxql>SELECT * FROM rt_i WHERE MATCH('*feet*')</sphinxql>
 <sphinxql>show meta</sphinxql>
+
+<!-- new feature exact phrase - just shortcut for all words in phrase have exact modifier -->
+<sphinxql>SELECT * FROM phrase_idx WHERE MATCH(' "it run" ')</sphinxql>
+<sphinxql>show meta</sphinxql>
+<sphinxql>SELECT * FROM phrase_idx WHERE MATCH(' ="it running" ')</sphinxql>
+<sphinxql>show meta</sphinxql>
+<sphinxql>SELECT * FROM phrase_idx WHERE MATCH(' ="it runs" ')</sphinxql>
+<sphinxql>show meta</sphinxql>
+<sphinxql>SELECT * FROM phrase_idx WHERE MATCH(' ="it run" ')</sphinxql>
+<sphinxql>show meta</sphinxql>
+
+<!-- phrase shift -->
+<sphinxql>SELECT * FROM phrase_shift WHERE MATCH(' "that box" ')</sphinxql>
+<sphinxql>SELECT * FROM phrase_shift WHERE MATCH(' "that * box" ')</sphinxql>
+<sphinxql>SELECT * FROM phrase_shift WHERE MATCH(' "that * * * box" ')</sphinxql>
+<sphinxql>SELECT * FROM phrase_shift WHERE MATCH(' "that * box might * * not yellow" ')</sphinxql>
+<sphinxql>SELECT * FROM phrase_shift_star WHERE MATCH(' "that box" ')</sphinxql>
+<sphinxql>SELECT * FROM phrase_shift_star WHERE MATCH(' "that * box" ')</sphinxql>
+<sphinxql>SELECT * FROM phrase_shift_star WHERE MATCH(' "that * * * box" ')</sphinxql>
+<sphinxql>SELECT * FROM phrase_shift_star WHERE MATCH(' "that * box might * * not yellow" ')</sphinxql>
+<sphinxql>SELECT * FROM phrase_shift_min_wlen WHERE MATCH(' "that box" ')</sphinxql>
+<sphinxql>SELECT * FROM phrase_shift_min_wlen WHERE MATCH(' "that * box" ')</sphinxql>
+<sphinxql>SELECT * FROM phrase_shift_min_wlen WHERE MATCH(' "that * * * box" ')</sphinxql>
+<sphinxql>SELECT * FROM phrase_shift_min_wlen WHERE MATCH(' "that * box might * * not yellow" ')</sphinxql>
 
 <!-- regression word with exact modifier that breaks infix builder -->
 <sphinxql>REPLACE INTO rt_i (id, idd, title) VALUES (20,11,'long word ___________________________________________ that crashed')</sphinxql>

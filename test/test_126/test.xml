@@ -27,7 +27,6 @@ index test
 {
 	source			= srctest
 	path			= <data_path/>/test
-    charset_type 	= utf-8
 	morphology		= stem_en
 	index_exact_words	= 1
 	expand_keywords	= 1
@@ -44,33 +43,27 @@ index prefix
 {
 	source			= src_prefix
 	path			= <data_path/>/prefix
-	charset_type 	= utf-8
 	expand_keywords	= 1
 	min_prefix_len = 2
-	enable_star = 1
 }
 
 index expanded_plain
 {
 	source			= srctest
 	path			= <data_path/>/expanded-plain
-	charset_type 	= utf-8
 	docinfo = extern
 	dict = keywords
 	expand_keywords	= 1
 	min_infix_len = 3
-	enable_star = 1
 }
 
 index expanded_rt
 {
 	type = rt
 	path			= <data_path/>/expanded-rt
-	charset_type 	= utf-8
 	dict = keywords
 	expand_keywords	= 1
 	min_infix_len = 3
-	enable_star = 1
 	rt_field = title
 	rt_attr_uint = idd	
 }
@@ -106,11 +99,9 @@ index plain_inline
 {
 	source			= src_inline
 	path			= <data_path/>/plain-inline
-	charset_type 	= utf-8
 	docinfo = inline
 	dict = keywords
 	min_prefix_len = 1
-	enable_star = 1
 }
 
 </config>

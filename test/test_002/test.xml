@@ -11,7 +11,6 @@ searchd
 {
 </Static>
 <Searchd_Settings/>
-compat_sphinxql_magics = 1
 <Static>
 }
 
@@ -29,7 +28,6 @@ index lj
 {
 	source			= srclj
 	path			= </Static><Data_Path/><Static>/lj
-	charset_type	= utf-8
 </Static>
     <Dynamic>
       <Variant>	min_word_len	= 1</Variant>
@@ -43,10 +41,6 @@ index lj
       <Variant>	min_infix_len	= 0</Variant>
       <Variant>	min_infix_len	= 1</Variant>
       <Variant>	min_infix_len	= 3</Variant>
-    </Dynamic>
-    <Dynamic>
-      <Variant>	enable_star		= 0</Variant>
-      <Variant>	enable_star		= 1</Variant>
     </Dynamic>
     <Static>}</Static>
   </Config>

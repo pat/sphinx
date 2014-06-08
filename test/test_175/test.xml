@@ -12,7 +12,6 @@ indexer
 searchd
 {
 	<searchd_settings/>
-compat_sphinxql_magics = 1
 	workers = threads
 	binlog_path = #
     subtree_docs_cache  = 128k
@@ -67,7 +66,6 @@ index test3
 index rt
 {
 	type = rt
-	charset_type = utf-8
 	path = <data_path/>/rt
 
 	rt_field = content
@@ -78,7 +76,6 @@ index optimized_filter
 {
 	type = rt
 	rt_mem_limit = 128k
-	charset_type = utf-8
 	path = <data_path/>/optimized_filter
 
 	rt_field = content
@@ -107,7 +104,6 @@ index hits_plain
 	source			= src_hits
 	path			= <data_path/>/plain
 	docinfo			= extern
-	charset_type	= utf-8
 	hit_format = plain
 }
 
@@ -116,7 +112,6 @@ index hits_inline
 	source			= src_hits
 	path			= <data_path/>/inline
 	docinfo			= extern
-	charset_type	= utf-8
 }
 
 <!-- flushing hits+docinfo in inline mode (bug #1310) -->
@@ -132,7 +127,6 @@ index idx_inline
 {
 	source			= src_inline
 	path			= <data_path/>/idx_inline
-	charset_type = utf-8
 	docinfo = inline
 }
 
@@ -156,7 +150,6 @@ index idx_inline2
 {
 	source			= src_inline2
 	path			= <data_path/>/idx_inline2
-	charset_type = utf-8
 	docinfo = inline
 	dict = keywords
 }
@@ -173,7 +166,6 @@ index idx_qt
 {
 	source			= src_quorum_tail
 	path			= <data_path/>/idx_quorum_tail
-	charset_type = utf-8
 	docinfo = extern
 }
 
@@ -188,7 +180,6 @@ index idx_qt_2
 {
 	source			= src_quorum_tail_2
 	path			= <data_path/>/idx_quorum_tail_2
-	charset_type = utf-8
 	docinfo = extern
 }
 
@@ -502,8 +493,8 @@ $results = array_merge ( $results, $query ( "select * from idx_qt where match ('
 $results = array_merge ( $results, $query ( "select *, weight() from idx_qt_2 where match (' \" match match that pal \"/2 ' ) order by id desc limit 5 option ranker=wordcount", $sock ) );
 
 // regression - expand_keywords got lost for disk chunks of RT ndex
-$text = 'dummy text is going here dummy text is going here dummy text is going here dummy text is going here dummy text is going here dummy text is going here';
-$insert = "REPLACE INTO rt_auto_expand VALUES ( 1, 'uniq got placed here', 1, 2, 3, 4, 5 ) ";
+$text = 'dummy text is going here dummy text is going here dummy text is going here dummy text is going here dummy text is going here dummy text is going here aborted';
+$insert = "REPLACE INTO rt_auto_expand VALUES ( 1, 'uniq got placed here avi', 1, 2, 3, 4, 5 ) ";
 $query ( $insert, $sock );
 
 for ( $id=2; $id<1700; $id++ )
@@ -517,6 +508,9 @@ $results = array_merge ( $results, $query ( "select * from rt_auto_expand where 
 $results = array_merge ( $results, $query ( "show meta", $sock ) );
 $results = array_merge ( $results, $query ( "select * from rt_auto_expand where match ( 'ace' ) ", $sock ) );
 $results = array_merge ( $results, $query ( "show meta", $sock ) );
+
+// regression call keywords fails at disk chunk term with skiplist
+$results = array_merge ( $results, $query ( " CALL KEYWORDS ('got aborted avi', 'rt_auto_expand', 1) ", $sock ) );
 
 @mysql_close ( $sock );
 

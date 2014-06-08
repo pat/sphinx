@@ -10,7 +10,7 @@
 searchd
 {
 </Static><Searchd_Settings/>
-compat_sphinxql_magics = 1<Static>
+<Static>
 }
 
 source srclj
@@ -34,9 +34,7 @@ index lj
 	source			= srclj
 	path			= </Static><Data_Path/><Static>/lj
 	docinfo			= extern
-	charset_type	= utf-8
 	min_word_len	= 1
-	charset_type	= sbcs
 }
 </Static>
   </Config>

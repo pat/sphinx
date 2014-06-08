@@ -5,10 +5,10 @@
 <lemmatizer_base/>
 </requires>
 
-<name>aot morphology</name>
+<name>aot morphology in utf-8</name>
 
 <config>
-indexer
+common
 {
 	lemmatizer_base	= <local>lemmatizer_base</local>
 }
@@ -32,7 +32,6 @@ index test1
 {
 	source			= test1
 	path			= <data_path/>/test1
-	charset_type	= utf-8
 	morphology		= lemmatize_ru_all
 	blend_chars		= @, .
 	wordforms		= <this_test/>/wordforms.txt
@@ -51,11 +50,17 @@ index test3 : test1
 	morphology		= stem_en,lemmatize_ru_all
 }
 
+index test4 : test1
+{
+	path			= <data_path/>/test4
+	index_exact_words = 1
+	morphology		= lemmatize_en_all, stem_ru
+}
+
 index testrt1
 {
 	type			= rt
 	path			= <data_path/>/testrt1
-	charset_type	= utf-8
 	morphology		= lemmatize_ru_all
 	blend_chars		= @, .
 	wordforms		= <this_test/>/wordforms.txt
@@ -82,9 +87,7 @@ index stalin_plain
 {
 	source			= stalin_src
 	path			= <data_path/>/stalin_plain
-	charset_type	= utf-8
 	morphology		= lemmatize_ru
-	enable_star		= 1
 	min_infix_len	= 2
 	expand_keywords	= 1	
 }
@@ -93,10 +96,8 @@ index stalin_rt
 {
 	type			= rt
 	path			= <data_path/>/stalin_rt
-	charset_type	= utf-8
 	morphology		= lemmatize_ru_all
 	dict			= keywords
-	enable_star		= 1
 	min_infix_len	= 2
 	expand_keywords	= 1
 	rt_field		= text
@@ -109,7 +110,6 @@ index crash_idx
 	path			= <data_path/>/crash_idx
 	rt_field		= query
 	rt_attr_bigint	= rating
-	charset_type	= utf-8
 	morphology		= stem_en, lemmatize_ru_all
 	wordforms		= <this_test/>/wordforms2.txt
 }
@@ -127,18 +127,15 @@ index test_wf1
 {
 	source			= test_wf
 	path			= <data_path/>/test_wf1
-	charset_type	= utf-8
 	morphology		= stem_en, lemmatize_ru_all
 	wordforms		= <this_test/>/wordforms3.txt
 	dict                = keywords
 	min_prefix_len 		= 2
-	enable_star         = 1
 }
 index test_wf2
 {
 	source			= test_wf
 	path			= <data_path/>/test_wf2
-	charset_type	= utf-8
 	morphology		= stem_en, lemmatize_ru_all
 	wordforms		= <this_test/>/wordforms3.txt
 	dict                = keywords
@@ -157,7 +154,6 @@ index test_quorum
 {
 	source			= test_quorum
 	path			= <data_path/>/test_quorum
-	charset_type	= utf-8
 	morphology		= lemmatize_ru_all
 	dict                = keywords
 	index_exact_words = 1
@@ -336,9 +332,10 @@ CREATE TABLE test_table
 <sphinxql>SELECT id,gid,weight() as my_weight FROM META:plain WHERE MATCH('Фичин баг') option ranker=SPH04;show meta</sphinxql>
 <sphinxql>SELECT id,gid,weight() as my_weight FROM META:plain WHERE MATCH('Фичин баг');show meta</sphinxql>
 <sphinxql>SELECT id,gid,weight() as my_weight FROM META:plain WHERE MATCH('^Фичин баг$');show meta</sphinxql>
-<sphinxql>SELECT id,gid,weight() as my_weight FROM META:plain WHERE MATCH('"Фичин баг"') option ranker=SPH04;show meta</sphinxql>
-<sphinxql>SELECT id,gid,weight() as my_weight FROM META:plain WHERE MATCH('english text') option ranker=SPH04;show meta</sphinxql>
-<sphinxql>SELECT id,gid,weight() as my_weight FROM META:plain WHERE MATCH('"english text"') option ranker=SPH04;show meta</sphinxql>
+<sphinxql>SELECT id,gid,weight(),packedfactors() as my_weight FROM META:plain WHERE MATCH('Фичин баг') option ranker=expr('sum((4*lcs+2*(min_hit_pos==1)+exact_hit)*user_weight)*1000+bm25');show meta</sphinxql>
+<sphinxql>SELECT id,gid,weight(),packedfactors() as my_weight FROM META:plain WHERE MATCH('"Фичин баг"') option ranker=expr('sum((4*lcs+2*(min_hit_pos==1)+exact_hit)*user_weight)*1000+bm25');show meta</sphinxql>
+<sphinxql>SELECT id,gid,weight(),packedfactors() as my_weight FROM META:plain WHERE MATCH('english text') option ranker=expr('sum((4*lcs+2*(min_hit_pos==1)+exact_hit)*user_weight)*1000+bm25');show meta</sphinxql>
+<sphinxql>SELECT id,gid,weight(),packedfactors() as my_weight FROM META:plain WHERE MATCH('"english text"') option ranker=expr('sum((4*lcs+2*(min_hit_pos==1)+exact_hit)*user_weight)*1000+bm25');show meta</sphinxql>
 
 <sphinxql>INSERT INTO testrt1 VALUES ( 1, 'они стали есть', 11 )</sphinxql>
 <sphinxql>INSERT INTO testrt1 VALUES ( 2, 'Крыса из Нержавеющей Стали', 11 )</sphinxql>
@@ -437,6 +434,12 @@ CREATE TABLE test_table
 
 <!--regression exact form vs missed lemma -->
 <sphinxql>SELECT id,gid,weight() as my_weight FROM META:plain WHERE MATCH('=english =text') option ranker=sph04;show meta</sphinxql>
+<sphinxql>SELECT id,gid,weight() as my_weight FROM test4 WHERE MATCH('клея') option ranker=sph04;show meta</sphinxql>
+<sphinxql>SELECT id,gid,weight() as my_weight FROM test4 WHERE MATCH('=клея') option ranker=sph04;show meta</sphinxql>
+
+<!-- expand+remove quorum dupes test -->
+<sphinxql>SELECT id FROM stalin_plain WHERE MATCH('"один два три"/0.5') limit 1</sphinxql>
+<sphinxql>SHOW META</sphinxql>
 
 <sphinxql>SELECT id FROM crash_idx WHERE MATCH('"DOG 13"')</sphinxql>
 
@@ -450,6 +453,18 @@ CREATE TABLE test_table
 
 <!--regression quorum vs AOT -->
 <sphinxql>SELECT id  FROM test_quorum WHERE MATCH(' "меняет песенка Иван"/2 (@docid 1)');show meta</sphinxql>
+
+<sphinxql>SET profiling=1</sphinxql>
+<sphinxql>SELECT id, WEIGHT() FROM test1 WHERE MATCH('^ попил $');</sphinxql>
+<sphinxql>SHOW PLAN;</sphinxql>
+<sphinxql>SELECT id, WEIGHT() FROM test1 WHERE MATCH('попил');</sphinxql>
+<sphinxql>SHOW PLAN;</sphinxql>
+<sphinxql>SELECT id, WEIGHT() FROM test1 WHERE MATCH('попил^1.234');</sphinxql>
+<sphinxql>SHOW PLAN;</sphinxql>
+<sphinxql>SELECT id, WEIGHT() FROM test1 WHERE MATCH('попил$^1.234');</sphinxql>
+<sphinxql>SHOW PLAN;</sphinxql>
+<sphinxql>SELECT id, WEIGHT() FROM test1 WHERE MATCH('попил^1.234$');</sphinxql>
+<sphinxql>SHOW PLAN;</sphinxql>
 
 <!--regression lemmas vs tail hit -->
 <sphinxql>SELECT *, weight() w FROM test_lemmas WHERE MATCH('вот'); show meta</sphinxql>

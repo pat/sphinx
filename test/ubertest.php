@@ -1,7 +1,7 @@
 <?php
 
 //
-// $Id: ubertest.php 3931 2013-06-06 16:33:10Z klirichek $
+// $Id: ubertest.php 3909 2013-05-31 18:06:15Z shodan $
 //
 
 $sd_managed_searchd	= false;
@@ -297,7 +297,7 @@ if ( $total_tests_failed )
 }
 
 //
-// $Id: ubertest.php 3931 2013-06-06 16:33:10Z klirichek $
+// $Id: ubertest.php 3909 2013-05-31 18:06:15Z shodan $
 //
 
 ?>

@@ -12,7 +12,6 @@ indexer
 searchd
 {
 	<searchd_settings/>
-compat_sphinxql_magics = 1
 }
 
 source test
@@ -34,10 +33,6 @@ index test
 		<variant>blend_mode = trim_none, skip_pure</variant>
 		<variant>blend_mode = trim_tail</variant>
 		<variant>blend_mode = trim_head, trim_tail</variant>
-	</dynamic>
-	<dynamic>
-		<variant>charset_type = sbcs</variant>
-		<variant>charset_type = utf-8</variant>
 	</dynamic>
 }
 </config>

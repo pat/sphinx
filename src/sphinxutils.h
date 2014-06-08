@@ -1,5 +1,5 @@
 //
-// $Id: sphinxutils.h 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxutils.h 4640 2014-03-31 05:48:00Z tomat $
 //
 
 //
@@ -55,6 +55,9 @@ inline bool sphIsWild ( char c )
 /// string splitter, extracts sequences of alphas (as in sphIsAlpha)
 void sphSplit ( CSphVector<CSphString> & dOut, const char * sIn );
 
+/// string splitter, splits by the given boundaries
+void sphSplit ( CSphVector<CSphString> & dOut, const char * sIn, const char * sBounds );
+
 /// string wildcard matching (case-sensitive, supports * and ? patterns)
 bool sphWildcardMatch ( const char * sSstring, const char * sPattern );
 
@@ -64,6 +67,10 @@ bool sphWildcardMatch ( const char * sSstring, const char * sPattern );
 class CSphConfigSection : public SmallStringHash_T < CSphVariant >
 {
 public:
+	CSphConfigSection ()
+		: m_iTag ( 0 )
+	{}
+
 	/// get integer option value by key and default value
 	int GetInt ( const char * sKey, int iDefault=0 ) const
 	{
@@ -88,6 +95,8 @@ public:
 	/// get size option (plain int, or with K/M prefix) value by key and default value
 	int		GetSize ( const char * sKey, int iDefault ) const;
 	int64_t GetSize64 ( const char * sKey, int64_t iDefault ) const;
+
+	int m_iTag;
 };
 
 /// config section type (hash of sections)
@@ -140,7 +149,7 @@ bool TryToExec ( char * pBuffer, const char * szFilename, CSphVector<char> & dRe
 
 enum
 {
-	TOKENIZER_SBCS		= 1,
+	// where was TOKENIZER_SBCS=1 once
 	TOKENIZER_UTF8		= 2,
 	TOKENIZER_NGRAM	= 3
 };
@@ -149,7 +158,7 @@ enum
 const char *	sphLoadConfig ( const char * sOptConfig, bool bQuiet, CSphConfigParser & cp );
 
 /// configure tokenizer from index definition section
-bool			sphConfTokenizer ( const CSphConfigSection & hIndex, CSphTokenizerSettings & tSettings, CSphString & sError );
+void			sphConfTokenizer ( const CSphConfigSection & hIndex, CSphTokenizerSettings & tSettings );
 
 /// configure dictionary from index definition section
 void			sphConfDictionary ( const CSphConfigSection & hIndex, CSphDictSettings & tSettings );
@@ -161,7 +170,9 @@ bool			sphConfFieldFilter ( const CSphConfigSection & hIndex, CSphFieldFilterSet
 bool			sphConfIndex ( const CSphConfigSection & hIndex, CSphIndexSettings & tSettings, CSphString & sError );
 
 /// try to set dictionary, tokenizer and misc settings for an index (if not already set)
-bool			sphFixupIndexSettings ( CSphIndex * pIndex, const CSphConfigSection & hIndex, CSphString & sError );
+bool			sphFixupIndexSettings ( CSphIndex * pIndex, const CSphConfigSection & hIndex, CSphString & sError, bool bTemplateDict=false );
+
+bool			sphInitCharsetAliasTable ( CSphString & sError );
 
 enum ESphLogLevel
 {
@@ -226,8 +237,42 @@ const char * DoBacktrace ( int iDepth=0, int iSkip=0 );
 
 void sphCheckDuplicatePaths ( const CSphConfig & hConf );
 
+/// set globals from the common config section
+void sphConfigureCommon ( const CSphConfig & hConf );
+
+/// detect chinese chars in a buffer
+bool sphDetectChinese ( const BYTE * szBuffer, int iLength );
+
+/// returns ranker name as string
+const char * sphGetRankerName ( ESphRankMode eRanker );
+
+class CSphDynamicLibrary : public ISphNoncopyable
+{
+	bool		m_bReady; // whether the lib is valid or not
+	void *		m_pLibrary; // internal handle
+
+public:
+	CSphDynamicLibrary()
+		: m_bReady ( false )
+		, m_pLibrary ( NULL )
+		, m_sError ( "" )
+		{}
+	virtual ~CSphDynamicLibrary()
+	{}
+
+	bool		Init ( const char* sPath, bool bGlobal=true );
+	bool		LoadSymbol ( const char* sName, void** ppFunc );
+	bool		LoadSymbols ( const char** sNames, void*** pppFuncs, int iNum );
+
+public:
+	CSphString	m_sError;
+
+private:
+	void		FillError ( const char* sMessage=NULL );
+};
+
 #endif // _sphinxutils_
 
 //
-// $Id: sphinxutils.h 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxutils.h 4640 2014-03-31 05:48:00Z tomat $
 //

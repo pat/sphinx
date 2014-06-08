@@ -1,5 +1,5 @@
 //
-// $Id: ha_sphinx.h 3866 2013-05-22 11:54:20Z kevg $
+// $Id: ha_sphinx.h 3867 2013-05-22 12:33:28Z kevg $
 //
 
 #ifdef USE_PRAGMA_INTERFACE
@@ -170,5 +170,5 @@ int sphinx_showfunc_word_count ( THD *, SHOW_VAR *, char * );
 int sphinx_showfunc_words ( THD *, SHOW_VAR *, char * );
 
 //
-// $Id: ha_sphinx.h 3866 2013-05-22 11:54:20Z kevg $
+// $Id: ha_sphinx.h 3867 2013-05-22 12:33:28Z kevg $
 //

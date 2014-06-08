@@ -11,7 +11,7 @@ indexer
 searchd
 {
 <Searchd_Settings/>
-compat_sphinxql_magics = 1
+thread_stack = 64K
 }
 
 source srctest
@@ -28,7 +28,6 @@ index test_idx
 {
 	source			= srctest
 	path			= <Data_Path/>/test
-    charset_type	= utf-8
 }
 </Config>
 <DB_Create>

@@ -5,7 +5,7 @@
 #endif
 %}
 
-%lex-param	{ SqlParser_c * pParser }
+%lex-param		{ SqlParser_c * pParser }
 %parse-param	{ SqlParser_c * pParser }
 %pure-parser
 %error-verbose
@@ -20,8 +20,12 @@
 %token	TOK_SYSVAR
 %token	TOK_CONST_STRINGS
 %token	TOK_BAD_NUMERIC
+%token	TOK_SUBKEY
+%token	TOK_DOT_NUMBER
 
+%token	TOK_ADD
 %token	TOK_AGENT
+%token	TOK_ALTER
 %token	TOK_AS
 %token	TOK_ASC
 %token	TOK_ATTACH
@@ -29,36 +33,46 @@
 %token	TOK_BEGIN
 %token	TOK_BETWEEN
 %token	TOK_BIGINT
+%token	TOK_BOOL
 %token	TOK_BY
 %token	TOK_CALL
 %token	TOK_CHARACTER
 %token	TOK_COLLATION
+%token	TOK_COLUMN
 %token	TOK_COMMIT
 %token	TOK_COMMITTED
 %token	TOK_COUNT
 %token	TOK_CREATE
+%token	TOK_DATABASES
 %token	TOK_DELETE
 %token	TOK_DESC
 %token	TOK_DESCRIBE
 %token	TOK_DISTINCT
 %token	TOK_DIV
+%token	TOK_DOUBLE
 %token	TOK_DROP
+%token	TOK_FACET
 %token	TOK_FALSE
 %token	TOK_FLOAT
 %token	TOK_FLUSH
+%token	TOK_FOR
 %token	TOK_FROM
 %token	TOK_FUNCTION
 %token	TOK_GLOBAL
 %token	TOK_GROUP
 %token	TOK_GROUPBY
 %token	TOK_GROUP_CONCAT
+%token	TOK_HAVING
 %token	TOK_ID
 %token	TOK_IN
 %token	TOK_INDEX
 %token	TOK_INSERT
 %token	TOK_INT
+%token	TOK_INTEGER
 %token	TOK_INTO
+%token	TOK_IS
 %token	TOK_ISOLATION
+%token	TOK_JSON
 %token	TOK_LEVEL
 %token	TOK_LIKE
 %token	TOK_LIMIT
@@ -67,18 +81,23 @@
 %token	TOK_META
 %token	TOK_MIN
 %token	TOK_MOD
+%token	TOK_MULTI
+%token	TOK_MULTI64
 %token	TOK_NAMES
 %token	TOK_NULL
 %token	TOK_OPTION
 %token	TOK_ORDER
 %token	TOK_OPTIMIZE
 %token	TOK_PLAN
+%token	TOK_PLUGIN
+%token	TOK_PLUGINS
 %token	TOK_PROFILE
 %token	TOK_RAND
 %token	TOK_RAMCHUNK
 %token	TOK_READ
 %token	TOK_REPEATABLE
 %token	TOK_REPLACE
+%token	TOK_REMAP
 %token	TOK_RETURNS
 %token	TOK_ROLLBACK
 %token	TOK_RTINDEX
@@ -92,11 +111,14 @@
 %token	TOK_STATUS
 %token	TOK_STRING
 %token	TOK_SUM
+%token	TOK_TABLE
 %token	TOK_TABLES
+%token	TOK_THREADS
 %token	TOK_TO
 %token	TOK_TRANSACTION
 %token	TOK_TRUE
 %token	TOK_TRUNCATE
+%token	TOK_TYPE
 %token	TOK_UNCOMMITTED
 %token	TOK_UPDATE
 %token	TOK_VALUES
@@ -121,18 +143,35 @@
 %nonassoc TOK_NEG
 
 %{
+
 // some helpers
 #include <float.h> // for FLT_MAX
+
+static void AddInsval ( SqlParser_c * pParser, CSphVector<SqlInsert_t> & dVec, const SqlNode_t & tNode )
+{
+	SqlInsert_t & tIns = dVec.Add();
+	tIns.m_iType = tNode.m_iType;
+	tIns.m_iVal = tNode.m_iValue; // OPTIMIZE? copy conditionally based on type?
+	tIns.m_fVal = tNode.m_fValue;
+	if ( tIns.m_iType==TOK_QUOTED_STRING )
+		pParser->ToStringUnescape ( tIns.m_sVal, tNode );
+	tIns.m_pVals = tNode.m_pValues;
+}
+
+#define TRACK_BOUNDS(_res,_left,_right) \
+	_res = _left; \
+	_res.m_iEnd = _right.m_iEnd; \
+	_res.m_iType = 0;
 
 %}
 
 %%
 
 request:
-   statement							{ pParser->PushQuery(); }
-   | multi_stmt_list
-   | multi_stmt_list ';'
-   ;
+	statement							{ pParser->PushQuery(); }
+	| multi_stmt_list
+	| multi_stmt_list ';'
+	;
 
 statement:
 	insert_into
@@ -143,6 +182,7 @@ statement:
 	| call_proc
 	| describe
 	| show_tables
+	| show_databases
 	| update
 	| show_variables
 	| show_collation
@@ -157,6 +197,34 @@ statement:
 	| select_dual
 	| truncate
 	| optimize_index
+	| alter
+	| create_plugin
+	| drop_plugin
+	;
+
+//////////////////////////////////////////////////////////////////////////
+
+// many known keywords are also allowed as column or index names
+//
+// FROM conflicts with select_expr opt_alias
+// NAMES, TRANSACTION conflicts with SET
+
+ident_set:
+	TOK_IDENT
+	| TOK_AGENT | TOK_ATTACH | TOK_AVG | TOK_BEGIN | TOK_BOOL
+	| TOK_COLLATION | TOK_COUNT | TOK_FLUSH | TOK_FUNCTION
+	| TOK_GLOBAL | TOK_GROUP | TOK_GROUPBY | TOK_GROUP_CONCAT | TOK_ISOLATION
+	| TOK_LEVEL | TOK_LIKE | TOK_MATCH | TOK_MAX | TOK_META
+	| TOK_PLAN | TOK_PLUGIN | TOK_PLUGINS | TOK_PROFILE | TOK_RAMCHUNK | TOK_RAND | TOK_READ
+	| TOK_REPEATABLE | TOK_RETURNS | TOK_ROLLBACK | TOK_RTINDEX
+	| TOK_SERIALIZABLE | TOK_SESSION | TOK_START | TOK_STATUS | TOK_STRING
+	| TOK_SUM | TOK_TABLES | TOK_THREADS | TOK_TRUNCATE | TOK_TYPE | TOK_UNCOMMITTED
+	| TOK_VARIABLES | TOK_WARNINGS | TOK_WEIGHT | TOK_WITHIN
+	| TOK_JSON
+	;
+
+ident:
+	ident_set | TOK_NAMES | TOK_TRANSACTION
 	;
 
 //////////////////////////////////////////////////////////////////////////
@@ -164,6 +232,7 @@ statement:
 multi_stmt_list:
 	multi_stmt							{ pParser->PushQuery(); }
 	| multi_stmt_list ';' multi_stmt	{ pParser->PushQuery(); }
+	| multi_stmt_list facet_stmt		{ pParser->PushQuery(); }
 	;
 
 multi_stmt:
@@ -172,12 +241,43 @@ multi_stmt:
 	;
 
 select:
+	select1
+	| TOK_SELECT TOK_IDENT '(' '(' select1 ')' opt_tablefunc_args ')'
+		{
+			assert ( pParser->m_pStmt->m_eStmt==STMT_SELECT ); // set by table argument
+			pParser->ToString ( pParser->m_pStmt->m_sTableFunc, $2 );
+		}
+	;
+
+select1:
 	select_from
 	| TOK_SELECT select_items_list TOK_FROM '(' subselect_start select_from ')'
 		opt_outer_order opt_outer_limit
 		{
 			assert ( pParser->m_pStmt->m_eStmt==STMT_SELECT ); // set by subselect
 		}
+	;
+
+opt_tablefunc_args:
+	// nothing
+	| ',' tablefunc_args_list
+	;
+
+tablefunc_args_list:
+	tablefunc_arg
+		{
+			pParser->ToString ( pParser->m_pStmt->m_dTableFuncArgs.Add(), $1 );
+		}
+	| tablefunc_args_list ',' tablefunc_arg
+		{
+			pParser->ToString ( pParser->m_pStmt->m_dTableFuncArgs.Add(), $3 );
+		}
+	;
+
+tablefunc_arg:
+	ident
+	| TOK_CONST_INT
+	| TOK_ID
 	;
 
 subselect_start:
@@ -196,8 +296,7 @@ subselect_start:
 opt_outer_order:
 	TOK_ORDER TOK_BY order_items_list
 		{
-			pParser->m_pQuery->m_sOuterOrderBy.SetBinary ( pParser->m_pBuf+$3.m_iStart,
-				$3.m_iEnd-$3.m_iStart );
+			pParser->ToString ( pParser->m_pQuery->m_sOuterOrderBy, $3 );
 			pParser->m_pQuery->m_bHasOuter = true;
 		}
 	;
@@ -223,13 +322,13 @@ select_from:
 	opt_where_clause
 	opt_group_clause
 	opt_group_order_clause
+	opt_having_clause
 	opt_order_clause
 	opt_limit_clause
 	opt_option_clause
 		{
 			pParser->m_pStmt->m_eStmt = STMT_SELECT;
-			pParser->m_pQuery->m_sIndexes.SetBinary ( pParser->m_pBuf+$4.m_iStart,
-				$4.m_iEnd-$4.m_iStart );
+			pParser->ToString ( pParser->m_pQuery->m_sIndexes, $4 );
 		}
 	;
 
@@ -244,9 +343,9 @@ select_item:
 	;
 
 opt_alias:
-	// empty				
-	| TOK_IDENT							{ pParser->AliasLastItem ( &$1 ); }
-	| TOK_AS TOK_IDENT					{ pParser->AliasLastItem ( &$2 ); }
+	// empty
+	| ident								{ pParser->AliasLastItem ( &$1 ); }
+	| TOK_AS ident						{ pParser->AliasLastItem ( &$2 ); }
 	;
 
 select_expr:
@@ -258,12 +357,12 @@ select_expr:
 	| TOK_GROUP_CONCAT '(' expr ')'		{ pParser->AddItem ( &$3, SPH_AGGR_CAT, &$1, &$4 ); }
 	| TOK_COUNT '(' '*' ')'				{ if ( !pParser->AddItem ( "count(*)", &$1, &$4 ) ) YYERROR; }
 	| TOK_GROUPBY '(' ')'				{ if ( !pParser->AddItem ( "groupby()", &$1, &$3 ) ) YYERROR; }
-	| TOK_COUNT '(' TOK_DISTINCT TOK_IDENT ')' 	{ if ( !pParser->AddDistinct ( &$4, &$1, &$5 ) ) YYERROR; }
+	| TOK_COUNT '(' TOK_DISTINCT ident')' 	{ if ( !pParser->AddDistinct ( &$4, &$1, &$5 ) ) YYERROR; }
 	;
 
 ident_list:
-	TOK_IDENT
-	| ident_list ',' TOK_IDENT			{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
+	ident
+	| ident_list ',' ident				{ TRACK_BOUNDS ( $$, $1, $3 ); }
 	;
 
 opt_where_clause:
@@ -287,7 +386,11 @@ where_item:
 			if ( !pParser->SetMatch($3) )
 				YYERROR;
 		}
-	| expr_ident '=' const_int
+	| filter_item
+	;
+	
+filter_item:	
+	expr_ident '=' const_int
 		{
 			CSphFilterSettings * pFilter = pParser->AddValuesFilter ( $1 );
 			if ( !pFilter )
@@ -321,42 +424,42 @@ where_item:
 		}
 	| expr_ident TOK_IN TOK_USERVAR
 		{
-			if ( !pParser->AddUservarFilter ( $1.m_sValue, $3.m_sValue, false ) )
+			if ( !pParser->AddUservarFilter ( $1, $3, false ) )
 				YYERROR;
 		}
 	| expr_ident TOK_NOT TOK_IN TOK_USERVAR
 		{
-			if ( !pParser->AddUservarFilter ( $1.m_sValue, $4.m_sValue, true ) )
+			if ( !pParser->AddUservarFilter ( $1, $4, true ) )
 				YYERROR;
 		}
 	| expr_ident TOK_BETWEEN const_int TOK_AND const_int
 		{
-			if ( !pParser->AddIntRangeFilter ( $1.m_sValue, $3.m_iValue, $5.m_iValue ) )
+			if ( !pParser->AddIntRangeFilter ( $1, $3.m_iValue, $5.m_iValue ) )
 				YYERROR;
 		}
 	| expr_ident '>' const_int
 		{
-			if ( !pParser->AddIntFilterGreater ( $1.m_sValue, $3.m_iValue, false ) )
+			if ( !pParser->AddIntFilterGreater ( $1, $3.m_iValue, false ) )
 				YYERROR;
 		}
 	| expr_ident '<' const_int
 		{
-			if ( !pParser->AddIntFilterLesser ( $1.m_sValue, $3.m_iValue, false ) )
+			if ( !pParser->AddIntFilterLesser ( $1, $3.m_iValue, false ) )
 				YYERROR;
 		}
 	| expr_ident TOK_GTE const_int
 		{
-			if ( !pParser->AddIntFilterGreater ( $1.m_sValue, $3.m_iValue, true ) )
+			if ( !pParser->AddIntFilterGreater ( $1, $3.m_iValue, true ) )
 				YYERROR;
 		}
 	| expr_ident TOK_LTE const_int
 		{
-			if ( !pParser->AddIntFilterLesser ( $1.m_sValue, $3.m_iValue, true ) )
+			if ( !pParser->AddIntFilterLesser ( $1, $3.m_iValue, true ) )
 				YYERROR;
 		}
 	| expr_ident '=' const_float
 		{
-			if ( !pParser->AddFloatRangeFilter ( $1.m_sValue, $3.m_fValue, $3.m_fValue, true ) )
+			if ( !pParser->AddFloatRangeFilter ( $1, $3.m_fValue, $3.m_fValue, true ) )
 				YYERROR;
 		}
 	| expr_float_unhandled
@@ -366,47 +469,57 @@ where_item:
 		}
 	| expr_ident TOK_BETWEEN const_float TOK_AND const_float
 		{
-			if ( !pParser->AddFloatRangeFilter ( $1.m_sValue, $3.m_fValue, $5.m_fValue, true ) )
+			if ( !pParser->AddFloatRangeFilter ( $1, $3.m_fValue, $5.m_fValue, true ) )
 				YYERROR;
 		}
 	| expr_ident TOK_BETWEEN const_int TOK_AND const_float
 		{
-			if ( !pParser->AddFloatRangeFilter ( $1.m_sValue, $3.m_iValue, $5.m_fValue, true ) )
+			if ( !pParser->AddFloatRangeFilter ( $1, $3.m_iValue, $5.m_fValue, true ) )
 				YYERROR;
 		}
 	| expr_ident TOK_BETWEEN const_float TOK_AND const_int
 		{
-			if ( !pParser->AddFloatRangeFilter ( $1.m_sValue, $3.m_fValue, $5.m_iValue, true ) )
+			if ( !pParser->AddFloatRangeFilter ( $1, $3.m_fValue, $5.m_iValue, true ) )
 				YYERROR;
 		}
 	| expr_ident '>' const_float
 		{
-			if ( !pParser->AddFloatRangeFilter ( $1.m_sValue, $3.m_fValue, FLT_MAX, false ) )
+			if ( !pParser->AddFloatRangeFilter ( $1, $3.m_fValue, FLT_MAX, false ) )
 				YYERROR;
 		}
 	| expr_ident '<' const_float
 		{
-			if ( !pParser->AddFloatRangeFilter ( $1.m_sValue, -FLT_MAX, $3.m_fValue, false ) )
+			if ( !pParser->AddFloatRangeFilter ( $1, -FLT_MAX, $3.m_fValue, false ) )
 				YYERROR;
 		}
 	| expr_ident TOK_GTE const_float
 		{
-			if ( !pParser->AddFloatRangeFilter ( $1.m_sValue, $3.m_fValue, FLT_MAX, true ) )
+			if ( !pParser->AddFloatRangeFilter ( $1, $3.m_fValue, FLT_MAX, true ) )
 				YYERROR;
 		}
 	| expr_ident TOK_LTE const_float
 		{
-			if ( !pParser->AddFloatRangeFilter ( $1.m_sValue, -FLT_MAX, $3.m_fValue, true ) )
+			if ( !pParser->AddFloatRangeFilter ( $1, -FLT_MAX, $3.m_fValue, true ) )
 				YYERROR;
 		}
 	| expr_ident '=' TOK_QUOTED_STRING
 		{
-			if ( !pParser->AddStringFilter ( $1.m_sValue, $3.m_sValue, false ) )
+			if ( !pParser->AddStringFilter ( $1, $3, false ) )
 				YYERROR;
 		}
 	| expr_ident TOK_NE TOK_QUOTED_STRING
 		{
-			if ( !pParser->AddStringFilter ( $1.m_sValue, $3.m_sValue, true ) )
+			if ( !pParser->AddStringFilter ( $1, $3, true ) )
+				YYERROR;
+		}
+	| expr_ident TOK_IS TOK_NULL
+		{
+			if ( !pParser->AddNullFilter ( $1, true ) )
+				YYERROR;
+		}
+	| expr_ident TOK_IS TOK_NOT TOK_NULL
+		{
+			if ( !pParser->AddNullFilter ( $1, false ) )
 				YYERROR;
 		}
 	;
@@ -416,7 +529,7 @@ expr_float_unhandled:
 	;
 
 expr_ident:
-	TOK_IDENT
+	ident
 	| TOK_ATIDENT
 		{
 			if ( !pParser->SetOldSyntax() )
@@ -424,35 +537,40 @@ expr_ident:
 		}
 	| TOK_COUNT '(' '*' ')'
 		{
-			$$.m_sValue = "@count";
+			$$.m_iType = SPHINXQL_TOK_COUNT;
 			if ( !pParser->SetNewSyntax() )
 				YYERROR;
 		}
 	| TOK_GROUPBY '(' ')'
 		{
-			$$.m_sValue = "@groupby";
+			$$.m_iType = SPHINXQL_TOK_GROUPBY;
 			if ( !pParser->SetNewSyntax() )
 				YYERROR;
 		}
 	| TOK_WEIGHT '(' ')'
 		{
-			$$.m_sValue = "@weight";
+			$$.m_iType = SPHINXQL_TOK_WEIGHT;
 			if ( !pParser->SetNewSyntax() )
 				YYERROR;
 		}
 	| TOK_ID
 		{
-			$$.m_sValue = "@id";
+			$$.m_iType = SPHINXQL_TOK_ID;
 			if ( !pParser->SetNewSyntax() )
 				YYERROR;
 		}
+	| json_field
+	| TOK_INTEGER '(' json_field ')'
+	| TOK_DOUBLE '(' json_field ')'
+	| TOK_BIGINT '(' json_field ')'
+	| TOK_FACET '(' ')'
 	;
 
 const_int:
-	TOK_CONST_INT			{ $$.m_iInstype = TOK_CONST_INT; $$.m_iValue = $1.m_iValue; }
+	TOK_CONST_INT			{ $$.m_iType = TOK_CONST_INT; $$.m_iValue = $1.m_iValue; }
 	| '-' TOK_CONST_INT
 		{
-			$$.m_iInstype = TOK_CONST_INT;
+			$$.m_iType = TOK_CONST_INT;
 			if ( (uint64_t)$2.m_iValue > (uint64_t)LLONG_MAX )
 				$$.m_iValue = LLONG_MIN;
 			else
@@ -461,8 +579,9 @@ const_int:
 	;
 
 const_float:
-	TOK_CONST_FLOAT			{ $$.m_iInstype = TOK_CONST_FLOAT; $$.m_fValue = $1.m_fValue; }
-	| '-' TOK_CONST_FLOAT	{ $$.m_iInstype = TOK_CONST_FLOAT; $$.m_fValue = -$2.m_fValue; }
+	TOK_CONST_FLOAT			{ $$.m_iType = TOK_CONST_FLOAT; $$.m_fValue = $1.m_fValue; }
+	| '-' TOK_CONST_FLOAT	{ $$.m_iType = TOK_CONST_FLOAT; $$.m_fValue = -$2.m_fValue; }
+	| TOK_DOT_NUMBER		{ $$.m_iType = TOK_CONST_FLOAT; $$.m_fValue = $1.m_fValue; }
 	;
 
 const_list:
@@ -480,20 +599,36 @@ const_list:
 
 opt_group_clause:
 	// empty
-	| TOK_GROUP TOK_BY group_items_list
+	| TOK_GROUP opt_int TOK_BY group_items_list
+	;
+
+opt_int:
+	// empty
+	| TOK_CONST_INT
+		{
+			pParser->SetGroupbyLimit ( $1.m_iValue );
+		}
 	;
 
 group_items_list:
 	expr_ident
 		{
-			pParser->AddGroupBy ( $1.m_sValue );
+			pParser->AddGroupBy ( $1 );
 		}
 	| group_items_list ',' expr_ident
 		{
-			pParser->AddGroupBy ( $3.m_sValue );
+			pParser->AddGroupBy ( $3 );
 		}
 	;
 
+opt_having_clause:
+	// empty
+	| TOK_HAVING filter_item
+		{
+			pParser->AddHaving();
+		}
+	;
+	
 opt_group_order_clause:
 	// empty
 	| group_order_clause
@@ -507,7 +642,7 @@ group_order_clause:
 				yyerror ( pParser, "you must specify GROUP BY element in order to use WITHIN GROUP ORDER BY clause" );
 				YYERROR;
 			}
-			pParser->m_pQuery->m_sSortBy.SetBinary ( pParser->m_pBuf+$5.m_iStart, $5.m_iEnd-$5.m_iStart );
+			pParser->ToString ( pParser->m_pQuery->m_sSortBy, $5 );
 		}
 	;
 
@@ -519,7 +654,7 @@ opt_order_clause:
 order_clause:
 	TOK_ORDER TOK_BY order_items_list
 		{
-			pParser->m_pQuery->m_sOrderBy.SetBinary ( pParser->m_pBuf+$3.m_iStart, $3.m_iEnd-$3.m_iStart );
+			pParser->ToString ( pParser->m_pQuery->m_sOrderBy, $3 );
 		}
 	| TOK_ORDER TOK_BY TOK_RAND '(' ')'
 		{
@@ -529,13 +664,13 @@ order_clause:
 
 order_items_list:
 	order_item
-	| order_items_list ',' order_item	{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
+	| order_items_list ',' order_item	{ TRACK_BOUNDS ( $$, $1, $3 ); }
 	;
 
 order_item:
 	expr_ident
-	| expr_ident TOK_ASC				{ $$ = $1; $$.m_iEnd = $2.m_iEnd; }
-	| expr_ident TOK_DESC				{ $$ = $1; $$.m_iEnd = $2.m_iEnd; }
+	| expr_ident TOK_ASC				{ TRACK_BOUNDS ( $$, $1, $2 ); }
+	| expr_ident TOK_DESC				{ TRACK_BOUNDS ( $$, $1, $2 ); }
 	;
 
 opt_limit_clause:
@@ -571,28 +706,28 @@ option_list:
 	;
 
 option_item:
-	TOK_IDENT '=' TOK_IDENT
+	ident '=' ident
 		{
 			if ( !pParser->AddOption ( $1, $3 ) )
 				YYERROR;
 		}
-	| TOK_IDENT '=' TOK_CONST_INT
+	| ident '=' TOK_CONST_INT
 		{
 			if ( !pParser->AddOption ( $1, $3 ) )
 				YYERROR;
 		}
-	| TOK_IDENT '=' '(' named_const_list ')'
+	| ident '=' '(' named_const_list ')'
 		{
 			if ( !pParser->AddOption ( $1, pParser->GetNamedVec ( $4 ) ) )
 				YYERROR;
 			pParser->FreeNamedVec ( $4 );
 		}
-	| TOK_IDENT '=' TOK_IDENT '(' TOK_QUOTED_STRING ')'
+	| ident '=' ident '(' TOK_QUOTED_STRING ')'
 		{
-			if ( !pParser->AddOption ( $1, $4, $5.m_sValue ) )
+			if ( !pParser->AddOption ( $1, $3, $5 ) )
 				YYERROR;
 		}
-	| TOK_IDENT '=' TOK_QUOTED_STRING
+	| ident '=' TOK_QUOTED_STRING
 		{
 			if ( !pParser->AddOption ( $1, $3 ) )
 				YYERROR;
@@ -612,9 +747,9 @@ named_const_list:
 	;
 
 named_const:
-	TOK_IDENT '=' const_int
+	ident '=' const_int
 		{
-			$$.m_sValue = $1.m_sValue;
+			$$ = $1;
 			$$.m_iValue = $3.m_iValue;
 		}
 	;
@@ -622,59 +757,80 @@ named_const:
 //////////////////////////////////////////////////////////////////////////
 
 expr:
-	TOK_IDENT
+	ident
 	| TOK_ATIDENT				{ if ( !pParser->SetOldSyntax() ) YYERROR; }
 	| TOK_ID					{ if ( !pParser->SetNewSyntax() ) YYERROR; }
 	| TOK_CONST_INT
 	| TOK_CONST_FLOAT
+	| TOK_DOT_NUMBER
 	| TOK_USERVAR
-	| '-' expr %prec TOK_NEG	{ $$ = $1; $$.m_iEnd = $2.m_iEnd; }
-	| TOK_NOT expr				{ $$ = $1; $$.m_iEnd = $2.m_iEnd; }
-	| expr '+' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| expr '-' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| expr '*' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| expr '/' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| expr '<' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| expr '>' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| expr '&' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| expr '|' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| expr '%' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| expr TOK_DIV expr			{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| expr TOK_MOD expr			{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| expr TOK_LTE expr			{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| expr TOK_GTE expr			{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| expr '=' expr				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| expr TOK_NE expr			{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| expr TOK_AND expr			{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| expr TOK_OR expr			{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| '(' expr ')'				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| '{' consthash '}'			{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
+	| '-' expr %prec TOK_NEG	{ TRACK_BOUNDS ( $$, $1, $2 ); }
+	| TOK_NOT expr				{ TRACK_BOUNDS ( $$, $1, $2 ); }
+
+	| expr '+' expr				{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	| expr '-' expr				{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	| expr '*' expr				{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	| expr '/' expr				{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	| expr '<' expr				{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	| expr '>' expr				{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	| expr '&' expr				{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	| expr '|' expr				{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	| expr '%' expr				{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	| expr TOK_DIV expr			{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	| expr TOK_MOD expr			{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	| expr TOK_LTE expr			{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	| expr TOK_GTE expr			{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	| expr '=' expr				{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	| expr TOK_NE expr			{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	| expr TOK_AND expr			{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	| expr TOK_OR expr			{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	| '(' expr ')'				{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	| '{' consthash '}'			{ TRACK_BOUNDS ( $$, $1, $3 ); }
 	| function
+	| json_field
+	| streq
+	| json_field TOK_IS TOK_NULL			{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	| json_field TOK_IS TOK_NOT TOK_NULL	{ TRACK_BOUNDS ( $$, $1, $4 ); }
 	;
 
 function:
-	TOK_IDENT '(' arglist ')'	{ $$ = $1; $$.m_iEnd = $4.m_iEnd; }
-	| TOK_IN '(' arglist ')'	{ $$ = $1; $$.m_iEnd = $4.m_iEnd; }			// handle exception from 'ident' rule
-	| TOK_BIGINT '(' arglist ')'	{ $$ = $1; $$.m_iEnd = $4.m_iEnd; }
-	| TOK_IDENT '(' ')'			{ $$ = $1; $$.m_iEnd = $3.m_iEnd }
-	| TOK_MIN '(' expr ',' expr ')'		{ $$ = $1; $$.m_iEnd = $6.m_iEnd }	// handle clash with aggregate functions
-	| TOK_MAX '(' expr ',' expr ')'		{ $$ = $1; $$.m_iEnd = $6.m_iEnd }
-	| TOK_WEIGHT '(' ')'				{ $$ = $1; $$.m_iEnd = $3.m_iEnd }
+	TOK_IDENT '(' arglist ')'		{ TRACK_BOUNDS ( $$, $1, $4 ); }
+	| TOK_IN '(' arglist ')'		{ TRACK_BOUNDS ( $$, $1, $4 ); } // handle exception from 'ident' rule
+	| TOK_INTEGER '(' arglist ')'	{ TRACK_BOUNDS ( $$, $1, $4 ); }
+	| TOK_BIGINT '(' arglist ')'	{ TRACK_BOUNDS ( $$, $1, $4 ); }
+	| TOK_FLOAT '(' arglist ')'		{ TRACK_BOUNDS ( $$, $1, $4 ); }
+	| TOK_DOUBLE '(' arglist ')'	{ TRACK_BOUNDS ( $$, $1, $4 ); }
+	| TOK_IDENT '(' ')'				{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	| TOK_MIN '(' expr ',' expr ')'	{ TRACK_BOUNDS ( $$, $1, $6 ); } // handle clash with aggregate functions
+	| TOK_MAX '(' expr ',' expr ')'	{ TRACK_BOUNDS ( $$, $1, $6 ); }
+	| TOK_WEIGHT '(' ')'			{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	| TOK_IDENT '(' expr TOK_FOR ident TOK_IN json_field ')' { TRACK_BOUNDS ( $$, $1, $8 ); }
+	| TOK_REMAP '(' expr ',' expr ',' '(' arglist ')' ',' '(' arglist ')' ')' { TRACK_BOUNDS ( $$, $1, $14 ); }
 	;
-
+	
 arglist:
 	arg
 	| arglist ',' arg
 	;
-
+	
 arg:
 	expr
 	| TOK_QUOTED_STRING
 	;
 
 consthash:
-	TOK_IDENT '=' const_int						{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
-	| consthash ',' TOK_IDENT '=' const_int		{ $$ = $1; $$.m_iEnd = $5.m_iEnd; }
+	hash_key '=' hash_val					{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	| consthash ',' hash_key '=' hash_val	{ TRACK_BOUNDS ( $$, $1, $5 ); }
+	;
+
+hash_key:
+	ident
+	| TOK_IN
+	;
+
+hash_val:
+	const_int
+	| ident
 	;
 
 //////////////////////////////////////////////////////////////////////////
@@ -685,7 +841,7 @@ show_stmt:
 
 like_filter:
 	// empty
-	| TOK_LIKE TOK_QUOTED_STRING		{ pParser->m_pStmt->m_sStringParam = $2.m_sValue; }
+	| TOK_LIKE TOK_QUOTED_STRING		{ pParser->ToStringUnescape ( pParser->m_pStmt->m_sStringParam, $2 ); }
 	;
 
 show_what:
@@ -695,56 +851,46 @@ show_what:
 	| TOK_AGENT TOK_STATUS like_filter	{ pParser->m_pStmt->m_eStmt = STMT_SHOW_AGENT_STATUS; }
 	| TOK_PROFILE						{ pParser->m_pStmt->m_eStmt = STMT_SHOW_PROFILE; }
 	| TOK_PLAN							{ pParser->m_pStmt->m_eStmt = STMT_SHOW_PLAN; }
+	| TOK_PLUGINS						{ pParser->m_pStmt->m_eStmt = STMT_SHOW_PLUGINS; }
+	| TOK_THREADS opt_option_clause		{ pParser->m_pStmt->m_eStmt = STMT_SHOW_THREADS; }
 	| TOK_AGENT TOK_QUOTED_STRING TOK_STATUS like_filter
 		{
 			pParser->m_pStmt->m_eStmt = STMT_SHOW_AGENT_STATUS;
-			pParser->m_pStmt->m_sIndex = $2.m_sValue;
+			pParser->ToStringUnescape ( pParser->m_pStmt->m_sIndex, $2 );
 		}
-	| TOK_AGENT TOK_IDENT TOK_STATUS like_filter
+	| TOK_AGENT ident TOK_STATUS like_filter
 		{
 			pParser->m_pStmt->m_eStmt = STMT_SHOW_AGENT_STATUS;
-			pParser->m_pStmt->m_sIndex = $2.m_sValue;
+			pParser->ToString ( pParser->m_pStmt->m_sIndex, $2 );
 		}
-	| TOK_INDEX TOK_IDENT TOK_STATUS
+	| TOK_INDEX ident TOK_STATUS
 		{
 			pParser->m_pStmt->m_eStmt = STMT_SHOW_INDEX_STATUS;
-			pParser->m_pStmt->m_sIndex = $2.m_sValue;
+			pParser->ToString ( pParser->m_pStmt->m_sIndex, $2 );
 		}
 	;
 
 //////////////////////////////////////////////////////////////////////////
 
-simple_set_value:
-	TOK_IDENT
-	| TOK_NULL
-	| TOK_QUOTED_STRING
-	| TOK_CONST_INT
-	| TOK_CONST_FLOAT
-	;
-
-set_value:
-	simple_set_value
-	| set_value '-' simple_set_value
-	;
-
 set_stmt:
-	TOK_SET TOK_IDENT '=' boolean_value
+	TOK_SET ident_set '=' boolean_value
 		{
 			pParser->SetStatement ( $2, SET_LOCAL );
 			pParser->m_pStmt->m_iSetValue = $4.m_iValue;
 		}
-	| TOK_SET TOK_IDENT '=' set_string_value
+	| TOK_SET ident_set '=' set_string_value
 		{
 			pParser->SetStatement ( $2, SET_LOCAL );
-			pParser->m_pStmt->m_sSetValue = $4.m_sValue;
+			pParser->ToString ( pParser->m_pStmt->m_sSetValue, $4 );
 		}
-	| TOK_SET TOK_IDENT '=' TOK_NULL
+	| TOK_SET ident_set '=' TOK_NULL
 		{
 			pParser->SetStatement ( $2, SET_LOCAL );
 			pParser->m_pStmt->m_bSetNull = true;
 		}
 	| TOK_SET TOK_NAMES set_value		{ pParser->m_pStmt->m_eStmt = STMT_DUMMY; }
 	| TOK_SET TOK_SYSVAR '=' set_value	{ pParser->m_pStmt->m_eStmt = STMT_DUMMY; }
+	| TOK_SET TOK_CHARACTER TOK_SET set_value { pParser->m_pStmt->m_eStmt = STMT_DUMMY; }
 	;
 
 set_global_stmt:
@@ -753,15 +899,26 @@ set_global_stmt:
 			pParser->SetStatement ( $3, SET_GLOBAL_UVAR );
 			pParser->m_pStmt->m_dSetValues = *$6.m_pValues.Ptr();
 		}
-	| TOK_SET TOK_GLOBAL TOK_IDENT '=' set_string_value
+	| TOK_SET TOK_GLOBAL ident_set '=' set_string_value
 		{
 			pParser->SetStatement ( $3, SET_GLOBAL_SVAR );
-			pParser->m_pStmt->m_sSetValue = $5.m_sValue;
+			pParser->ToString ( pParser->m_pStmt->m_sSetValue, $5 ).Unquote();
+		}
+	| TOK_SET TOK_GLOBAL ident_set '=' TOK_CONST_INT
+		{
+			pParser->SetStatement ( $3, SET_GLOBAL_SVAR );
+			pParser->m_pStmt->m_iSetValue = $5.m_iValue;
+		}
+	| TOK_SET TOK_INDEX ident TOK_GLOBAL TOK_USERVAR '=' '(' const_list ')'
+		{
+			pParser->SetStatement ( $5, SET_INDEX_UVAR );
+			pParser->m_pStmt->m_dSetValues = *$8.m_pValues.Ptr();
+			pParser->ToString ( pParser->m_pStmt->m_sIndex, $3 );
 		}
 	;
 
 set_string_value:
-	TOK_IDENT
+	ident
 	| TOK_QUOTED_STRING
 	;
 
@@ -779,6 +936,20 @@ boolean_value:
 		}
 	;
 
+set_value:
+	simple_set_value
+	| set_value '-' simple_set_value
+	;
+
+simple_set_value:
+	ident
+	| TOK_NULL
+	| TOK_QUOTED_STRING
+	| TOK_CONST_INT
+	| TOK_CONST_FLOAT
+	;
+
+
 //////////////////////////////////////////////////////////////////////////
 
 transact_op:
@@ -795,10 +966,10 @@ start_transaction:
 //////////////////////////////////////////////////////////////////////////
 
 insert_into:
-	insert_or_replace TOK_INTO TOK_IDENT opt_column_list TOK_VALUES insert_rows_list
+	insert_or_replace TOK_INTO ident opt_column_list TOK_VALUES insert_rows_list opt_insert_options
 		{
 			// everything else is pushed directly into parser within the rules
-			pParser->m_pStmt->m_sIndex = $3.m_sValue;
+			pParser->ToString ( pParser->m_pStmt->m_sIndex, $3 );
 		}
 	;
 
@@ -812,9 +983,14 @@ opt_column_list:
 	| '(' column_list ')'
 	;
 
+column_ident:
+	ident
+	| TOK_ID
+	;
+
 column_list:
-	expr_ident							{ if ( !pParser->AddSchemaItem ( &$1 ) ) { yyerror ( pParser, "unknown field" ); YYERROR; } }
-	| column_list ',' expr_ident		{ if ( !pParser->AddSchemaItem ( &$3 ) ) { yyerror ( pParser, "unknown field" ); YYERROR; } }
+	column_ident					{ if ( !pParser->AddSchemaItem ( &$1 ) ) { yyerror ( pParser, "unknown field" ); YYERROR; } }
+	| column_list ',' column_ident	{ if ( !pParser->AddSchemaItem ( &$3 ) ) { yyerror ( pParser, "unknown field" ); YYERROR; } }
 	;
 
 insert_rows_list:
@@ -827,58 +1003,59 @@ insert_row:
 	;
 
 insert_vals_list:
-	insert_val							{ AddInsval ( pParser->m_pStmt->m_dInsertValues, $1 ); }
-	| insert_vals_list ',' insert_val	{ AddInsval ( pParser->m_pStmt->m_dInsertValues, $3 ); }
+	insert_val							{ AddInsval ( pParser, pParser->m_pStmt->m_dInsertValues, $1 ); }
+	| insert_vals_list ',' insert_val	{ AddInsval ( pParser, pParser->m_pStmt->m_dInsertValues, $3 ); }
 	;
 
 insert_val:
-	const_int				{ $$.m_iInstype = TOK_CONST_INT; $$.m_iValue = $1.m_iValue; }
-	| const_float			{ $$.m_iInstype = TOK_CONST_FLOAT; $$.m_fValue = $1.m_fValue; }
-	| TOK_QUOTED_STRING		{ $$.m_iInstype = TOK_QUOTED_STRING; $$.m_sValue = $1.m_sValue; }
-	| '(' const_list ')'	{ $$.m_iInstype = TOK_CONST_MVA; $$.m_pValues = $2.m_pValues; }
-	| '(' ')'				{ $$.m_iInstype = TOK_CONST_MVA; }
+	const_int				{ $$.m_iType = TOK_CONST_INT; $$.m_iValue = $1.m_iValue; }
+	| const_float			{ $$.m_iType = TOK_CONST_FLOAT; $$.m_fValue = $1.m_fValue; }
+	| TOK_QUOTED_STRING		{ $$.m_iType = TOK_QUOTED_STRING; $$.m_iStart = $1.m_iStart; $$.m_iEnd = $1.m_iEnd; }
+	| '(' const_list ')'	{ $$.m_iType = TOK_CONST_MVA; $$.m_pValues = $2.m_pValues; }
+	| '(' ')'				{ $$.m_iType = TOK_CONST_MVA; }
+	;
+
+opt_insert_options:
+	| TOK_OPTION insert_options_list
+	;
+
+insert_options_list:
+	insert_option
+	| insert_options_list ',' insert_option
+	;
+
+insert_option:
+	TOK_IDENT '=' TOK_QUOTED_STRING		{ if ( !pParser->AddInsertOption ( $1, $3 ) ) YYERROR; }
 	;
 
 //////////////////////////////////////////////////////////////////////////
 
 delete_from:
-	TOK_DELETE TOK_FROM ident_list TOK_WHERE TOK_ID '=' const_int
-		{
-			pParser->m_pStmt->m_eStmt = STMT_DELETE;
-			pParser->m_pStmt->m_sIndex = $3.m_sValue;
-			pParser->m_pStmt->m_iListStart = $3.m_iStart;
-			pParser->m_pStmt->m_iListEnd = $3.m_iEnd;
-			pParser->m_pStmt->m_dDeleteIds.Add ( $7.m_iValue );
-		}
-	| TOK_DELETE TOK_FROM ident_list TOK_WHERE TOK_ID TOK_IN '(' const_list ')'
-		{
-			pParser->m_pStmt->m_eStmt = STMT_DELETE;
-			pParser->m_pStmt->m_sIndex = $3.m_sValue;
-			pParser->m_pStmt->m_iListStart = $3.m_iStart;
-			pParser->m_pStmt->m_iListEnd = $3.m_iEnd;
-			for ( int i=0; i<$8.m_pValues.Ptr()->GetLength(); i++ )
-				pParser->m_pStmt->m_dDeleteIds.Add ( (*$8.m_pValues.Ptr())[i] );
-		}
+	TOK_DELETE TOK_FROM ident_list where_clause
+	{
+		if ( !pParser->DeleteStatement ( &$3 ) )
+			YYERROR;
+	}
 	;
 
 //////////////////////////////////////////////////////////////////////////
 
 call_proc:
-	TOK_CALL TOK_IDENT '(' call_args_list opt_call_opts_list ')'
+	TOK_CALL ident '(' call_args_list opt_call_opts_list ')'
 		{
 			pParser->m_pStmt->m_eStmt = STMT_CALL;
-			pParser->m_pStmt->m_sCallProc = $2.m_sValue;
+			pParser->ToString ( pParser->m_pStmt->m_sCallProc, $2 );
 		}
 	;
 
 call_args_list:
 	call_arg
 		{
-			AddInsval ( pParser->m_pStmt->m_dInsertValues, $1 );
+			AddInsval ( pParser, pParser->m_pStmt->m_dInsertValues, $1 );
 		}
 	| call_args_list ',' call_arg
 		{
-			AddInsval ( pParser->m_pStmt->m_dInsertValues, $3 );
+			AddInsval ( pParser, pParser->m_pStmt->m_dInsertValues, $3 );
 		}
 	;
 
@@ -886,7 +1063,7 @@ call_arg:
 	insert_val
 	| '(' const_string_list ')'
 		{
-			$$.m_iInstype = TOK_CONST_STRINGS;
+			$$.m_iType = TOK_CONST_STRINGS;
 		}
 	;
 
@@ -899,11 +1076,11 @@ const_string_list:
 				yyerror ( pParser, "unexpected constant string list" );
 				YYERROR;
 			}
-			pParser->m_pStmt->m_dCallStrings.Add ( $1.m_sValue );
+			pParser->ToStringUnescape ( pParser->m_pStmt->m_dCallStrings.Add(), $1 );
 		}
 	| const_string_list ',' TOK_QUOTED_STRING
 		{
-			pParser->m_pStmt->m_dCallStrings.Add ( $3.m_sValue );
+			pParser->ToStringUnescape ( pParser->m_pStmt->m_dCallStrings.Add(), $3 );
 		}
 	;
 
@@ -924,8 +1101,8 @@ call_opts_list:
 call_opt:
 	insert_val opt_as call_opt_name
 		{
-			pParser->m_pStmt->m_dCallOptNames.Add ( $3.m_sValue );
-			AddInsval ( pParser->m_pStmt->m_dCallOptValues, $1 );
+			pParser->ToString ( pParser->m_pStmt->m_dCallOptNames.Add(), $3 );
+			AddInsval ( pParser, pParser->m_pStmt->m_dCallOptValues, $1 );
 		}
 	;
 
@@ -935,17 +1112,17 @@ opt_as:
 	;
 
 call_opt_name:
-	TOK_IDENT
-	| TOK_LIMIT		{ $$.m_sValue = "limit"; }
+	ident
+	| TOK_LIMIT
 	;
 
 //////////////////////////////////////////////////////////////////////////
 
 describe:
-	describe_tok TOK_IDENT like_filter
+	describe_tok ident like_filter
 		{
 			pParser->m_pStmt->m_eStmt = STMT_DESCRIBE;
-			pParser->m_pStmt->m_sIndex = $2.m_sValue;
+			pParser->ToString ( pParser->m_pStmt->m_sIndex, $2 );
 		}
 	;
 
@@ -958,6 +1135,10 @@ describe_tok:
 
 show_tables:
 	TOK_SHOW TOK_TABLES like_filter		{ pParser->m_pStmt->m_eStmt = STMT_SHOW_TABLES; }
+	;
+
+show_databases:
+	TOK_SHOW TOK_DATABASES like_filter { pParser->m_pStmt->m_eStmt = STMT_SHOW_DATABASES; }
 	;
 
 //////////////////////////////////////////////////////////////////////////
@@ -976,22 +1157,85 @@ update_items_list:
 	;
 
 update_item:
-	TOK_IDENT '=' const_int
+	ident '=' const_int
 		{
-			pParser->UpdateAttr ( $1.m_sValue, &$3 );
+			// it is performance-critical to forcibly inline this
+			pParser->m_pStmt->m_tUpdate.m_dPool.Add ( (DWORD)$3.m_iValue );
+			DWORD uHi = (DWORD)( $3.m_iValue>>32 );
+			if ( uHi )
+			{
+				pParser->m_pStmt->m_tUpdate.m_dPool.Add ( uHi );
+				pParser->AddUpdatedAttr ( $1, SPH_ATTR_BIGINT );
+			} else
+			{
+				pParser->AddUpdatedAttr ( $1, SPH_ATTR_INTEGER );
+			}
 		}
-	| TOK_IDENT '=' const_float
+	| ident '=' const_float
 		{
-			pParser->UpdateAttr ( $1.m_sValue, &$3, SPH_ATTR_FLOAT);
+			// it is performance-critical to forcibly inline this
+			pParser->m_pStmt->m_tUpdate.m_dPool.Add ( sphF2DW ( $3.m_fValue ) );
+			pParser->AddUpdatedAttr ( $1, SPH_ATTR_FLOAT );
 		}
-	| TOK_IDENT '='  '(' const_list ')'
+	| ident '=' '(' const_list ')'
 		{
-			pParser->UpdateMVAAttr ( $1.m_sValue, $4 );
+			pParser->UpdateMVAAttr ( $1, $4 );
 		}
-	| TOK_IDENT '='  '(' ')' // special case () means delete mva
+	| ident '=' '(' ')' // special case () means delete mva
 		{
 			SqlNode_t tNoValues;
-			pParser->UpdateMVAAttr ( $1.m_sValue, tNoValues );
+			pParser->UpdateMVAAttr ( $1, tNoValues );
+		}
+	| json_field '=' const_int // duplicate ident code (avoiding s/r conflict)
+		{
+			// it is performance-critical to forcibly inline this
+			pParser->m_pStmt->m_tUpdate.m_dPool.Add ( (DWORD)$3.m_iValue );
+			DWORD uHi = (DWORD)( $3.m_iValue>>32 );
+			if ( uHi )
+			{
+				pParser->m_pStmt->m_tUpdate.m_dPool.Add ( uHi );
+				pParser->AddUpdatedAttr ( $1, SPH_ATTR_BIGINT );
+			} else
+			{
+				pParser->AddUpdatedAttr ( $1, SPH_ATTR_INTEGER );
+			}
+		}
+	| json_field '=' const_float
+		{
+			// it is performance-critical to forcibly inline this
+			pParser->m_pStmt->m_tUpdate.m_dPool.Add ( sphF2DW ( $3.m_fValue ) );
+			pParser->AddUpdatedAttr ( $1, SPH_ATTR_FLOAT );
+		}
+	;
+
+//////////////////////////////////////////////////////////////////////////
+
+alter_col_type:
+	TOK_INTEGER 	{ $$.m_iValue = SPH_ATTR_INTEGER; }
+	| TOK_BIGINT	{ $$.m_iValue = SPH_ATTR_BIGINT; }
+	| TOK_FLOAT		{ $$.m_iValue = SPH_ATTR_FLOAT; }
+	| TOK_BOOL		{ $$.m_iValue = SPH_ATTR_BOOL; }
+	| TOK_MULTI		{ $$.m_iValue = SPH_ATTR_UINT32SET; }
+	| TOK_MULTI64	{ $$.m_iValue = SPH_ATTR_INT64SET; }
+	| TOK_JSON		{ $$.m_iValue = SPH_ATTR_JSON; }
+	| TOK_STRING	{ $$.m_iValue = SPH_ATTR_STRING; }
+	;
+
+alter:
+	TOK_ALTER TOK_TABLE ident TOK_ADD TOK_COLUMN ident alter_col_type
+		{
+			SqlStmt_t & tStmt = *pParser->m_pStmt;
+			tStmt.m_eStmt = STMT_ALTER_ADD;
+			pParser->ToString ( tStmt.m_sIndex, $3 );
+			pParser->ToString ( tStmt.m_sAlterAttr, $6 );
+			tStmt.m_eAlterColType = (ESphAttr)$7.m_iValue;
+		}
+	| TOK_ALTER TOK_TABLE ident TOK_DROP TOK_COLUMN ident
+		{
+			SqlStmt_t & tStmt = *pParser->m_pStmt;
+			tStmt.m_eStmt = STMT_ALTER_DROP;
+			pParser->ToString ( tStmt.m_sIndex, $3 );
+			pParser->ToString ( tStmt.m_sAlterAttr, $6 );
 		}
 	;
 
@@ -1001,6 +1245,11 @@ show_variables:
 	TOK_SHOW opt_scope TOK_VARIABLES opt_show_variables_where
 		{
 			pParser->m_pStmt->m_eStmt = STMT_SHOW_VARIABLES;
+		}
+	| TOK_SHOW opt_scope TOK_VARIABLES TOK_LIKE TOK_QUOTED_STRING
+		{
+			pParser->m_pStmt->m_eStmt = STMT_SHOW_VARIABLES;
+			pParser->ToStringUnescape ( pParser->m_pStmt->m_sStringParam, $5 );
 		}
 	;
 
@@ -1018,7 +1267,7 @@ show_variables_where_list:
 	;
 
 show_variables_where_entry:
-	TOK_IDENT '=' TOK_QUOTED_STRING // for example, Variable_name = 'character_set'
+	ident '=' TOK_QUOTED_STRING // for example, Variable_name = 'character_set'
 	;
 
 show_collation:
@@ -1057,12 +1306,12 @@ isolation_level:
 //////////////////////////////////////////////////////////////////////////
 
 create_function:
-	TOK_CREATE TOK_FUNCTION TOK_IDENT TOK_RETURNS udf_type TOK_SONAME TOK_QUOTED_STRING
+	TOK_CREATE TOK_FUNCTION ident TOK_RETURNS udf_type TOK_SONAME TOK_QUOTED_STRING
 		{
 			SqlStmt_t & tStmt = *pParser->m_pStmt;
 			tStmt.m_eStmt = STMT_CREATE_FUNCTION;
-			tStmt.m_sUdfName = $3.m_sValue;
-			tStmt.m_sUdfLib = $7.m_sValue;
+			pParser->ToString ( tStmt.m_sUdfName, $3 );
+			pParser->ToStringUnescape ( tStmt.m_sUdfLib, $7 );
 			tStmt.m_eUdfType = (ESphAttr) $5;
 		}
 	;
@@ -1074,44 +1323,45 @@ udf_type:
 	| TOK_STRING	{ $$ = SPH_ATTR_STRINGPTR; }
 	;
 
+
 drop_function:
-	TOK_DROP TOK_FUNCTION TOK_IDENT
+	TOK_DROP TOK_FUNCTION ident
 		{
 			SqlStmt_t & tStmt = *pParser->m_pStmt;
 			tStmt.m_eStmt = STMT_DROP_FUNCTION;
-			tStmt.m_sUdfName = $3.m_sValue;
+			pParser->ToString ( tStmt.m_sUdfName, $3 );
 		}
 	;
 
 ////////////////////////////////////////////////////////////
 
 attach_index:
-	TOK_ATTACH TOK_INDEX TOK_IDENT TOK_TO TOK_RTINDEX TOK_IDENT
+	TOK_ATTACH TOK_INDEX ident TOK_TO TOK_RTINDEX ident
 		{
 			SqlStmt_t & tStmt = *pParser->m_pStmt;
 			tStmt.m_eStmt = STMT_ATTACH_INDEX;
-			tStmt.m_sIndex = $3.m_sValue;
-			tStmt.m_sStringParam = $6.m_sValue;
+			pParser->ToString ( tStmt.m_sIndex, $3 );
+			pParser->ToString ( tStmt.m_sStringParam, $6 );
 		}
 	;
 
 //////////////////////////////////////////////////////////////////////////
 
 flush_rtindex:
-	TOK_FLUSH TOK_RTINDEX TOK_IDENT
+	TOK_FLUSH TOK_RTINDEX ident
 		{
 			SqlStmt_t & tStmt = *pParser->m_pStmt;
 			tStmt.m_eStmt = STMT_FLUSH_RTINDEX;
-			tStmt.m_sIndex = $3.m_sValue;
+			pParser->ToString ( tStmt.m_sIndex, $3 );
 		}
 	;
 
 flush_ramchunk:
-	TOK_FLUSH TOK_RAMCHUNK TOK_IDENT
+	TOK_FLUSH TOK_RAMCHUNK ident
 		{
 			SqlStmt_t & tStmt = *pParser->m_pStmt;
 			tStmt.m_eStmt = STMT_FLUSH_RAMCHUNK;
-			tStmt.m_sIndex = $3.m_sValue;
+			pParser->ToString ( tStmt.m_sIndex, $3 );
 		}
 	;
 
@@ -1121,46 +1371,135 @@ select_sysvar:
 	TOK_SELECT sysvar_name opt_limit_clause
 		{
 			pParser->m_pStmt->m_eStmt = STMT_SELECT_SYSVAR;
-			pParser->m_pStmt->m_tQuery.m_sQuery = $2.m_sValue;
+			pParser->ToString ( pParser->m_pStmt->m_tQuery.m_sQuery, $2 );
 		}
 	;
 	
 sysvar_name:
 	TOK_SYSVAR
-	| TOK_SYSVAR '.' TOK_IDENT
-		{
-			$$.m_sValue.SetSprintf ( "%s.%s", $1.m_sValue.cstr(), $3.m_sValue.cstr() );
-		}
+	| TOK_SYSVAR '.' ident
 	;
 
 select_dual:
 	TOK_SELECT expr
 		{
 			pParser->m_pStmt->m_eStmt = STMT_SELECT_DUAL;
-			pParser->m_pStmt->m_tQuery.m_sQuery.SetBinary ( pParser->m_pBuf+$2.m_iStart,
-				$2.m_iEnd-$2.m_iStart );
+			pParser->ToString ( pParser->m_pStmt->m_tQuery.m_sQuery, $2 );
 		}
 	;
 
 //////////////////////////////////////////////////////////////////////////
 
 truncate:
-	TOK_TRUNCATE TOK_RTINDEX TOK_IDENT
+	TOK_TRUNCATE TOK_RTINDEX ident
 		{
 			SqlStmt_t & tStmt = *pParser->m_pStmt;
 			tStmt.m_eStmt = STMT_TRUNCATE_RTINDEX;
-			tStmt.m_sIndex = $3.m_sValue;
+			pParser->ToString ( tStmt.m_sIndex, $3 );
 		}
 	;
 
 //////////////////////////////////////////////////////////////////////////
 
 optimize_index:
-	TOK_OPTIMIZE TOK_INDEX TOK_IDENT
+	TOK_OPTIMIZE TOK_INDEX ident
 		{
 			SqlStmt_t & tStmt = *pParser->m_pStmt;
 			tStmt.m_eStmt = STMT_OPTIMIZE_INDEX;
-			tStmt.m_sIndex = $3.m_sValue;
+			pParser->ToString ( tStmt.m_sIndex, $3 );
+		}
+	;
+
+//////////////////////////////////////////////////////////////////////////
+
+create_plugin:
+	TOK_CREATE TOK_PLUGIN ident TOK_TYPE TOK_QUOTED_STRING TOK_SONAME TOK_QUOTED_STRING
+		{
+			SqlStmt_t & s = *pParser->m_pStmt;
+			s.m_eStmt = STMT_CREATE_PLUGIN;
+			pParser->ToString ( s.m_sUdfName, $3 );
+			pParser->ToStringUnescape ( s.m_sStringParam, $5 );
+			pParser->ToStringUnescape ( s.m_sUdfLib, $7 );
+		}
+	;
+
+drop_plugin:
+	TOK_DROP TOK_PLUGIN ident TOK_TYPE TOK_QUOTED_STRING
+		{
+			SqlStmt_t & s = *pParser->m_pStmt;
+			s.m_eStmt = STMT_DROP_PLUGIN;
+			pParser->ToString ( s.m_sUdfName, $3 );
+			pParser->ToStringUnescape ( s.m_sStringParam, $5 );
+		}
+	;
+//////////////////////////////////////////////////////////////////////////
+
+json_field:
+	ident subscript				{ $$ = $1; $$.m_iEnd = $2.m_iEnd; }
+
+subscript:
+	subkey
+	| subscript subkey			{ $$ = $1; $$.m_iEnd = $2.m_iEnd; }
+	;
+
+subkey:
+	TOK_SUBKEY					{ $$ = $1; $$.m_iEnd = $1.m_iEnd; }
+	| TOK_DOT_NUMBER			{ $$ = $1; $$.m_iEnd = $1.m_iEnd; }
+	| '[' expr ']'				{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
+	| '[' TOK_QUOTED_STRING ']'	{ $$ = $1; $$.m_iEnd = $3.m_iEnd; }
+	;
+
+streq:
+	expr '=' strval				{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	| strval '=' expr			{ TRACK_BOUNDS ( $$, $1, $3 ); }
+	;
+
+strval:
+	TOK_QUOTED_STRING
+	;
+
+//////////////////////////////////////////////////////////////////////////
+
+opt_facet_by_items_list:
+	// empty
+	| facet_by facet_items_list
+	;
+
+facet_by:
+	TOK_BY
+		{
+			pParser->m_pQuery->m_sFacetBy = pParser->m_pQuery->m_sGroupBy;
+			pParser->m_pQuery->m_sGroupBy = "";
+			pParser->AddCount ();
+		}
+	;
+
+facet_item:
+	facet_expr opt_alias
+	;
+
+facet_expr:
+	expr
+		{
+			pParser->AddItem ( &$1 );
+			pParser->AddGroupBy ( $1 );
+		}
+	;
+
+facet_items_list:
+	facet_item
+	| facet_items_list ',' facet_item
+	;
+
+facet_stmt:
+	TOK_FACET facet_items_list opt_facet_by_items_list opt_order_clause
+		{
+			pParser->m_pStmt->m_eStmt = STMT_FACET;
+			if ( pParser->m_pQuery->m_sFacetBy.IsEmpty() )
+			{
+				pParser->m_pQuery->m_sFacetBy = pParser->m_pQuery->m_sGroupBy;
+				pParser->AddCount ();
+			}
 		}
 	;
 

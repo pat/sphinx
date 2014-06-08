@@ -1,5 +1,5 @@
 //
-// $Id: indextool.cpp 4610 2014-03-12 13:49:02Z tomat $
+// $Id: indextool.cpp 4640 2014-03-31 05:48:00Z tomat $
 //
 
 //
@@ -20,8 +20,12 @@
 #include <time.h>
 
 #if USE_WINDOWS
-#include <io.h> // for setmode and open on windows
+#include <io.h> // for setmode(). open() on windows
+#define sphSeek		_lseeki64
+#else
+#define sphSeek		lseek
 #endif
+
 
 void StripStdin ( const char * sIndexAttrs, const char * sRemoveElements )
 {
@@ -104,10 +108,6 @@ void CharsetFold ( CSphIndex * pIndex, FILE * fp )
 	CSphVector<BYTE> sBuf1 ( 16384 );
 	CSphVector<BYTE> sBuf2 ( 16384 );
 
-	bool bUtf = pIndex->GetTokenizer()->IsUtf8();
-	if ( !bUtf )
-		sphDie ( "sorry, --fold vs SBCS is not supported just yet" );
-
 	CSphLowercaser tLC = pIndex->GetTokenizer()->GetLowercaser();
 
 #if USE_WINDOWS
@@ -127,8 +127,8 @@ void CharsetFold ( CSphIndex * pIndex, FILE * fp )
 					break;
 
 
-		BYTE * pIn = sBuf1.Begin();
-		BYTE * pInMax = pIn + iBuf1 + iGot;
+		const BYTE * pIn = sBuf1.Begin();
+		const BYTE * pInMax = pIn + iBuf1 + iGot;
 
 		if ( pIn==pInMax && feof(fp) )
 			break;
@@ -176,12 +176,6 @@ void CharsetFold ( CSphIndex * pIndex, FILE * fp )
 }
 
 //////////////////////////////////////////////////////////////////////////
-
-#if USE_WINDOWS
-#define sphSeek		_lseeki64
-#else
-#define sphSeek		lseek
-#endif
 
 bool FixupFiles ( const CSphVector<CSphString> & dFiles, CSphString & sError )
 {
@@ -476,7 +470,7 @@ bool BuildIDF ( const CSphString & sFilename, const CSphVector<CSphString> & dFi
 					if ( !bSkipUnique || iDocs>1 )
 					{
 						IDFWord_t & tEntry = dEntries.Add ();
-						tEntry.m_uWordID = sphFNV64 ( (BYTE*)sWord );
+						tEntry.m_uWordID = sphFNV64 ( sWord );
 						tEntry.m_iDocs = iDocs;
 						iTotalWords++;
 					} else
@@ -819,6 +813,7 @@ int main ( int argc, char ** argv )
 	bool bSkipUnique = false;
 	CSphString sDumpDict;
 	bool bQuiet = false;
+	bool bRotate = false;
 
 	enum
 	{
@@ -855,6 +850,7 @@ int main ( int argc, char ** argv )
 		OPT1 ( "--dumpconfig" )		{ eCommand = CMD_DUMPCONFIG; sDumpHeader = argv[++i]; }
 		OPT1 ( "--dumpdocids" )		{ eCommand = CMD_DUMPDOCIDS; sIndex = argv[++i]; }
 		OPT1 ( "--check" )			{ eCommand = CMD_CHECK; sIndex = argv[++i]; sphSetDebugCheck(); }
+		OPT1 ( "--rotate" )			{ bRotate = true; }
 		OPT1 ( "--htmlstrip" )		{ eCommand = CMD_STRIP; sIndex = argv[++i]; }
 		OPT1 ( "--build-infixes" )	{ eCommand = CMD_BUILDINFIXES; sIndex = argv[++i]; }
 		OPT1 ( "--build-skips" )	{ eCommand = CMD_BUILDSKIPS; sIndex = argv[++i]; }
@@ -952,6 +948,10 @@ int main ( int argc, char ** argv )
 	// load proper config
 	//////////////////////
 
+	CSphString sError;
+	if ( !sphInitCharsetAliasTable ( sError ) )
+		sphDie ( "failed to init charset alias table: %s", sError.cstr() );
+
 	CSphConfigParser cp;
 	CSphConfig & hConf = cp.m_tConf;
 	for ( ;; )
@@ -969,6 +969,16 @@ int main ( int argc, char ** argv )
 	///////////
 	// action!
 	///////////
+	int iMvaDefault = 1048576;
+	if ( hConf.Exists ( "searchd" ) && hConf["searchd"].Exists ( "searchd" ) )
+	{
+		const CSphConfigSection & hSearchd = hConf["searchd"]["searchd"];
+		iMvaDefault = hSearchd.GetSize ( "mva_updates_pool", iMvaDefault );
+	}
+	const char * sArenaError = sphArenaInit ( iMvaDefault );
+	if ( sArenaError )
+		sphWarning ( "process shared mutex unsupported, persist MVA disabled ( %s )", sArenaError );
+
 
 	if ( eCommand==CMD_CHECKCONFIG )
 	{
@@ -1016,16 +1026,10 @@ int main ( int argc, char ** argv )
 		}
 	}
 
+	// configure common settings (as of time of this writing, AOT and RLP setup)
+	sphConfigureCommon ( hConf );
 
 	// common part for several commands, check and preload index
-
-	if ( hConf("indexer") && hConf["indexer"]("indexer") )
-	{
-		if ( hConf["indexer"]["indexer"]("lemmatizer_base") )
-			g_sLemmatizerBase = hConf["indexer"]["indexer"]["lemmatizer_base"];
-		sphAotSetCacheSize ( hConf["indexer"]["indexer"].GetSize ( "lemmatizer_cache", 262144 ) );
-	}
-
 	CSphIndex * pIndex = NULL;
 	while ( !sIndex.IsEmpty() && eCommand!=CMD_OPTIMIZEKLISTS )
 	{
@@ -1057,15 +1061,21 @@ int main ( int argc, char ** argv )
 				pIndex = sphCreateIndexRT ( tSchema, sIndex.cstr(), 32*1024*1024, hConf["index"][sIndex]["path"].cstr(), bDictKeywords );
 		} else
 		{
-			pIndex = sphCreateIndexPhrase ( sIndex.cstr(), hConf["index"][sIndex]["path"].cstr() );
+			const char * sPath = hConf["index"][sIndex]["path"].cstr();
+			CSphStringBuilder tPath;
+			if ( bRotate )
+			{
+				tPath.Appendf ( "%s.tmp", sPath );
+				sPath = tPath.cstr();
+			}
+			pIndex = sphCreateIndexPhrase ( sIndex.cstr(), sPath );
 		}
 
 		if ( !pIndex )
 			sphDie ( "index '%s': failed to create (%s)", sIndex.cstr(), sError.cstr() );
 
-		// don't need any long load operations
-		// but not for dict=keywords + infix
-		pIndex->SetWordlistPreload ( bDictKeywords );
+		if ( eCommand==CMD_CHECK )
+			pIndex->SetDebugCheck();
 
 		CSphString sWarn;
 		if ( !pIndex->Prealloc ( false, bStripPath, sWarn ) )
@@ -1096,6 +1106,9 @@ int main ( int argc, char ** argv )
 
 		break;
 	}
+
+	int iCheckErrno = 0;
+	CSphString sNewIndex;
 
 	// do the dew
 	switch ( eCommand )
@@ -1147,8 +1160,6 @@ int main ( int argc, char ** argv )
 				if ( !pIndex )
 					sphDie ( "index '%s': failed to create (%s)", sIndex.cstr(), sError.cstr() );
 
-				pIndex->SetWordlistPreload ( true );
-
 				CSphString sWarn;
 				if ( !pIndex->Prealloc ( false, bStripPath, sWarn ) )
 					sphDie ( "index '%s': prealloc failed: %s\n", sIndex.cstr(), pIndex->GetLastError().cstr() );
@@ -1166,7 +1177,17 @@ int main ( int argc, char ** argv )
 
 		case CMD_CHECK:
 			fprintf ( stdout, "checking index '%s'...\n", sIndex.cstr() );
-			return pIndex->DebugCheck ( stdout );
+			iCheckErrno = pIndex->DebugCheck ( stdout );
+			if ( iCheckErrno )
+				return iCheckErrno;
+			if ( bRotate )
+			{
+				pIndex->Dealloc();
+				sNewIndex.SetSprintf ( "%s.new", hConf["index"][sIndex]["path"].cstr() );
+				if ( !pIndex->Rename ( sNewIndex.cstr() ) )
+					sphDie ( "index '%s': rotate failed: %s\n", sIndex.cstr(), pIndex->GetLastError().cstr() );
+			}
+			return 0;
 
 		case CMD_STRIP:
 			{
@@ -1248,5 +1269,5 @@ int main ( int argc, char ** argv )
 }
 
 //
-// $Id: indextool.cpp 4610 2014-03-12 13:49:02Z tomat $
+// $Id: indextool.cpp 4640 2014-03-31 05:48:00Z tomat $
 //

@@ -38,6 +38,13 @@ DLLEXPORT int udfexample_ver ()
 }
 
 
+/// UDF re-initialization func
+/// gets called on sighup (workers=prefork only)
+DLLEXPORT void udfexample_reinit ()
+{
+}
+
+
 /// UDF initialization
 /// gets called on every query, when query begins
 /// args are filled with values for a particular query
@@ -187,6 +194,9 @@ DLLEXPORT double avgmva ( SPH_UDF_INIT * init, SPH_UDF_ARGS * args, char * error
 
 	return res/n;
 }
+
+// FIXME! add a string function example?
+// FIXME! add a ranker plugin example?
 
 //
 // $Id$

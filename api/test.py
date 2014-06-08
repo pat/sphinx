@@ -1,5 +1,5 @@
 #
-# $Id: test.py 2081 2009-11-18 18:13:43Z shodan $
+# $Id: test.py 4097 2013-08-20 09:28:24Z kevg $
 #
 
 from sphinxapi import *
@@ -77,7 +77,6 @@ while (i<len(sys.argv)):
 # do query
 cl = SphinxClient()
 cl.SetServer ( host, port )
-cl.SetWeights ( [100, 1] )
 cl.SetMatchMode ( mode )
 if filtervals:
 	cl.SetFilter ( filtercol, filtervals )
@@ -120,5 +119,5 @@ if res.has_key('matches'):
 		n += 1
 
 #
-# $Id: test.py 2081 2009-11-18 18:13:43Z shodan $
+# $Id: test.py 4097 2013-08-20 09:28:24Z kevg $
 #

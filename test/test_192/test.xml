@@ -7,7 +7,6 @@
 searchd
 {
 	<searchd_settings/>
-compat_sphinxql_magics = 1
 }
 
 source test
@@ -26,7 +25,6 @@ index test
 	source			= test
 	path			= <data_path/>/test
 
-	charset_type	= utf-8
 	wordforms		= <this_test/>/wordforms.txt
 	blend_chars		= +, U+2D, @
     min_word_len	= 2
@@ -44,7 +42,6 @@ index test10
 	source			= test1
 	path			= <data_path/>/test10
 
-	charset_type	= utf-8
 	charset_table	= 0..9, A..Z->a..z, _, a..z
 	blend_chars		= +
 	min_word_len	= 2
@@ -55,12 +52,10 @@ index test11
 	source			= test1
 	path			= <data_path/>/test11
 
-	charset_type	= utf-8
 	charset_table	= 0..9, A..Z->a..z, _, a..z
 	blend_chars		= +
 	min_word_len	= 2
 	min_prefix_len = 2
-	enable_star = 1
 }
 
 source wb
@@ -80,7 +75,6 @@ index wb
 	source			= wb
 	path			= <data_path/>/wb
 
-	charset_type	= utf-8
 	wordforms		= <this_test/>/wordforms-wb.txt
 	blend_chars		=  U+2D
 }
@@ -94,7 +88,8 @@ source test12
 	sql_query = \
 		SELECT 1, 'путин-то' AS content UNION \
 		SELECT 2, 'путиными' AS content  UNION \
-		SELECT 3, 'путена' AS content
+		SELECT 3, 'путена' AS content UNION \
+		SELECT 4, 'Военно-промышленная комиссия превратилась в авторитетную площадку диалога' AS content
 }
 
 
@@ -103,11 +98,9 @@ index test12
 	source			= test12
 	path			= <data_path/>/test12
 
-	charset_type	= utf-8
 	wordforms		= <this_test/>/wordforms-12.txt
 	morphology		= stem_enru
 	min_prefix_len	= 3
-	enable_star		= 1
 	html_strip		= 1
 	index_exact_words	= 1
 	blend_mode		= trim_head, trim_tail, trim_both
@@ -172,6 +165,7 @@ index test12
 
 <sphinxql>SELECT * FROM test12 WHERE MATCH('путин')</sphinxql>
 <sphinxql>SELECT * FROM test12 WHERE MATCH('путин-то')</sphinxql>
+<sphinxql>SELECT * FROM test12 WHERE MATCH('"Военно-промышленная комиссия"')</sphinxql>
 </sphqueries>
 
 </test>

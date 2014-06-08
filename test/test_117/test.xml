@@ -8,7 +8,6 @@
 searchd
 {
 	<searchd_settings/>
-compat_sphinxql_magics = 1
 	workers = threads	
 	binlog_path =
 }
@@ -17,7 +16,6 @@ index rt0
 {
     docinfo			= extern
     morphology		= none
-    charset_type	= utf-8
 
 	type			= rt
 
@@ -36,7 +34,6 @@ index rt_mva
 	path = <data_path/>/mva
 	rt_mem_limit      		= 128K
     docinfo			= extern
-    charset_type	= utf-8
 
 	rt_field		= title
 	rt_field		= content

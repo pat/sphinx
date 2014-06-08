@@ -1,5 +1,5 @@
 //
-// $Id: sphinxmetaphone.cpp 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxmetaphone.cpp 4522 2014-01-30 11:00:18Z tomat $
 //
 
 //
@@ -587,7 +587,7 @@ static int ProcessCode ( int iCode, int iCur, CurrentWord_t & Word, BYTE * sPrim
 }
 
 
-void stem_dmetaphone ( BYTE * pWord, bool bUTF8 )
+void stem_dmetaphone ( BYTE * pWord )
 {
 	BYTE	sOriginal [3*SPH_MAX_WORD_LEN+3];
 	BYTE	sPrimary [3*SPH_MAX_WORD_LEN+3];
@@ -626,41 +626,32 @@ void stem_dmetaphone ( BYTE * pWord, bool bUTF8 )
 		iAdvance = 1;
 	}
 
-	BYTE * pPtr = sOriginal;
-	BYTE * pLastPtr = sOriginal;
+	const BYTE * pPtr = sOriginal;
+	const BYTE * pLastPtr = sOriginal;
 	int iCode = -1;
 
-	if ( bUTF8 )
-		iCode = sphUTF8Decode ( pPtr );
+	iCode = sphUTF8Decode ( pPtr );
 
 	while ( iCode!=0 )
 	{
-		int iCur = ( bUTF8 ? pLastPtr : pPtr ) - sOriginal;
+		int iCur = pLastPtr-sOriginal;
 		if ( iCur>=iLength )
 			break;
 
-		if ( bUTF8 )
+		for ( int i = 0; i < iAdvance; ++i )
 		{
-			for ( int i = 0; i < iAdvance; ++i )
-			{
-				pLastPtr = pPtr;
-				iCode = sphUTF8Decode ( pPtr );
-			}
-
-		} else
-		{
-			pPtr += iAdvance;
-			iCode = *pPtr;
+			pLastPtr = pPtr;
+			iCode = sphUTF8Decode ( pPtr );
 		}
 
 		if ( iCode<=0 )
 			break;
 
 		// unknown code: don't copy, just return
-		if ( bUTF8 && iCode>128 && iCode!=0xC7 && iCode!=0xE7 && iCode!=0xD1 && iCode!=0xF1 )
+		if ( iCode>128 && iCode!=0xC7 && iCode!=0xE7 && iCode!=0xD1 && iCode!=0xF1 )
 			return;
 
-		iAdvance = ProcessCode ( iCode, ( bUTF8 ? pLastPtr : pPtr ) - sOriginal, Word, sPrimary, sSecondary );
+		iAdvance = ProcessCode ( iCode, pLastPtr-sOriginal, Word, sPrimary, sSecondary );
 	}
 
 	if ( !pWord[0] || sPrimary [0] )
@@ -670,5 +661,5 @@ void stem_dmetaphone ( BYTE * pWord, bool bUTF8 )
 }
 
 //
-// $Id: sphinxmetaphone.cpp 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxmetaphone.cpp 4522 2014-01-30 11:00:18Z tomat $
 //

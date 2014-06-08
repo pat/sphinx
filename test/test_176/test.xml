@@ -12,7 +12,6 @@ indexer
 searchd
 {
 	<searchd_settings/>
-	compat_sphinxql_magics	= 0
 	preopen_indexes			= 0
 }
 
@@ -35,7 +34,6 @@ index test
 	  <variant>dict			= keywords</variant>
 	  <variant>dict			= crc</variant>
 	</dynamic>
-	enable_star		= 1
 	<dynamic>
 		<variant>min_prefix_len	= 0</variant>
 		<variant>min_prefix_len	= 1</variant>

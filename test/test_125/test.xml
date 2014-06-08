@@ -12,19 +12,20 @@ searchd
 {
 	<searchd_settings/>
 	workers = threads
-	compat_sphinxql_magics = 0
+	thread_stack = 256K
 }
 
 source test
 {
 	type = mysql
 	<sql_settings/>
-	sql_query = SELECT * FROM test_table
+	sql_query = SELECT *, '1,2,3,4,5,6.0' AS poly2d_attr FROM test_table
 	sql_attr_uint = aa
 	sql_attr_multi = uint mm from field
 	sql_attr_string = kk
 	sql_attr_float = f1
 	sql_attr_float = f2
+	sql_attr_string = poly2d_attr
 }
 
 index test
@@ -186,6 +187,14 @@ INSERT INTO cmp_table VALUES
 <!-- lets check that WEIGHT() works in expressions -->
 <sphinxql>SELECT id, WEIGHT()*10 FROM test WHERE MATCH('ohai')</sphinxql>
 
+<!-- check strings vs unescaping -->
+<sphinxql>SELECT crc32('one two'), crc32('one\ttwo'), crc32('one\ntwo') FROM test WHERE id=1</sphinxql>
+
+<!-- check misc crazy stuff -->
+<sphinxql>SELECT @@session.auto_increment_increment</sphinxql>
+<sphinxql>SHOW COLLATION</sphinxql>
+<sphinxql>SHOW CHARACTER SET</sphinxql>
+
 <!-- added check of different functions against MVA attributes -->
 <sphinxql>SELECT id, IN(mva32,220,230) from cmp WHERE id=2</sphinxql>
 <!--fixme! The query below must be processed without errors -->
@@ -213,12 +222,26 @@ INSERT INTO cmp_table VALUES
 <!-- .NET connector uses "select timediff(curtime(),utc_time());" -->
 <sphinxql>SELECT bigint(timediff(curtime(),utc_time())) % 15</sphinxql>
 
+<!-- MySQL Workbench 6.0 and above -->
+<sphinxql>SHOW SESSION VARIABLES LIKE 'lower_case_table_names'</sphinxql>
+<sphinxql>SELECT current_user()</sphinxql>
+<sphinxql>SELECT connection_id()</sphinxql>
+<sphinxql>SET CHARACTER SET utf8</sphinxql>
+<sphinxql>SET SQL_SAFE_UPDATES=1</sphinxql>
+<sphinxql>SHOW SESSION VARIABLES LIKE 'sql_mode'</sphinxql>
+<sphinxql>SHOW DATABASES</sphinxql>
+
+<sphinxql>SELECT CONTAINS(POLY2D(poly2d_attr),2,3) FROM test LIMIT 1</sphinxql>
+
 <sphinxql>SELECT 0 zero, 1/0, 1/zero FROM cmp LIMIT 1</sphinxql>
 <sphinxql>SELECT 0 zero, SINT(-1) negative, ln(0), ln(zero), ln(-1), ln(negative) FROM cmp LIMIT 1</sphinxql>
 <sphinxql>SELECT 0 zero, SINT(-1) negative, log2(0), log2(zero), log2(-1), log2(negative) FROM cmp LIMIT 1</sphinxql>
 <sphinxql>SELECT 0 zero, SINT(-1) negative, log10(0), log10(zero), log10(-1), ln(negative) FROM cmp LIMIT 1</sphinxql>
 <sphinxql>SELECT 0 zero, SINT(-1) negative, sqrt(0), sqrt(zero), sqrt(-1), sqrt(negative) FROM cmp LIMIT 1</sphinxql>
 
+<!-- IN() function for string attributes -->
+<sphinxql>SELECT IN(kk,'one','ten','eleventy') FROM test</sphinxql>
+<sphinxql>SELECT IN(kk,'is','not','there') FROM test</sphinxql>
 </sphqueries>
 
 </test>

@@ -6,6 +6,18 @@
 /* Flags used to configure me */
 #undef CONFIGURE_FLAGS
 
+/* Define to 1 if you want runtime load libexpat using dlopen */
+#undef DL_EXPAT
+
+/* Define to 1 if you want runtime load mysql using dlopen */
+#undef DL_MYSQL
+
+/* Define to 1 if runtime load PosgreSQL using dlopen */
+#undef DL_PGSQL
+
+/* Define to 1 if you want runtime load odbc/iodbc using dlopen */
+#undef DL_UNIXODBC
+
 /* Define to 1 if you have the `backtrace' function. */
 #undef HAVE_BACKTRACE
 
@@ -53,9 +65,6 @@
 
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
-
-/* Define to 1 if you have the `dl' library (-ldl). */
-#undef HAVE_LIBDL
 
 /* Define to 1 if you have the `rt' library (-lrt). */
 #undef HAVE_LIBRT
@@ -149,6 +158,9 @@
 
 /* Define to 1 if you have the `strtol' function. */
 #undef HAVE_STRTOL
+
+/* Whether we have internal atomic functions */
+#undef HAVE_SYNC_FETCH
 
 /* Define to 1 if you have the <sys/epoll.h> header file. */
 #undef HAVE_SYS_EPOLL_H
@@ -274,8 +286,11 @@
 /* Define to 1 if you want to compile with PostgreSQL support */
 #undef USE_PGSQL
 
-/* RE2 library support */
+/* re2 library support */
 #undef USE_RE2
+
+/* RLP library support */
+#undef USE_RLP
 
 /* define to use POSIX Syslog for logging */
 #undef USE_SYSLOG

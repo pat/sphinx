@@ -13,7 +13,6 @@
 searchd
 {
 	<searchd_settings/>
-compat_sphinxql_magics = 1
 	workers = threads
 }
 
@@ -23,6 +22,7 @@ index v2
 	path			= data/rt_v2
 	rt_field		= content
 	rt_attr_uint	= idd
+	dict			= crc
 }
 
 index v3
@@ -31,6 +31,7 @@ index v3
 	path			= data/rt_v3
 	rt_field		= content
 	rt_attr_uint	= idd
+	dict			= crc
 }
 
 index v4
@@ -39,6 +40,7 @@ index v4
 	path			= data/rt_v4
 	rt_field		= content
 	rt_attr_uint	= idd
+	dict			= crc
 }
 
 index v5
@@ -47,6 +49,7 @@ index v5
 	path			= data/rt_v5
 	rt_field		= content
 	rt_attr_uint	= idd
+	dict			= crc
 }
 
 source plain_stem_src
@@ -61,8 +64,8 @@ index plain_stem
 	source			= plain_stem_src
 	path			= <data_path/>/plain_stem
 	docinfo			= extern
-	charset_type	= utf-8
 	morphology = stem_en
+	dict			= crc
 }
 index rt_stem
 {
@@ -70,8 +73,8 @@ index rt_stem
 	path			= <data_path/>/rt_stem
 	rt_attr_uint	= gid
 	rt_field		= title
-	charset_type	= utf-8
 	morphology = stem_en
+	dict			= crc
 } 
 
 </config>

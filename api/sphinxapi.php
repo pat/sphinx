@@ -1,7 +1,7 @@
 <?php
 
 //
-// $Id: sphinxapi.php 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxapi.php 4522 2014-01-30 11:00:18Z tomat $
 //
 
 //
@@ -14,6 +14,11 @@
 // received a copy of the GPL license along with this program; if you
 // did not, you can find it at http://www.gnu.org/
 //
+
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+//							WARNING
+// We strongly recommend you to use SphinxQL instead of the API
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 /////////////////////////////////////////////////////////////////////////////
 // PHP version of Sphinx searchd client (PHP API)
@@ -29,11 +34,11 @@ define ( "SEARCHD_COMMAND_STATUS",		5 );
 define ( "SEARCHD_COMMAND_FLUSHATTRS",	7 );
 
 /// current client-side command implementation versions
-define ( "VER_COMMAND_SEARCH",		0x11D );
+define ( "VER_COMMAND_SEARCH",		0x11E );
 define ( "VER_COMMAND_EXCERPT",		0x104 );
 define ( "VER_COMMAND_UPDATE",		0x103 );
 define ( "VER_COMMAND_KEYWORDS",	0x100 );
-define ( "VER_COMMAND_STATUS",		0x100 );
+define ( "VER_COMMAND_STATUS",		0x101 );
 define ( "VER_COMMAND_QUERY",		0x100 );
 define ( "VER_COMMAND_FLUSHATTRS",	0x100 );
 
@@ -76,6 +81,7 @@ define ( "SPH_SORT_EXPR", 			5 );
 define ( "SPH_FILTER_VALUES",		0 );
 define ( "SPH_FILTER_RANGE",		1 );
 define ( "SPH_FILTER_FLOATRANGE",	2 );
+define ( "SPH_FILTER_STRING",	3 );
 
 /// known attribute types
 define ( "SPH_ATTR_INTEGER",		1 );
@@ -403,7 +409,7 @@ class SphinxClient
 	var $_port;			///< searchd port (default is 9312)
 	var $_offset;		///< how many records to seek from result-set start (default is 0)
 	var $_limit;		///< how many records to return from result-set starting at offset (default is 20)
-	var $_mode;			///< query matching mode (default is SPH_MATCH_ALL)
+	var $_mode;			///< query matching mode (default is SPH_MATCH_EXTENDED2)
 	var $_weights;		///< per-field weights (default is 1 for all fields)
 	var $_sort;			///< match sorting mode (default is SPH_SORT_RELEVANCE)
 	var $_sortby;		///< attribute to sort by (defualt is "")
@@ -458,7 +464,7 @@ class SphinxClient
 		// per-query settings
 		$this->_offset		= 0;
 		$this->_limit		= 20;
-		$this->_mode		= SPH_MATCH_ALL;
+		$this->_mode		= SPH_MATCH_EXTENDED2;
 		$this->_weights		= array ();
 		$this->_sort		= SPH_SORT_RELEVANCE;
 		$this->_sortby		= "";
@@ -481,7 +487,7 @@ class SphinxClient
 		$this->_fieldweights= array();
 		$this->_overrides 	= array();
 		$this->_select		= "*";
-		$this->_query_flags = 0;
+		$this->_query_flags = sphSetBit ( 0, 6, true ); // default idf=tfidf_normalized
 		$this->_predictedtime = 0;
 		$this->_outerorderby = "";
 		$this->_outeroffset = 0;
@@ -754,6 +760,7 @@ class SphinxClient
 	/// set matching mode
 	function SetMatchMode ( $mode )
 	{
+		trigger_error ( 'DEPRECATED: Do not call this method or, even better, use SphinxQL instead of an API', E_USER_DEPRECATED );
 		assert ( $mode==SPH_MATCH_ALL
 			|| $mode==SPH_MATCH_ANY
 			|| $mode==SPH_MATCH_PHRASE
@@ -794,11 +801,7 @@ class SphinxClient
 	/// DEPRECATED; use SetFieldWeights() instead
 	function SetWeights ( $weights )
 	{
-		assert ( is_array($weights) );
-		foreach ( $weights as $weight )
-			assert ( is_int($weight) );
-
-		$this->_weights = $weights;
+		die("This method is now deprecated; please use SetFieldWeights instead");
 	}
 
 	/// bind per-field weights by name
@@ -852,6 +855,15 @@ class SphinxClient
 			$this->_filters[] = array ( "type"=>SPH_FILTER_VALUES, "attr"=>$attribute, "exclude"=>$exclude, "values"=>$values );
 		}
 	}
+	
+	/// set string filter
+	/// only match records where $attribute value is equal
+	function SetFilterString ( $attribute, $value, $exclude=false )
+	{
+		assert ( is_string($attribute) );
+		assert ( is_string($value) );
+		$this->_filters[] = array ( "type"=>SPH_FILTER_STRING, "attr"=>$attribute, "exclude"=>$exclude, "value"=>$value );
+	}	
 
 	/// set range filter
 	/// only match records if $attribute value is beetwen $min and $max (inclusive)
@@ -936,6 +948,7 @@ class SphinxClient
 	/// $values must be a hash that maps document IDs to attribute values
 	function SetOverride ( $attrname, $attrtype, $values )
 	{
+		trigger_error('DEPRECATED: Do not call this method. Use SphinxQL REMAP() function instead.', E_USER_DEPRECATED);
 		assert ( is_string ( $attrname ) );
 		assert ( in_array ( $attrtype, array ( SPH_ATTR_INTEGER, SPH_ATTR_TIMESTAMP, SPH_ATTR_BOOL, SPH_ATTR_FLOAT, SPH_ATTR_BIGINT ) ) );
 		assert ( is_array ( $values ) );
@@ -952,13 +965,14 @@ class SphinxClient
 	
 	function SetQueryFlag ( $flag_name, $flag_value )
 	{
-		$known_names = array ( "reverse_scan", "sort_method", "max_predicted_time", "boolean_simplify", "idf" );
+		$known_names = array ( "reverse_scan", "sort_method", "max_predicted_time", "boolean_simplify", "idf", "global_idf" );
 		$flags = array (
 		"reverse_scan" => array ( 0, 1 ),
 		"sort_method" => array ( "pq", "kbuffer" ),
 		"max_predicted_time" => array ( 0 ),
 		"boolean_simplify" => array ( true, false ),
-		"idf" => array ("normalized", "plain" )
+		"idf" => array ("normalized", "plain", "tfidf_normalized", "tfidf_unnormalized" ),
+		"global_idf" => array ( true, false ),
 		);
 		
 		assert ( isset ( $flag_name, $known_names ) );
@@ -972,7 +986,9 @@ class SphinxClient
 			$this->_predictedtime = (int)$flag_value;
 		}
 		if ( $flag_name=="boolean_simplify" )	$this->_query_flags = sphSetBit ( $this->_query_flags, 3, $flag_value );
-		if ( $flag_name=="idf" )	$this->_query_flags = sphSetBit ( $this->_query_flags, 4, $flag_value=="plain" );
+		if ( $flag_name=="idf" && ( $flag_value=="normalized" || $flag_value=="plain" ) )	$this->_query_flags = sphSetBit ( $this->_query_flags, 4, $flag_value=="plain" );
+		if ( $flag_name=="global_idf" )	$this->_query_flags = sphSetBit ( $this->_query_flags, 5, $flag_value );
+		if ( $flag_name=="idf" && ( $flag_value=="tfidf_normalized" || $flag_value=="tfidf_unnormalized" ) )	$this->_query_flags = sphSetBit ( $this->_query_flags, 6, $flag_value=="tfidf_normalized" );
 	}
 	
 	/// set outer order by parameters
@@ -1017,7 +1033,7 @@ class SphinxClient
 	
 	function ResetQueryFlag ()
 	{
-		$this->_query_flags = 0;
+		$this->_query_flags = sphSetBit ( 0, 6, true ); // default idf=tfidf_normalized
 		$this->_predictedtime = 0;
 	}
 
@@ -1101,6 +1117,10 @@ class SphinxClient
 
 				case SPH_FILTER_FLOATRANGE:
 					$req .= $this->_PackFloat ( $filter["min"] ) . $this->_PackFloat ( $filter["max"] );
+					break;
+					
+				case SPH_FILTER_STRING:
+					$req .= pack ( "N", strlen($filter["value"]) ) . $filter["value"];
 					break;
 
 				default:
@@ -1740,8 +1760,10 @@ class SphinxClient
 	// status
 	//////////////////////////////////////////////////////////////////////////
 
-	function Status ()
+	function Status ($session=false)
 	{
+        assert ( is_bool($session) );
+
 		$this->_MBPush ();
 		if (!( $fp = $this->_Connect() ))
 		{
@@ -1749,7 +1771,7 @@ class SphinxClient
 			return false;
 		}
 
-		$req = pack ( "nnNN", SEARCHD_COMMAND_STATUS, VER_COMMAND_STATUS, 4, 1 ); // len=4, body=1
+		$req = pack ( "nnNN", SEARCHD_COMMAND_STATUS, VER_COMMAND_STATUS, 4, $session?0:1 ); // len=4, body=1
 		if ( !( $this->_Send ( $fp, $req, 12 ) ) ||
 			 !( $response = $this->_GetResponse ( $fp, VER_COMMAND_STATUS ) ) )
 		{
@@ -1806,5 +1828,5 @@ class SphinxClient
 }
 
 //
-// $Id: sphinxapi.php 4505 2014-01-22 15:16:21Z deogar $
+// $Id: sphinxapi.php 4522 2014-01-30 11:00:18Z tomat $
 //

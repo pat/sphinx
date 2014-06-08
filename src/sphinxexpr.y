@@ -15,6 +15,8 @@
 %token <iConst>			TOK_CONST_INT
 %token <fConst>			TOK_CONST_FLOAT
 %token <iConst>			TOK_CONST_STRING
+%token <iConst>			TOK_SUBKEY
+%token <iConst>			TOK_DOT_NUMBER
 %token <iAttrLocator>	TOK_ATTR_INT
 %token <iAttrLocator>	TOK_ATTR_BITS
 %token <iAttrLocator>	TOK_ATTR_FLOAT
@@ -24,12 +26,15 @@
 %token <iAttrLocator>	TOK_ATTR_FACTORS
 %token <iFunc>			TOK_FUNC
 %token <iFunc>			TOK_FUNC_IN
+%token <iFunc>			TOK_FUNC_REMAP
+%token <iNode>			TOK_FUNC_PF
 %token <iNode>			TOK_USERVAR
 %token <iNode>			TOK_UDF
 %token <iNode>			TOK_HOOK_IDENT
 %token <iNode>			TOK_HOOK_FUNC
 %token <sIdent>			TOK_IDENT
-%token <sIdent>			TOK_ATTR_JSON_FIELD
+%token <iAttrLocator>	TOK_ATTR_JSON
+
 
 %token	TOK_ATID
 %token	TOK_ATWEIGHT
@@ -40,7 +45,13 @@
 %token	TOK_DISTINCT
 %token	TOK_CONST_LIST
 %token	TOK_ATTR_SINT
-%token	TOK_CONST_HASH
+%token	TOK_MAP_ARG
+%token	TOK_FOR
+%token	TOK_ITERATOR
+%token	TOK_IS
+%token	TOK_NULL
+%token	TOK_IS_NULL
+%token	TOK_IS_NOT_NULL
 
 
 %type <iNode>			attr
@@ -49,9 +60,19 @@
 %type <iNode>			arglist
 %type <iNode>			constlist
 %type <iNode>			constlist_or_uservar
-%type <iNode>			consthash
+%type <iNode>			maparg
+%type <sIdent>			map_key
 %type <iNode>			function
 %type <sIdent>			ident
+%type <iNode>			stringlist
+%type <iNode>			json_field
+%type <iNode>			subkey
+%type <iNode>			subscript
+%type <iNode>			for_loop
+%type <iNode>			iterator
+%type <iNode>			streq
+%type <iNode>			strval
+
 
 %left TOK_OR
 %left TOK_AND
@@ -64,6 +85,7 @@
 %nonassoc TOK_NOT
 %nonassoc TOK_NEG
 
+
 %%
 
 exprline:
@@ -74,6 +96,7 @@ attr:
 	TOK_ATTR_INT					{ $$ = pParser->AddNodeAttr ( TOK_ATTR_INT, $1 ); }
 	| TOK_ATTR_BITS					{ $$ = pParser->AddNodeAttr ( TOK_ATTR_BITS, $1 ); }
 	| TOK_ATTR_FLOAT				{ $$ = pParser->AddNodeAttr ( TOK_ATTR_FLOAT, $1 ); }
+	| TOK_ATTR_JSON					{ $$ = pParser->AddNodeAttr ( TOK_ATTR_JSON, $1 ); }
 	;
 
 expr:
@@ -81,11 +104,11 @@ expr:
 	| function
 	| TOK_CONST_INT					{ $$ = pParser->AddNodeInt ( $1 ); }
 	| TOK_CONST_FLOAT				{ $$ = pParser->AddNodeFloat ( $1 ); }
+	| TOK_DOT_NUMBER				{ $$ = pParser->AddNodeDotNumber ( $1 ); }
 	| TOK_ATID						{ $$ = pParser->AddNodeID(); }
 	| TOK_ATWEIGHT					{ $$ = pParser->AddNodeWeight(); }
 	| TOK_ID						{ $$ = pParser->AddNodeID(); }
 	| TOK_WEIGHT '(' ')'			{ $$ = pParser->AddNodeWeight(); }
-	| TOK_GROUPBY '(' ')'			{ $$ = pParser->AddNodeGroupby(); }
 	| TOK_HOOK_IDENT				{ $$ = pParser->AddNodeHookIdent ( $1 ); }
 	| '-' expr %prec TOK_NEG		{ $$ = pParser->AddNodeOp ( TOK_NEG, $2, -1 ); }
 	| TOK_NOT expr					{ $$ = pParser->AddNodeOp ( TOK_NOT, $2, -1 ); if ( $$<0 ) YYERROR; }
@@ -107,36 +130,34 @@ expr:
 	| expr TOK_AND expr				{ $$ = pParser->AddNodeOp ( TOK_AND, $1, $3 ); if ( $$<0 ) YYERROR; }
 	| expr TOK_OR expr				{ $$ = pParser->AddNodeOp ( TOK_OR, $1, $3 ); if ( $$<0 ) YYERROR; }
 	| '(' expr ')'					{ $$ = $2; }
+	| json_field
+	| iterator
+	| streq
+	| json_field TOK_IS TOK_NULL			{ $$ = pParser->AddNodeOp ( TOK_IS_NULL, $1, -1); }
+	| json_field TOK_IS TOK_NOT TOK_NULL	{ $$ = pParser->AddNodeOp ( TOK_IS_NOT_NULL, $1, -1); }
 	;
 
-consthash:
-	ident TOK_EQ TOK_CONST_INT
-		{
-			$$ = pParser->AddNodeConsthash ( $1, $3 );
-		}
-	| TOK_ATTR_STRING TOK_EQ TOK_CONST_INT
-		{
-			$$ = pParser->AddNodeConsthash ( pParser->Attr2Ident($1), $3 );
-		}
-	| consthash ',' ident TOK_EQ TOK_CONST_INT
-		{
-			pParser->AppendToConsthash ( $$, $3, $5 );
-		}
-	| consthash ',' TOK_ATTR_STRING TOK_EQ TOK_CONST_INT
-		{
-			pParser->AppendToConsthash ( $$, pParser->Attr2Ident($3), $5 );
-		}
+maparg:
+	map_key TOK_EQ TOK_CONST_INT					{ $$ = pParser->AddNodeMapArg ( $1, NULL, $3 ); }
+	| map_key TOK_EQ TOK_IDENT						{ $$ = pParser->AddNodeMapArg ( $1, $3, 0 ); }
+	| maparg ',' map_key TOK_EQ TOK_CONST_INT		{ pParser->AppendToMapArg ( $$, $3, NULL, $5 ); }
+	| maparg ',' map_key TOK_EQ TOK_IDENT			{ pParser->AppendToMapArg ( $$, $3, $5, 0 ); }
+	;
+
+map_key:
+	ident							{ $$ = $1; }
+	| TOK_ATTR_STRING				{ $$ = pParser->Attr2Ident($1); }
+	| TOK_FUNC_IN					{ $$ = strdup("in"); }
 	;
 
 arg:
 	expr
-	| '{' consthash '}'				{ $$ = $2; }
+	| '{' maparg '}'				{ $$ = $2; }
 	| TOK_ATTR_STRING				{ $$ = pParser->AddNodeAttr ( TOK_ATTR_STRING, $1 ); }
 	| TOK_ATTR_MVA32				{ $$ = pParser->AddNodeAttr ( TOK_ATTR_MVA32, $1 ); }
 	| TOK_ATTR_MVA64				{ $$ = pParser->AddNodeAttr ( TOK_ATTR_MVA64, $1 ); }
 	| TOK_ATTR_FACTORS				{ $$ = pParser->AddNodeAttr ( TOK_ATTR_FACTORS, $1 ); }
 	| TOK_CONST_STRING				{ $$ = pParser->AddNodeString ( $1 ); }
-	| TOK_ATTR_JSON_FIELD			{ $$ = pParser->AddNodeJsonField ( $1 ); }
 	;
 
 arglist:
@@ -155,16 +176,19 @@ constlist:
 	| constlist ',' '-' TOK_CONST_FLOAT	{ pParser->AppendToConstlist ( $$, -$4 );}
 	;
 
+stringlist:
+	TOK_CONST_STRING					{ $$ = pParser->AddNodeConstlist ( $1 ); }
+	| stringlist ',' TOK_CONST_STRING	{ pParser->AppendToConstlist ( $$, $3 ); }
+	;
+
 constlist_or_uservar:
 	constlist
+	| stringlist
 	| TOK_USERVAR					{ $$ = pParser->AddNodeUservar ( $1 ); }
 	;
 
 ident:
-	TOK_ATTR_INT
-		{
-			$$ = pParser->Attr2Ident ( $1 );
-		}
+	TOK_ATTR_INT 					{ $$ = pParser->Attr2Ident ( $1 ); }
 	| TOK_IDENT
 	;
 
@@ -173,16 +197,48 @@ function:
 	| TOK_FUNC '(' ')'				{ $$ = pParser->AddNodeFunc ( $1, -1 ); if ( $$<0 ) YYERROR; }
 	| TOK_UDF '(' arglist ')'		{ $$ = pParser->AddNodeUdf ( $1, $3 ); if ( $$<0 ) YYERROR; }
 	| TOK_UDF '(' ')'				{ $$ = pParser->AddNodeUdf ( $1, -1 ); if ( $$<0 ) YYERROR; }
-	| TOK_FUNC_IN '(' arg ',' constlist_or_uservar ')'
-		{
-			$$ = pParser->AddNodeFunc ( $1, $3, $5 );
-		}
-	| TOK_HOOK_FUNC '(' arglist ')'
-		{
-			$$ = pParser->AddNodeHookFunc ( $1, $3 );
-			if ( $$<0 )
-				YYERROR;
-		}
+	| TOK_FUNC_IN '(' arg ',' constlist_or_uservar ')'{ $$ = pParser->AddNodeFunc ( $1, $3, $5 ); }
+	| TOK_HOOK_FUNC '(' arglist ')' { $$ = pParser->AddNodeHookFunc ( $1, $3 ); if ( $$<0 ) YYERROR; }
+	| TOK_FUNC '(' expr for_loop ')' { $$ = pParser->AddNodeFunc ( $1, $3, $4 ); }
+	| TOK_FUNC_REMAP '(' expr ',' expr ',' '(' constlist ')' ',' '(' constlist ')' ')' { $$ = pParser->AddNodeFunc ( $1, $3, $5, $8, $12 ); }
+	| TOK_FUNC_PF '(' ')'			{ $$ = pParser->AddNodePF ( $1, -1 ); }
+	| TOK_FUNC_PF '(' arg ')'		{ $$ = pParser->AddNodePF ( $1, $3 ); }
 	;
+
+json_field:
+	TOK_ATTR_JSON subscript			{ $$ = pParser->AddNodeJsonField ( $1, $2 ); }
+
+subscript:
+	subkey
+	| subscript subkey				{ $$ = pParser->AddNodeOp ( ',', $1, $2 ); }
+	;
+
+subkey:
+	'[' expr ']'					{ $$ = $2; }
+	| TOK_SUBKEY					{ $$ = pParser->AddNodeJsonSubkey ( $1 ); }
+	| TOK_DOT_NUMBER				{ $$ = pParser->AddNodeJsonSubkey ( $1 ); }
+	| '[' TOK_CONST_STRING ']'		{ $$ = pParser->AddNodeString ( $2 ); }
+	| '[' TOK_ATTR_STRING ']'		{ $$ = pParser->AddNodeAttr ( TOK_ATTR_STRING, $2 ); }
+	;
+
+for_loop:
+	TOK_FOR TOK_IDENT TOK_FUNC_IN json_field { $$ = pParser->AddNodeIdent ( $2, $4 ); }
+	;
+
+iterator:
+	TOK_IDENT						{ $$ = pParser->AddNodeIdent ( $1, -1 ); }
+	| TOK_IDENT subscript			{ $$ = pParser->AddNodeIdent ( $1, $2 ); }
+	;
+
+streq:
+	expr TOK_EQ strval				{ $$ = pParser->AddNodeOp ( TOK_EQ, $1, $3 ); }
+	| strval TOK_EQ expr			{ $$ = pParser->AddNodeOp ( TOK_EQ, $3, $1 ); }
+	;
+
+strval:
+	TOK_CONST_STRING				{ $$ = pParser->AddNodeString ( $1 ); }
+	| TOK_ATTR_STRING				{ $$ = pParser->AddNodeAttr ( TOK_ATTR_STRING, $1 ); }
+	;
+
 
 %%

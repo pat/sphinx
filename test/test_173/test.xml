@@ -12,7 +12,6 @@ indexer
 searchd
 {
 	<searchd_settings/>
-compat_sphinxql_magics = 1
 	dist_threads = 3
 }
 
@@ -35,7 +34,6 @@ index idx
 {
 	source			= src
 	path			= <data_path/>/main
-    charset_type 	= utf-8
 }
 
 index idx1
@@ -62,7 +60,6 @@ index warn1
 	source			= src_warn
 	path			= <data_path/>/warn1
 	min_prefix_len = 5
-	enable_star =1
 }
 
 index warn2
@@ -70,7 +67,6 @@ index warn2
 	source			= src_warn
 	path			= <data_path/>/warn2
 	min_prefix_len = 5
-	enable_star =1
 }
 
 index dist_warn

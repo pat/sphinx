@@ -17,7 +17,6 @@ indexer
 searchd
 {
 	<searchd_settings/>
-compat_sphinxql_magics = 1
 <dynamic>
 <variant>
 	dist_threads = 2
@@ -95,31 +94,25 @@ index i10
 	source			= src10
 	path			= <data_path/>/i10
 	docinfo			= extern
-	charset_type 	= utf-8
 	dict = keywords
 	min_prefix_len = 1
-	enable_star = 1	
 }
 index i11
 {
 	source			= src10
 	path			= <data_path/>/i11
 	docinfo			= extern
-	charset_type	= utf-8
 	dict = keywords
 	min_prefix_len = 1
-	enable_star = 1
 }
 index i12
 {
 	source			= src10
 	path			= <data_path/>/i12
 	docinfo			= extern
-	charset_type	= utf-8
 	charset_table	= b..z
 	dict = keywords
 	min_prefix_len = 1
-	enable_star = 1
 }
 
 </agent0>
