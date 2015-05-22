@@ -1,10 +1,10 @@
 //
-// $Id: sphinxstemen.cpp 4522 2014-01-30 11:00:18Z tomat $
+// $Id: sphinxstemen.cpp 4885 2015-01-20 07:02:07Z deogar $
 //
 
 //
-// Copyright (c) 2001-2014, Andrew Aksyonoff
-// Copyright (c) 2008-2014, Sphinx Technologies Inc
+// Copyright (c) 2001-2015, Andrew Aksyonoff
+// Copyright (c) 2008-2015, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -546,5 +546,5 @@ void stem_en ( unsigned char * word, int len )
 }
 
 //
-// $Id: sphinxstemen.cpp 4522 2014-01-30 11:00:18Z tomat $
+// $Id: sphinxstemen.cpp 4885 2015-01-20 07:02:07Z deogar $
 //

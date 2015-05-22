@@ -1,10 +1,10 @@
 //
-// $Id: sphinxutils.h 4640 2014-03-31 05:48:00Z tomat $
+// $Id: sphinxutils.h 4885 2015-01-20 07:02:07Z deogar $
 //
 
 //
-// Copyright (c) 2001-2014, Andrew Aksyonoff
-// Copyright (c) 2008-2014, Sphinx Technologies Inc
+// Copyright (c) 2001-2015, Andrew Aksyonoff
+// Copyright (c) 2008-2015, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -89,7 +89,7 @@ public:
 	const char * GetStr ( const char * sKey, const char * sDefault="" ) const
 	{
 		CSphVariant * pEntry = (*this)( sKey );
-		return pEntry ? pEntry->cstr() : sDefault;
+		return pEntry ? pEntry->strval().cstr() : sDefault;
 	}
 
 	/// get size option (plain int, or with K/M prefix) value by key and default value
@@ -134,16 +134,10 @@ protected:
 	bool			AddSection ( const char * sType, const char * sSection );
 	void			AddKey ( const char * sKey, char * sValue );
 	bool			ValidateKey ( const char * sKey );
-
-#if !USE_WINDOWS
-	bool			TryToExec ( char * pBuffer, const char * szFilename, CSphVector<char> & dResult );
-#endif
 	char *			GetBufferString ( char * szDest, int iMax, const char * & szSource );
 };
 
-#if !USE_WINDOWS
 bool TryToExec ( char * pBuffer, const char * szFilename, CSphVector<char> & dResult, char * sError, int iErrorLen );
-#endif
 
 /////////////////////////////////////////////////////////////////////////////
 
@@ -240,6 +234,9 @@ void sphCheckDuplicatePaths ( const CSphConfig & hConf );
 /// set globals from the common config section
 void sphConfigureCommon ( const CSphConfig & hConf );
 
+/// my own is chinese
+bool sphIsChineseCode ( int iCode );
+
 /// detect chinese chars in a buffer
 bool sphDetectChinese ( const BYTE * szBuffer, int iLength );
 
@@ -274,5 +271,5 @@ private:
 #endif // _sphinxutils_
 
 //
-// $Id: sphinxutils.h 4640 2014-03-31 05:48:00Z tomat $
+// $Id: sphinxutils.h 4885 2015-01-20 07:02:07Z deogar $
 //

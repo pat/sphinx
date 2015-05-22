@@ -29,6 +29,7 @@
 %token	TOK_AS
 %token	TOK_ASC
 %token	TOK_ATTACH
+%token	TOK_ATTRIBUTES
 %token	TOK_AVG
 %token	TOK_BEGIN
 %token	TOK_BETWEEN
@@ -37,6 +38,7 @@
 %token	TOK_BY
 %token	TOK_CALL
 %token	TOK_CHARACTER
+%token	TOK_CHUNK
 %token	TOK_COLLATION
 %token	TOK_COLUMN
 %token	TOK_COMMIT
@@ -95,6 +97,7 @@
 %token	TOK_RAND
 %token	TOK_RAMCHUNK
 %token	TOK_READ
+%token	TOK_RECONFIGURE
 %token	TOK_REPEATABLE
 %token	TOK_REPLACE
 %token	TOK_REMAP
@@ -104,6 +107,7 @@
 %token	TOK_SELECT
 %token	TOK_SERIALIZABLE
 %token	TOK_SET
+%token	TOK_SETTINGS
 %token	TOK_SESSION
 %token	TOK_SHOW
 %token	TOK_SONAME
@@ -192,6 +196,7 @@ statement:
 	| attach_index
 	| flush_rtindex
 	| flush_ramchunk
+	| flush_index
 	| set_transaction
 	| select_sysvar
 	| select_dual
@@ -211,7 +216,7 @@ statement:
 
 ident_set:
 	TOK_IDENT
-	| TOK_AGENT | TOK_ATTACH | TOK_AVG | TOK_BEGIN | TOK_BOOL
+	| TOK_AGENT | TOK_ATTACH | TOK_ATTRIBUTES | TOK_AVG | TOK_BEGIN | TOK_BOOL
 	| TOK_COLLATION | TOK_COUNT | TOK_FLUSH | TOK_FUNCTION
 	| TOK_GLOBAL | TOK_GROUP | TOK_GROUPBY | TOK_GROUP_CONCAT | TOK_ISOLATION
 	| TOK_LEVEL | TOK_LIKE | TOK_MATCH | TOK_MAX | TOK_META
@@ -559,10 +564,10 @@ expr_ident:
 			if ( !pParser->SetNewSyntax() )
 				YYERROR;
 		}
-	| json_field
-	| TOK_INTEGER '(' json_field ')'
-	| TOK_DOUBLE '(' json_field ')'
-	| TOK_BIGINT '(' json_field ')'
+	| json_expr
+	| TOK_INTEGER '(' json_expr ')'
+	| TOK_DOUBLE '(' json_expr ')'
+	| TOK_BIGINT '(' json_expr ')'
 	| TOK_FACET '(' ')'
 	;
 
@@ -787,7 +792,7 @@ expr:
 	| '(' expr ')'				{ TRACK_BOUNDS ( $$, $1, $3 ); }
 	| '{' consthash '}'			{ TRACK_BOUNDS ( $$, $1, $3 ); }
 	| function
-	| json_field
+	| json_expr
 	| streq
 	| json_field TOK_IS TOK_NULL			{ TRACK_BOUNDS ( $$, $1, $3 ); }
 	| json_field TOK_IS TOK_NOT TOK_NULL	{ TRACK_BOUNDS ( $$, $1, $4 ); }
@@ -863,12 +868,35 @@ show_what:
 			pParser->m_pStmt->m_eStmt = STMT_SHOW_AGENT_STATUS;
 			pParser->ToString ( pParser->m_pStmt->m_sIndex, $2 );
 		}
-	| TOK_INDEX ident TOK_STATUS
+	| index_or_table ident TOK_STATUS
 		{
 			pParser->m_pStmt->m_eStmt = STMT_SHOW_INDEX_STATUS;
 			pParser->ToString ( pParser->m_pStmt->m_sIndex, $2 );
 		}
+	| index_or_table ident opt_chunk TOK_SETTINGS
+		{
+			pParser->m_pStmt->m_eStmt = STMT_SHOW_INDEX_SETTINGS;
+			pParser->ToString ( pParser->m_pStmt->m_sIndex, $2 );
+		}
+	| index_or_table ident TOK_DOT_NUMBER TOK_SETTINGS
+		{
+			pParser->m_pStmt->m_eStmt = STMT_SHOW_INDEX_SETTINGS;
+			pParser->ToString ( pParser->m_pStmt->m_sIndex, $2 );
+			pParser->m_pStmt->m_iIntParam = int($3.m_fValue*10);
+		}
 	;
+
+index_or_table:
+	TOK_INDEX
+	| TOK_TABLE
+	;
+
+opt_chunk:
+	// empty
+	| TOK_CHUNK TOK_CONST_INT
+		{
+			pParser->m_pStmt->m_iIntParam = $2.m_iValue;
+		};
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -1186,7 +1214,7 @@ update_item:
 			SqlNode_t tNoValues;
 			pParser->UpdateMVAAttr ( $1, tNoValues );
 		}
-	| json_field '=' const_int // duplicate ident code (avoiding s/r conflict)
+	| json_expr '=' const_int // duplicate ident code (avoiding s/r conflict)
 		{
 			// it is performance-critical to forcibly inline this
 			pParser->m_pStmt->m_tUpdate.m_dPool.Add ( (DWORD)$3.m_iValue );
@@ -1200,7 +1228,7 @@ update_item:
 				pParser->AddUpdatedAttr ( $1, SPH_ATTR_INTEGER );
 			}
 		}
-	| json_field '=' const_float
+	| json_expr '=' const_float
 		{
 			// it is performance-critical to forcibly inline this
 			pParser->m_pStmt->m_tUpdate.m_dPool.Add ( sphF2DW ( $3.m_fValue ) );
@@ -1236,6 +1264,12 @@ alter:
 			tStmt.m_eStmt = STMT_ALTER_DROP;
 			pParser->ToString ( tStmt.m_sIndex, $3 );
 			pParser->ToString ( tStmt.m_sAlterAttr, $6 );
+		}
+	| TOK_ALTER TOK_RTINDEX ident TOK_RECONFIGURE
+		{
+			SqlStmt_t & tStmt = *pParser->m_pStmt;
+			tStmt.m_eStmt = STMT_ALTER_RECONFIGURE;
+			pParser->ToString ( tStmt.m_sIndex, $3 );
 		}
 	;
 
@@ -1365,6 +1399,14 @@ flush_ramchunk:
 		}
 	;
 
+flush_index:
+	TOK_FLUSH TOK_ATTRIBUTES
+		{
+			SqlStmt_t & tStmt = *pParser->m_pStmt;
+			tStmt.m_eStmt = STMT_FLUSH_INDEX;
+		}
+	;
+	
 //////////////////////////////////////////////////////////////////////////
 
 select_sysvar:
@@ -1435,6 +1477,11 @@ drop_plugin:
 //////////////////////////////////////////////////////////////////////////
 
 json_field:
+	json_expr
+	| ident
+	;
+
+json_expr:
 	ident subscript				{ $$ = $1; $$.m_iEnd = $2.m_iEnd; }
 
 subscript:
@@ -1492,7 +1539,7 @@ facet_items_list:
 	;
 
 facet_stmt:
-	TOK_FACET facet_items_list opt_facet_by_items_list opt_order_clause
+	TOK_FACET facet_items_list opt_facet_by_items_list opt_order_clause opt_limit_clause
 		{
 			pParser->m_pStmt->m_eStmt = STMT_FACET;
 			if ( pParser->m_pQuery->m_sFacetBy.IsEmpty() )

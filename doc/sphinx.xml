@@ -5,16 +5,16 @@
 ]>
 <book lang="en">
 
-<title>Sphinx 2.2.3-beta reference manual</title>
+<title>Sphinx 2.2.9-release reference manual</title>
 <subtitle>Free open-source SQL full-text search engine</subtitle>
 
 <bookinfo>
 <copyright>
-<year>2001-2014</year>
+<year>2001-2015</year>
 <holder>Andrew Aksyonoff</holder>
 </copyright>
 <copyright>
-<year>2008-2014</year>
+<year>2008-2015</year>
 <holder>Sphinx Technologies Inc, <ulink
 url="http://sphinxsearch.com">http://sphinxsearch.com</ulink></holder>
 </copyright>
@@ -292,10 +292,10 @@ specific project files) manually.
     <para>
     Extract everything from the distribution tarball (haven't you already?)
     and go to the <filename>sphinx</filename> subdirectory. (We are using
-    version 2.2.1-beta here for the sake of example only; be sure to change this
+    version 2.2.9-release here for the sake of example only; be sure to change this
     to a specific version you're using.)
     </para>
-<para><literallayout><userinput>$ tar xzvf sphinx-2.2.1-beta.tar.gz
+<para><literallayout><userinput>$ tar xzvf sphinx-2.2.9-release.tar.gz
 $ cd sphinx
 </userinput></literallayout></para></listitem>
 <listitem>
@@ -367,14 +367,14 @@ do not seem to help you, please don't hesitate to contact me.
     <userinput>$ sudo apt-get install mysql-client unixodbc libpq5</userinput></listitem>
 <listitem>
     <para>Now you can install Sphinx:</para>
-    <userinput>$ sudo dpkg -i sphinxsearch_2.2.1-beta-0ubuntu11~precise_amd64.deb</userinput></listitem>
+    <userinput>$ sudo dpkg -i sphinxsearch_2.2.9-release-0ubuntu12~trusty_amd64.deb</userinput></listitem>
 </orderedlist>
 <para>PPA repository (Ubuntu only).</para>
 <para>Installing Sphinx is much easier from Sphinxsearch PPA repository, because you will get all dependencies and can also update Sphinx to the latest version with the same command.</para>
 <orderedlist>
 <listitem>    
     <para>First, add Sphinxsearch repository and update the list of packages:</para>
-    <para><userinput>$ sudo add-apt-repository ppa:builds/sphinxsearch-daily</userinput></para>
+    <para><userinput>$ sudo add-apt-repository ppa:builds/sphinxsearch-rel22</userinput></para>
     <para><userinput>$ sudo apt-get update</userinput></para></listitem>
 <listitem>
     <para>Install/update sphinxsearch package:</para>
@@ -407,9 +407,9 @@ area on the website.</para>
 <orderedlist>
 <listitem>
     <para>Extract everything from the .zip file you have downloaded -
-    <filename>sphinx-2.2.1-beta-win32.zip</filename>,
-    or <filename>sphinx-2.2.1-beta-win32-pgsql.zip</filename> if you need PostgresSQL support as well.
-    (We are using version 2.2.1-beta here for the sake of example only;
+    <filename>sphinx-2.2.9-release-win32.zip</filename>,
+    or <filename>sphinx-2.2.9-release-win32-pgsql.zip</filename> if you need PostgresSQL support as well.
+    (We are using version 2.2.9-release here for the sake of example only;
     be sure to change this to a specific version you're using.)
     You can use Windows Explorer in Windows XP and up to extract the files,
     or a freeware package like 7Zip to open the archive.</para>
@@ -1188,7 +1188,7 @@ source tsv_test
 {
 	type = tsvpipe
 	tsvpipe_command = cat /tmp/rock_bands.tsv
-	tsvpipe_attr_field = name
+	tsvpipe_field = name
 	tsvpipe_attr_multi = genre_tags
 }
 </programlisting>
@@ -1489,12 +1489,6 @@ RT indexes are currently quality feature, but there are still a few known
 usage quirks. Those quirks are listed in this section.
 </para>
 <itemizedlist>
-<listitem><para>Prefix indexing is supported with dict = keywords starting 2.0.2-beta. Infix indexing is experimental in trunk.</para></listitem>
-<listitem><para>Disk chunks optimization routine is not implemented yet.</para></listitem>
-<listitem><para>On initial index creation, attributes are reordered by type,
-in the following order: uint, bigint, float, timestamp, string. So when
-using INSERT without an explicit column names list, specify all uint
-column values first, then bigint, etc.</para></listitem>
 <listitem><para>Default conservative RAM chunk limit (<option>rt_mem_limit</option>)
 of 32M can lead to poor performance on bigger indexes, you should raise it to
 256..1024M if you're planning to index gigabytes.</para></listitem>
@@ -2653,6 +2647,7 @@ Here's the complete reference list for quick access.
 <listitem><para><link linkend="expr-func-abs">ABS()</link></para></listitem>
 <listitem><para><link linkend="expr-func-all">ALL()</link></para></listitem>
 <listitem><para><link linkend="expr-func-any">ANY()</link></para></listitem>
+<listitem><para><link linkend="expr-func-atan2">ATAN2()</link></para></listitem>
 <listitem><para><link linkend="expr-func-bigint">BIGINT()</link></para></listitem>
 <listitem><para><link linkend="expr-func-bitdot">BITDOT()</link></para></listitem>
 <listitem><para><link linkend="expr-func-ceil">CEIL()</link></para></listitem>
@@ -3055,6 +3050,13 @@ returns 1 if condition is true for any element in array.</para>
 </varlistentry>
 
 <varlistentry>
+<term id="expr-func-atan2">ATAN2()</term>
+<listitem><para>
+Returns the arctangent function of two arguments, expressed in <b>radians</b>.
+</para></listitem>
+</varlistentry>
+
+<varlistentry>
 <term id="expr-func-crc32">CRC32()</term>
 <listitem><para>
 Returns the CRC32 value of a string argument. Introduced in version 2.0.1-beta.
@@ -3162,9 +3164,75 @@ PACKEDFACTORS({no_atc=1})
 </programlisting>
 Calculating ATC slows down query processing considerably, so this option can be useful
 if you need to see the ranking factors, but do not need ATC.
+Starting with 2.2.3-beta PACKEDFACTORS() can also be told to format its output as JSON:
+<programlisting>
+PACKEDFACTORS({json=1})
+</programlisting>
+The respective outputs in either key-value pair or JSON format would look
+as follows below. (Note that the examples below are wrapped for readability;
+actual returned values would be single-line.)
+<programlisting>
+mysql&gt; SELECT id, PACKEDFACTORS() FROM test1
+    -&gt; WHERE MATCH('test one') OPTION ranker=expr('1') \G
+*************************** 1. row ***************************
+             id: 1
+packedfactors(): bm25=569, bm25a=0.617197, field_mask=2, doc_word_count=2,
+    field1=(lcs=1, hit_count=2, word_count=2, tf_idf=0.152356,
+        min_idf=-0.062982, max_idf=0.215338, sum_idf=0.152356, min_hit_pos=4,
+        min_best_span_pos=4, exact_hit=0, max_window_hits=1, min_gaps=2,
+        exact_order=1, lccs=1, wlccs=0.215338, atc=-0.003974),
+    word0=(tf=1, idf=-0.062982),
+    word1=(tf=1, idf=0.215338)
+1 row in set (0.00 sec)
+
+mysql&gt; SELECT id, PACKEDFACTORS({json=1}) FROM test1
+    -&gt; WHERE MATCH('test one') OPTION ranker=expr('1') \G
+*************************** 1. row ***************************
+                     id: 1
+packedfactors({json=1}):
+{
+
+    "bm25": 569,
+    "bm25a": 0.617197,
+    "field_mask": 2,
+    "doc_word_count": 2,
+    "fields": [
+        {
+            "lcs": 1,
+            "hit_count": 2,
+            "word_count": 2,
+            "tf_idf": 0.152356,
+            "min_idf": -0.062982,
+            "max_idf": 0.215338,
+            "sum_idf": 0.152356,
+            "min_hit_pos": 4,
+            "min_best_span_pos": 4,
+            "exact_hit": 0,
+            "max_window_hits": 1,
+            "min_gaps": 2,
+            "exact_order": 1,
+            "lccs": 1,
+            "wlccs": 0.215338,
+            "atc": -0.003974
+        }
+    ],
+    "words": [
+        {
+            "tf": 1,
+            "idf": -0.062982
+        },
+        {
+            "tf": 1,
+            "idf": 0.215338
+        }
+    ]
+
+}
+1 row in set (0.01 sec)
+</programlisting>
 </para>
 <para>
-It can be used to implement custom ranking functions in UDFs, as in
+This function can be used to implement custom ranking functions in UDFs, as in
 <programlisting>
 SELECT *, CUSTOM_RANK(PACKEDFACTORS()) AS r
 FROM my_index
@@ -3518,14 +3586,18 @@ even though at the cost of brevity and readability.
 By default, <filename>searchd</filename> logs all successfully executed search queries
 into a query log file. Here's an example:
 <programlisting>
-[Fri Jun 29 21:17:58 2007] 0.004 sec [all/0/rel 35254 (0,20)] [lj] test
-[Fri Jun 29 21:20:34 2007] 0.024 sec [all/0/rel 19886 (0,20) @channel_id] [lj] test
+[Fri Jun 29 21:17:58 2007] 0.004 sec 0.004 sec [all/0/rel 35254 (0,20)] [lj] test
+[Fri Jun 29 21:20:34 2007] 0.024 sec 0.024 sec [all/0/rel 19886 (0,20) @channel_id] [lj] test
 </programlisting>
 This log format is as follows:
 <programlisting>
-[query-date] query-time [match-mode/filters-count/sort-mode
+[query-date] real-time wall-time [match-mode/filters-count/sort-mode
     total-matches (offset,limit) @groupby-attr] [index-name] query
 </programlisting>
+<itemizedlist>
+<listitem><para>real-time is a time measured just from start to finish of the query</para></listitem>
+<listitem><para>wall-time like real-time but not including waiting for agents and merging result sets time</para></listitem>
+</itemizedlist>
 Match mode can take one of the following values:
 <itemizedlist>
 <listitem><para>"all" for SPH_MATCH_ALL mode;</para></listitem>
@@ -3572,10 +3644,10 @@ statement via SphinxQL. In the new format, the example from the previous
 section would look as follows. (Wrapped below for readability, but with
 just one query per line in the actual log.)
 <programlisting>
-/* Fri Jun 29 21:17:58.609 2007 2011 conn 2 wall 0.004 found 35254 */
+/* Fri Jun 29 21:17:58.609 2007 2011 conn 2 real 0.004 wall 0.004 found 35254 */
 SELECT * FROM lj WHERE MATCH('test') OPTION ranker=proximity;
 
-/* Fri Jun 29 21:20:34 2007.555 conn 3 wall 0.024 found 19886 */
+/* Fri Jun 29 21:20:34 2007.555 conn 3 real 0.024 wall 0.024 found 19886 */
 SELECT * FROM lj WHERE MATCH('test') GROUP BY channel_id
 OPTION ranker=proximity;
 </programlisting>
@@ -3900,7 +3972,8 @@ directive. Sphinx currently defaults to <option>libc_ci</option> collation.
 <para>
 Collations should affect all string attribute comparisons, including
 those within ORDER BY and GROUP BY, so differently ordered or grouped results
-can be returned depending on the collation chosen.
+can be returned depending on the collation chosen. Note that collations don't
+affect full-text searching, for that use <link linkend="conf-charset-table">charset_table</link>.
 </para>
 </sect1>
 
@@ -5290,7 +5363,8 @@ OPTION &lt;optionname&gt;=&lt;value&gt; [ , ... ]
 </programlisting>
 Supported options and respectively allowed values are:
 <itemizedlist>
-<listitem><para>'agent_query_timeout' - integer (max time in milliseconds to wait for remote queries to complete, see <link linkend="conf-agent-query-timeout">agent-query-timeout</link> under Index configuration options for details)</para></listitem>
+<listitem><para>'agent_query_timeout' - integer (max time in milliseconds to wait for remote queries to complete, 
+see <link linkend="conf-agent-query-timeout">agent_query_timeout</link> under Index configuration options for details)</para></listitem>
 <listitem><para>'boolean_simplify' - 0 or 1, enables simplifying the query to speed it up</para></listitem>
 <listitem><para>'comment' - string, user comment that gets copied to a query log file</para></listitem>
 <listitem><para>'cutoff' - integer (max found matches threshold)</para></listitem>
@@ -5387,6 +5461,10 @@ can also noticeably impact performance.
 <listitem><para>'sort_method' - 'pq' (priority queue, set by default) or 'kbuffer' (gives faster sorting for already pre-sorted data, e.g. index data sorted by id). The
 result set is in both cases the same; picking one option or the other may just improve (or worsen!) performance. This option was added in version 2.1.1-beta.</para>
 </listitem>
+<listitem><para>'rand_seed' - lets you specify a specific integer seed value
+for an <code>ORDER BY RAND()</code> query, for example: ... OPTION <code>rand_seed=1234</code>.
+By default, a new and different seed value is autogenerated for every query.
+</para></listitem>
 </itemizedlist>
 Example:
 <programlisting>
@@ -5399,7 +5477,7 @@ OPTION ranker=bm25, max_matches=3000,
 It is capable of returning multiple result sets with a single SQL statement, without the need for complicated <link linkend="sphinxql-multi-queries">multi-queries</link>.
 FACET clauses should be written at the very end of SELECT statements with spaces between them.
 <programlisting>
-FACET {expr}[, expr ...] [BY {expr}[, expr ...]] [ORDER BY {expr | FACET()} {ASC | DESC}[, ...]]
+FACET {expr_list} [BY {expr_list}] [ORDER BY {expr | FACET()} {ASC | DESC}] [LIMIT [offset,] count]
 SELECT * FROM test FACET brand_id FACET categories;
 SELECT * FROM test FACET brand_name BY brand_id ORDER BY brand_name ASC FACET property;
 </programlisting>
@@ -6314,6 +6392,19 @@ not work for distributed indexes and indexes without any attributes.
 DROP COLUMN will fail if an index has only one attribute.
 </para>
 <programlisting>
+ALTER RTINDEX index RECONFIGURE
+</programlisting>
+<para>
+As of 2.2.3-beta, ALTER can also reconfigure an existing RT index, so that
+new tokenization, morphology, and other text processing settings from sphinx.conf
+take effect on the newly INSERT-ed rows, while retaining the existing rows
+as they were. Internally, it forcibly saves the current RAM chunk as a new
+disk chunk, and adjusts the index header, so that the new rows are tokenized
+using the new rules. Note that as the queries are currently parsed separately
+for every disk chunk, this might result in warnings regarding the keyword sets
+mismatch.
+</para>
+<programlisting>
 mysql> desc plain;
 +------------+-----------+
 | Field      | Type      |
@@ -6814,6 +6905,21 @@ mysql&gt; SHOW INDEX lj STATUS;
 +--------------------+-------------+
 8 rows in set (0.00 sec)
 </programlisting>
+</sect1>
+
+
+<sect1 id="sphinxql-show-index-settings"><title>SHOW INDEX SETTINGS syntax</title>
+<programlisting>
+SHOW INDEX index_name[.N | CHUNK N] SETTINGS
+</programlisting>
+<para>
+Displays per-index settings in a <filename>sphinx.conf</filename> compliant
+file format, similar to the <link linkend="ref-indextool">--dumpconfig</link>
+option of the indextool. The report provides a breakdown of all the index
+settings, including tokenizer and dictionary options. You may also specify
+a particular <link linkend="conf-rt-mem-limit">chunk number</link>
+for the RT indexes.
+</para>
 </sect1>
 
 
@@ -9398,8 +9504,8 @@ sql_joined_field = \
     SELECT docid, CONCAT('tag',tagid) FROM tags ORDER BY docid ASC
 
 sql_joined_field = bigint tag from ranged-query; \
-    SELECT id, tag FROM tags WHERE id&gt;=$start AND id&lt;=$end; \
-    SELECT MIN(id), MAX(id) FROM tags ORDER BY docid ASC
+    SELECT id, tag FROM tags WHERE id&gt;=$start AND id&lt;=$end ORDER BY id ASC; \
+    SELECT MIN(id), MAX(id) FROM tags
 </programlisting>
 </sect2>
 
@@ -10323,6 +10429,7 @@ For reference, different index files store the following data:
 <listitem><para><filename>.spm</filename> stores MVA data;</para></listitem>
 <listitem><para><filename>.spp</filename> stores hit (aka posting, aka word occurrence) lists for each word ID;</para></listitem>
 <listitem><para><filename>.sps</filename> stores string attribute data.</para></listitem>
+<listitem><para><filename>.spe</filename> stores skip-lists to speed up doc-list filtering</para></listitem>
 </itemizedlist>
 </para>
 <bridgehead>Example:</bridgehead>
@@ -10503,8 +10610,8 @@ option are as follows:
 <listitem><para>lemmatize_en - apply English lemmatizer and pick a single root form (added in 2.2.1-beta);</para></listitem>
 <listitem><para>lemmatize_de - apply German lemmatizer and pick a single root form (added in 2.2.1-beta);</para></listitem>
 <listitem><para>lemmatize_ru_all - apply Russian lemmatizer and index all possible root forms (added in 2.1.1-beta);</para></listitem>
-<listitem><para>lemmatize_en_all - apply Russian lemmatizer and index all possible root forms (added in 2.2.1-beta);</para></listitem>
-<listitem><para>lemmatize_de_all - apply Russian lemmatizer and index all possible root forms (added in 2.2.1-beta);</para></listitem>
+<listitem><para>lemmatize_en_all - apply English lemmatizer and index all possible root forms (added in 2.2.1-beta);</para></listitem>
+<listitem><para>lemmatize_de_all - apply German lemmatizer and index all possible root forms (added in 2.2.1-beta);</para></listitem>
 <listitem><para>stem_en - apply Porter's English stemmer;</para></listitem>
 <listitem><para>stem_ru - apply Porter's Russian stemmer;</para></listitem>
 <listitem><para>stem_enru - apply Porter's English and Russian stemmers;</para></listitem>
@@ -10860,12 +10967,11 @@ core 2duo =&gt; c2d # Some people write '2duo' together...
 </programlisting>
 </para>
 <para>
-Notice however that the <emphasis>destination</emphasis> wordforms
-are still always interpreted as a <emphasis>single</emphasis> keyword!
-Having a mapping like "St John > Saint John" will result in <b>not</b>
-matching "St John" when searching for "Saint" or "John", because the
-destination keyword will be "Saint John" with a space character in it
-(and it's barely possible to input a destination keyword with a space).
+Stating with version 2.2.4, you can specify multiple destination tokens:
+<programlisting>
+s02e02 &gt; season 2 episode 2
+s3 e3 &gt; season 3 episode 3
+</programlisting>
 </para>
 <bridgehead>Example:</bridgehead>
 <programlisting>
@@ -10946,7 +11052,7 @@ map-from-tokens => map-to-token
 </programlisting>
 Example file:
 <programlisting>
-AT &amp; T => AT&amp;T
+at &amp; t => at&amp;t
 AT&amp;T => AT&amp;T
 Standarten   Fuehrer => standartenfuhrer
 Standarten Fuhrer => standartenfuhrer
@@ -10958,7 +11064,7 @@ C plus plus => cplusplus
 </programlisting>
 All tokens here are case sensitive: they will <b>not</b> be processed by
 <link linkend="conf-charset-table">charset_table</link> rules. Thus, with
-the example exceptions file above, "At&amp;t" text will be tokenized as two
+the example exceptions file above, "at&amp;t" text will be tokenized as two
 keywords "at" and "t", because of lowercase letters. On the other hand,
 "AT&amp;T" will match exactly and produce single "AT&amp;T" keyword.
 </para>
@@ -12508,7 +12614,7 @@ Added in 2.1.1-beta.
 <para>
 When <code>index_field_lengths</code> is set to 1, <filename>indexer</filename>
 will 1) create a respective length attribute for every full-text field,
-sharing the same name; 2) compute a field length (counted in keywords) for
+sharing the same name but with <emphasis>_len</emphasis> suffix; 2) compute a field length (counted in keywords) for
 every document and store in to a respective attribute; 3) compute the per-index
 averages. The lengths attributes will have a special TOKENCOUNT type, but their
 values are in fact regular 32-bit integers, and their values are generally
@@ -12891,7 +12997,7 @@ indexed.
 </para>
 <bridgehead>Example:</bridgehead>
 <programlisting>
-on_file_field_errors = skip_document
+on_file_field_error = skip_document
 </programlisting>
 </sect2>
 
@@ -13688,25 +13794,6 @@ collation_libc_locale = fr_FR
 </sect2>
 
 
-<sect2 id="conf-plugin-dir"><title>plugin_dir</title>
-<para>
-Trusted location for the dynamic libraries (UDFs).
-Optional, default is empty (no location).
-Introduced in version 2.0.1-beta.
-</para>
-<para>
-Specifies the trusted directory from which the
-<link linkend="sphinx-udfs">UDF libraries</link> can be loaded. Requires
-<link linkend="conf-workers">workers = thread</link> to take effect.
-</para>
-<bridgehead>Example:</bridgehead>
-<programlisting>
-workers = threads
-plugin_dir = /usr/local/sphinx/lib
-</programlisting>
-</sect2>
-
-
 <sect2 id="conf-mysql-version-string"><title>mysql_version_string</title>
 <para>
 A server version string to return via MySQL protocol.
@@ -14087,6 +14174,38 @@ specifies that only queries with execution times that exceed the specified limit
 </para>
 </sect2>
 
+<sect2 id="conf-agent-connect-timeout-default"><title>agent_connect_timeout</title>
+<para>
+Instance-wide defaults for <link linkend="conf-agent-connect-timeout">agent_connect_timeout</link> parameter.
+The last defined in distributed (network) indexes.
+</para>
+</sect2>
+
+<sect2 id="conf-agent-query-timeout-default"><title>agent_query_timeout</title>
+<para>
+Instance-wide defaults for <link linkend="conf-agent-query-timeout">agent_query_timeout</link> parameter.
+The last defined in distributed (network) indexes, or also may be overrided per-query using OPTION clause.
+</para>
+</sect2>
+
+<sect2 id="conf-agent-retry-count"><title>agent_retry_count</title>
+<para>
+Integer, specifies how many times sphinx will try to connect and query remote agents in distributed index before reporting 
+fatal query error. Default is 0 (i.e. no retries). This value may be also specified on per-query basis using 
+'OPTION retry_count=XXX' clause. If per-query option exists, it will override the one specified in config.
+</para>
+</sect2>
+
+<sect2 id="conf-agent-retry-delay"><title>agent_retry_delay</title>
+<para>
+Integer, in milliseconds. Specifies the delay sphinx rest before retrying to query a remote agent in case it fails.
+The value has sense only if non-zero <link linkend="conf-agent-retry-count">agent_retry_count</link> 
+or non-zero per-query OPTION retry_count specified. Default is 500. This value may be also specified 
+on per-query basis using 'OPTION retry_delay=XXX' clause. If per-query option exists, it will override the one specified in config.
+</para>
+</sect2>
+
+
 </sect1>
 
 <sect1 id="confgroup-common"><title>Common section configuration options</title>
@@ -14215,6 +14334,25 @@ rlp_max_batch_docs = 100
 </programlisting>
 </sect2>
 
+
+<sect2 id="conf-plugin-dir"><title>plugin_dir</title>
+<para>
+Trusted location for the dynamic libraries (UDFs).
+Optional, default is empty (no location).
+Introduced in version 2.0.1-beta.
+</para>
+<para>
+Specifies the trusted directory from which the
+<link linkend="sphinx-udfs">UDF libraries</link> can be loaded. Requires
+<link linkend="conf-workers">workers = thread</link> to take effect.
+</para>
+<bridgehead>Example:</bridgehead>
+<programlisting>
+plugin_dir = /usr/local/sphinx/lib
+</programlisting>
+</sect2>
+
+
 </sect1>
 </chapter>
 
@@ -14237,6 +14375,151 @@ rlp_max_batch_docs = 100
 -->
 
 <appendix id="changelog"><title>Sphinx revision history</title>
+
+<sect1 id="rel229"><title>Version 2.2.9-release, 16 apr 2015</title>
+<bridgehead>Bug fixes</bridgehead>
+<itemizedlist>
+<listitem><para>fixed #2228, removed <filename>searchd</filename> shutdown behavior on failed connection</para></listitem>
+<listitem><para>fixed #2208, <link linkend="extended-syntax">ZONESPANLIST()</link> support for RT indexes</para></listitem>
+<listitem><para>fixed #2203, legacy API <link linkend="api-reference">SELECT</link> list</para></listitem>
+<listitem><para>fixed #2201, <filename>indextool</filename> false positive error on RT index</para></listitem>
+<listitem><para>fixed #2201, crash with string comparison at expressions and expression ranker</para></listitem>
+<listitem><para>fixed #2199, invalid packedfactors JSON output for index with stopwords</para></listitem>
+<listitem><para>fixed #2197, <link linkend="sphinxql-truncate-rtindex">TRUNCATE</link> fails to remove disk chunk files after calling <link linkend="sphinxql-optimize-index">OPTIMIZE</link></para></listitem>
+<listitem><para>fixed #2196, .NET connector issue (UTC_TIMESTAMP() support)</para></listitem>
+<listitem><para>fixed #2190, incorrect <link linkend="api-funcgroup-groupby">GROUP BY</link> outer JSON object</para></listitem>
+<listitem><para>fixed #2176, agent used <option>ha_strategy=random</option> instead of specified in config</para></listitem>
+<listitem><para>fixed #2144, query parser crash vs multiforms with heading numbers</para></listitem>
+<listitem><para>fixed #2122, id64 daemon failed to load RT disk chunk with kill-list from id32 build</para></listitem>
+<listitem><para>fixed #2120, aliased JSON elements support</para></listitem>
+<listitem><para>fixed #1979, snippets generation and span length and lcs calculation in proximity queries</para></listitem>
+<listitem><para>fixed truncated results (and a potential crash) vs long enough ZONESPANLIST() result</para></listitem>
+</itemizedlist>
+</sect1>
+
+
+<sect1 id="rel228"><title>Version 2.2.8-release, 09 mar 2015</title>
+<bridgehead>Minor features</bridgehead>
+<itemizedlist>
+<listitem><para>added #2166, per agent HA strategy for distributed indexes</para></listitem>
+</itemizedlist>
+<bridgehead>Bug fixes</bridgehead>
+<itemizedlist>
+<listitem><para>fixed #2182, incorrect query results with multiple same destination wordforms</para></listitem>
+<listitem><para>fixed #2181, improved error message on incorrect filters</para></listitem>
+<listitem><para>fixed #2178, ZONESPAN operator for queries with more than two words</para></listitem>
+<listitem><para>fixed #2172, incorrect results with field position fulltext operators</para></listitem>
+<listitem><para>fixed #2171, some index options do not work for template indexes</para></listitem>
+<listitem><para>fixed #2170, joined fields indexation with document id equals to 0</para></listitem>
+<listitem><para>fixed #2110, crash on snippet generation</para></listitem>
+<listitem><para>fixed WLCCS ranking factor computation</para></listitem>
+<listitem><para>fixed memory leak on queries with ZONEs</para></listitem>
+</itemizedlist>
+</sect1>
+
+
+<sect1 id="rel227"><title>Version 2.2.7-release, 20 jan 2015</title>
+<bridgehead>Minor features</bridgehead>
+<itemizedlist>
+<listitem><para>added #2112, string equal comparison support for <link linkend="expr-func-if">IF()</link> function (for JSON and string attributes)</para></listitem>
+<listitem><para>added #2153, <link linkend="expr-func-in">IN()</link> support for mixed and top-level JSON arrays</para></listitem>
+</itemizedlist>
+<bridgehead>Bug fixes</bridgehead>
+<itemizedlist>
+<listitem><para>fixed #2158, crash at RT index after morphology changed to AOT after index was created</para></listitem>
+<listitem><para>fixed #2155, <link linkend="conf-stopwords">stopwords</link> got missed on disk chunk save at RT index</para></listitem>
+<listitem><para>fixed #2151, agents statistics missed in case of huge amount of agents</para></listitem>
+<listitem><para>fixed #2139, escape all special characters in JSON result set, according to RFC 4627</para></listitem>
+<listitem><para>fixed #2123, no pid file created in x64 release built with vs2012</para></listitem>
+<listitem><para>fixed #2115, <filename>indexer</filename> crash on wordforms with multiple destination keywords</para></listitem>
+<listitem><para>fixed #2050, multi result set doesn't work without <filename>libmysqlclient</filename></para></listitem>
+<listitem><para>fixed #2003, <link linkend="conf-morphology">lemmatize_XX_all</link> handling of short and exact words</para></listitem>
+<listitem><para>fixed #1912, reduce <filename>indextool</filename> memory usage during a check of a huge index</para></listitem>
+<listitem><para>fixed off by one errors in filtering of <code>BIGINT</code> attributes</para></listitem>
+<listitem><para>fixed seamless rotation in <link linkend="conf-workers">prefork</link> mode</para></listitem>
+<listitem><para>fixed snippets crash with <link linkend="conf-blend-chars">blend chars</link> at the beginning of a string</para></listitem>
+</itemizedlist>
+</sect1>
+
+<sect1 id="rel226"><title>Version 2.2.6-release, 13 nov 2014</title>
+<bridgehead>Bug fixes</bridgehead>
+<itemizedlist>
+<listitem><para>fixed #2104, <link linkend="expr-func-all">ALL()</link>/ANY()/INDEXOF() support for distributed indexes</para></listitem>
+<listitem><para>fixed #2102, show agent status misses warnings from agents</para></listitem>
+<listitem><para>fixed #2100, crash of <filename>indexer</filename> while loading stopwords with tokenizer plugin</para></listitem>
+<listitem><para>fixed #2098, arbitrary JSON subkeys and IS NULL for distributed indexes</para></listitem>
+<listitem><para>fixed #2097, escaping of field-start modifier</para></listitem>
+<listitem><para>fixed possibly memory leak in plugin creation function</para></listitem>
+<listitem><para>indexation of duplicate documents</para></listitem>
+</itemizedlist>
+</sect1>
+
+
+<sect1 id="rel225"><title>Version 2.2.5-release, 06 oct 2014</title>
+<bridgehead>New minor features</bridgehead>
+<itemizedlist>
+<listitem><para>added OPTION <link linkend="sphinxql-select">rand_seed</link> which affects ORDER BY RAND()</para></listitem>
+</itemizedlist>
+
+<bridgehead>Bug fixes</bridgehead>
+<itemizedlist>
+<listitem><para>fixed #2042, <filename>indextool</filename> fails with field mask on 32+ fields</para></listitem>
+<listitem><para>fixed #2031, wrong encoding with UnixODBC/Oracle source</para></listitem>
+<listitem><para>fixed #2056, several bugs in RLP tokenizer</para></listitem>
+<listitem><para>fixed #2054, <link linkend="sphinxql-threads">SHOW THREADS </link>hangs if queries in prefork mode</para></listitem>
+<listitem><para>fixed #2057, WARNING at <filename>indexer</filename> on duplicated wordforms</para></listitem>
+<listitem><para>fixed #2066, snippet generation with <link linkend="api-func-buildexcerpts">weight_order</link> enabled</para></listitem>
+<listitem><para>fixed exception parsing in queries</para></listitem>
+<listitem><para>fixed crash in config parser</para></listitem>
+<listitem><para>fixed MySQL protocol response when daemon maxed out</para></listitem>
+</itemizedlist>
+</sect1>
+
+
+<sect1 id="rel224"><title>Version 2.2.4-release, 11 sep 2014</title>
+<bridgehead>New major features</bridgehead>
+<itemizedlist>
+<listitem><para>added <link linkend="sphinxql-attach">ALTER</link> RTINDEX rt1 RECONFIGURE which allows to change RT index settings on the fly</para></listitem>
+<listitem><para>added <link linkend="sphinxql-show-index-settings">SHOW INDEX idx1 SETTINGS</link> statement</para></listitem>
+<listitem><para>added ability to specify several destination forms for the same source wordform (as a result, N:M mapping is now available)</para></listitem>
+<listitem><para>added blended chars support to exceptions</para></listitem>
+</itemizedlist>
+
+<bridgehead>New minor features</bridgehead>
+<itemizedlist>
+<listitem><para>added <link linkend="expr-func-any">ANY()</link>/<link linkend="expr-func-all">ALL()</link>/<link linkend="expr-func-indexof">INDEXOF()</link> support for JSON string arrays</para></listitem>
+<listitem><para>added FACTORS() alias for <link linkend="expr-func-packedfactors">PACKEDFACTORS()</link> function</para></listitem>
+<listitem><para>added <code>LIMIT</code> clause for the <link linkend="sphinxql-select">FACET</link> keyword</para></listitem>
+<listitem><para>added JSON-formatted output to <code>PACKEDFACTORS()</code> function</para></listitem>
+<listitem><para>added #1999 <link linkend="expr-func-atan2">ATAN2()</link> function</para></listitem>
+<listitem><para>added connections counter and also avg and max timers to agent status</para></listitem>
+<listitem><para>added <filename>searchd</filename> configuration keys <link linkend="conf-agent-connect-timeout">agent_connect_timeout</link>, <link linkend="conf-agent-query-timeout">agent_query_timeout</link>, <link linkend="conf-agent-retry-count">agent_retry_count</link> and <link linkend="conf-agent-retry-delay">agent_retry_delay</link></para></listitem>
+<listitem><para><link linkend="sphinxql-select">GROUPBY()</link> function now returns strings for string attributes</para></listitem>
+</itemizedlist>
+
+<bridgehead>Optimizations and removals</bridgehead>
+<itemizedlist>
+<listitem><para>optimized <link linkend="conf-json-autoconv-numbers">json_autoconv_numbers</link> option speed</para></listitem>
+<listitem><para>optimized tokenizing with expections on</para></listitem>
+<listitem><para>fixed #1970, speeding up <link linkend="extended-syntax">ZONE and ZONESPAN</link> operators</para></listitem>
+</itemizedlist>
+
+<bridgehead>Bug fixes</bridgehead>
+<itemizedlist>
+<listitem><para>fixed #2027, slow queries to multiple indexes with large kill-lists</para></listitem>
+<listitem><para>fixed #2022, blend characters of matched word must not be outside of snippet passage</para></listitem>
+<listitem><para>fixed #2021, output units in <link linkend="expr-func-geodist">GEODIST()</link> function</para></listitem>
+<listitem><para>fixed #2018, different wildcard behaviour in RT and plain indexes</para></listitem>
+<listitem><para>fixed #2005, aggregate functions improperly calculate aliased expressions</para></listitem>
+<listitem><para>fixed #1972, daemon crashes trying to read a big (>8G) .spm file</para></listitem>
+<listitem><para>fixed #1966, <link linkend="expr-func-interval">INTERVAL()</link> function does not work with JSON fields</para></listitem>
+<listitem><para>fixed #1963, <code>GROUPBY()</code> on JSON attributes sometimes yields NULL</para></listitem>
+<listitem><para>fixed <code>GROUPBY()</code> on empty JSON arrays to return NULL instead of []</para></listitem>
+<listitem><para>fixed buffer overrun when sizing packed factors (with way too many fields) in expression ranker</para></listitem>
+<listitem><para>fixed cpu time logging for cases where work is done in child threads or agents</para></listitem>
+</itemizedlist>
+</sect1>
+
 
 <sect1 id="rel223"><title>Version 2.2.3-beta, 13 may 2014</title>
 <bridgehead>New features</bridgehead>
@@ -14389,6 +14672,32 @@ rlp_max_batch_docs = 100
 <listitem>fixed off-by-1 query positions of words in indexes with wordforms and <link linkend="extended-syntax">blended characters</link></listitem>
 <listitem>fixed wrong <option>lcs</option> and <link linkend="field-factors">min_best_span_pos</link> ranking factor values when any expansion (<link linkend="conf-expand-keywords">expand_keywords</link> or lemmatize) occurred</listitem>
 <listitem>fixed a crash while creating indexes with <link linkend="conf-sql-joined-field">sql_joined_field</link></listitem>
+</itemizedlist>
+</sect1>
+
+<sect1 id="rel219"><title>Version 2.1.9-release, 03 jul 2014</title>
+<bridgehead>Bug fixes</bridgehead>
+<itemizedlist>
+  <listitem><para>fixed #1994, parsing of empty JSON arrays</para></listitem>
+  <listitem><para>fixed #1987, handling of <link linkend="conf-index-exact-words">index_exact_words</link> with AOT morphology and infixes on</para></listitem>
+  <listitem><para>fixed #1984, teaching HTML parser to handle hex numbers</para></listitem>
+  <listitem><para>fixed #1983, master and agents networking issue</para></listitem>
+  <listitem><para>fixed #1977, escaping of characters doens't work with exceptions</para></listitem>
+  <listitem><para>fixed #1968, parsing of <link linkend="sphinxql-select">WEIGHT()</link> function (queries to distributed indexes affected)</para></listitem>
+ </itemizedlist>
+</sect1>
+
+<sect1 id="rel218"><title>Version 2.1.8-release, 28 apr 2014</title>
+<bridgehead>Bug fixes</bridgehead>
+<itemizedlist>
+  <listitem><para>fixed #1937, crash at <link linkend="extended-syntax">SENTENCE</link> operator</para></listitem>
+  <listitem><para>fixed #1933, quorum operator works incorrectly if it's number is exception</para></listitem>
+  <listitem><para>fixed #1932, fixed daemon index recovery after failed rotation</para></listitem>
+  <listitem><para>fixed #1923, crash at <filename>indexer</filename> with <option>dict=keywords</option></para></listitem>
+  <listitem><para>fixed #1918, fixed crash while hitless words are used within fulltext operators which require hits</para></listitem>
+  <listitem><para>fixed #1878, daemon doesn't reset <link linkend="conf-regexp-filter">regexp_filter</link> after rotation with <link linkend="conf-seamless-rotate">seamless_rotate=0</link></para></listitem>
+  <listitem><para>fixed #1769, crash after unsuccessful <link linkend="sphinxql-insert">INSERT</link> at RT index</para></listitem>
+  <listitem><para>fixed #1682, field end modifier doesn't work with words containing blended chars</para></listitem>
 </itemizedlist>
 </sect1>
 

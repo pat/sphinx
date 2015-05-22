@@ -1,10 +1,10 @@
 //
-// $Id: sphinxsort.cpp 4678 2014-04-30 12:28:16Z joric $
+// $Id: sphinxsort.cpp 4968 2015-03-30 11:25:42Z joric $
 //
 
 //
-// Copyright (c) 2001-2014, Andrew Aksyonoff
-// Copyright (c) 2008-2014, Sphinx Technologies Inc
+// Copyright (c) 2001-2015, Andrew Aksyonoff
+// Copyright (c) 2008-2015, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -1805,6 +1805,10 @@ public:
 
 				// clone the low part of the match
 				m_tPregroup.Clone ( pMatch, &tEntry );
+
+				// update @groupbystr value, if available
+				if ( pAttr && m_tLocGroupbyStr.m_bDynamic )
+					pMatch->SetAttr ( m_tLocGroupbyStr, *pAttr );
 			}
 		}
 
@@ -2786,6 +2790,7 @@ class CSphKBufferMVAGroupSorter : public CSphKBufferGroupSorter < COMPGROUP, DIS
 {
 protected:
 	const DWORD *		m_pMva;		///< pointer to MVA pool for incoming matches
+	bool				m_bArenaProhibit;
 	CSphAttrLocator		m_tMvaLocator;
 	bool				m_bMva64;
 
@@ -2794,6 +2799,7 @@ public:
 	CSphKBufferMVAGroupSorter ( const ISphMatchComparator * pComp, const CSphQuery * pQuery, const CSphGroupSorterSettings & tSettings )
 		: CSphKBufferGroupSorter < COMPGROUP, DISTINCT, NOTIFICATIONS > ( pComp, pQuery, tSettings )
 		, m_pMva ( NULL )
+		, m_bArenaProhibit ( false )
 		, m_bMva64 ( tSettings.m_bMva64 )
 	{
 		this->m_pGrouper->GetLocator ( m_tMvaLocator );
@@ -2806,9 +2812,10 @@ public:
 	}
 
 	/// set MVA pool for subsequent matches
-	void SetMVAPool ( const DWORD * pMva )
+	void SetMVAPool ( const DWORD * pMva, bool bArenaProhibit )
 	{
 		m_pMva = pMva;
+		m_bArenaProhibit = bArenaProhibit;
 	}
 
 	/// add entry to the queue
@@ -2821,7 +2828,7 @@ public:
 		// get that list
 		// FIXME! OPTIMIZE! use simpler locator than full bits/count here
 		// FIXME! hardcoded MVA type, so here's MVA_DOWNSIZE marker for searching
-		const DWORD * pValues = tEntry.GetAttrMVA ( this->m_tMvaLocator, m_pMva ); // (this pointer is for gcc; it doesn't work otherwise)
+		const DWORD * pValues = tEntry.GetAttrMVA ( this->m_tMvaLocator, m_pMva, m_bArenaProhibit ); // (this pointer is for gcc; it doesn't work otherwise)
 		if ( !pValues )
 			return false;
 
@@ -2892,12 +2899,19 @@ public:
 
 		switch ( eRes )
 		{
+		case JSON_ROOT:
+			{
+				iLen = sphJsonNodeSize ( JSON_ROOT, pValue );
+				bool bEmpty = iLen==5; // mask and JSON_EOF
+				uGroupkey = bEmpty ? 0 : sphFNV64 ( pValue, iLen );
+				return this->PushEx ( tMatch, uGroupkey, false, false, bEmpty ? NULL : &iValue );
+			}
 		case JSON_STRING:
 		case JSON_OBJECT:
 		case JSON_MIXED_VECTOR:
 			iLen = sphJsonUnpackInt ( &pValue );
-			uGroupkey = sphFNV64 ( pValue, iLen );
-			break;
+			uGroupkey = iLen==1 ? 0 : sphFNV64 ( pValue, iLen );
+			return this->PushEx ( tMatch, uGroupkey, false, false, iLen==1 ? 0: &iValue );
 		case JSON_STRING_VECTOR:
 			{
 				sphJsonUnpackInt ( &pValue );
@@ -2957,6 +2971,7 @@ public:
 			break;
 		default:
 			uGroupkey = 0;
+			iValue = 0;
 			break;
 		}
 
@@ -4288,6 +4303,13 @@ static void SetupSortRemap ( CSphRsetSchema & tSorterSchema, CSphMatchComparator
 			: tSorterSchema.GetAttr ( tState.m_dAttrs[i] ).m_sName.cstr() );
 
 		int iRemap = tSorterSchema.GetAttrIndex ( sRemapCol.cstr() );
+		if ( iRemap==-1 && bIsJson )
+		{
+			CSphString sRemapLowercase = sRemapCol;
+			sRemapLowercase.ToLower();
+			iRemap = tSorterSchema.GetAttrIndex ( sRemapLowercase.cstr() );
+		}
+
 		if ( iRemap==-1 )
 		{
 			CSphColumnInfo tRemapCol ( sRemapCol.cstr(), bIsJson ? SPH_ATTR_STRINGPTR : SPH_ATTR_BIGINT );
@@ -4997,6 +5019,9 @@ ISphMatchSorter * sphCreateQueue ( SphQueueSettings_t & tQueue )
 			return NULL;
 		}
 
+		if ( uQueryPackedFactorFlags & SPH_FACTOR_JSON_OUT )
+			tExprCol.m_eAttrType = SPH_ATTR_FACTORS_JSON;
+
 		// force GROUP_CONCAT() to be computed as strings
 		if ( tExprCol.m_eAggrFunc==SPH_AGGR_CAT )
 		{
@@ -5065,8 +5090,26 @@ ISphMatchSorter * sphCreateQueue ( SphQueueSettings_t & tQueue )
 			tSorterSchema.AddDynamicAttr ( tExprCol );
 			if ( pExtra )
 				pExtra->AddAttr ( tExprCol, true );
-		}
 
+			/// update aggregate dependencies (e.g. SELECT 1+attr f1, min(f1), ...)
+			CSphVector<int> dCur;
+			tExprCol.m_pExpr->Command ( SPH_EXPR_GET_DEPENDENT_COLS, &dCur );
+
+			ARRAY_FOREACH ( j, dCur )
+			{
+				const CSphColumnInfo & tCol = tSorterSchema.GetAttr ( dCur[j] );
+				if ( tCol.m_pExpr.Ptr() )
+					tCol.m_pExpr->Command ( SPH_EXPR_GET_DEPENDENT_COLS, &dCur );
+			}
+			dCur.Uniq();
+
+			ARRAY_FOREACH ( j, dCur )
+			{
+				CSphColumnInfo & tDep = const_cast < CSphColumnInfo & > ( tSorterSchema.GetAttr ( dCur[j] ) );
+				if ( tDep.m_eStage>tExprCol.m_eStage )
+					tDep.m_eStage = tExprCol.m_eStage;
+			}
+		}
 		dQueryAttrs.Add ( sphFNV64 ( (const BYTE *)tExprCol.m_sName.cstr() ) );
 	}
 
@@ -5379,7 +5422,12 @@ ISphMatchSorter * sphCreateQueue ( SphQueueSettings_t & tQueue )
 	pTop->m_bRandomize = bRandomize;
 
 	if ( bRandomize )
-		sphAutoSrand ();
+	{
+		if ( pQuery->m_iRandSeed>=0 )
+			sphSrand ( (DWORD)pQuery->m_iRandSeed );
+		else
+			sphAutoSrand ();
+	}
 
 	tQueue.m_bZonespanlist = bNeedZonespanlist;
 	tQueue.m_uPackedFactorFlags = uPackedFactorFlags;
@@ -5422,6 +5470,6 @@ bool sphHasExpressions ( const CSphQuery & tQuery, const CSphSchema & tSchema )
 
 
 //
-// $Id: sphinxsort.cpp 4678 2014-04-30 12:28:16Z joric $
+// $Id: sphinxsort.cpp 4968 2015-03-30 11:25:42Z joric $
 //
 

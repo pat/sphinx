@@ -1,10 +1,10 @@
 //
-// $Id: sphinxfilter.h 4587 2014-02-27 13:33:51Z tomat $
+// $Id: sphinxfilter.h 4885 2015-01-20 07:02:07Z deogar $
 //
 
 //
-// Copyright (c) 2001-2014, Andrew Aksyonoff
-// Copyright (c) 2008-2014, Sphinx Technologies Inc
+// Copyright (c) 2001-2015, Andrew Aksyonoff
+// Copyright (c) 2008-2015, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -24,7 +24,7 @@ struct ISphFilter
 	virtual void SetRange ( SphAttr_t, SphAttr_t ) {}
 	virtual void SetRangeFloat ( float, float ) {}
 	virtual void SetValues ( const SphAttr_t *, int ) {}
-	virtual void SetMVAStorage ( const DWORD * ) {}
+	virtual void SetMVAStorage ( const DWORD *, bool ) {}
 	virtual void SetStringStorage ( const BYTE * ) {}
 	virtual void SetRefString ( const CSphString & ) {}
 
@@ -55,12 +55,13 @@ protected:
 	bool m_bUsesAttrs;
 };
 
-ISphFilter * sphCreateFilter ( const CSphFilterSettings & tSettings, const ISphSchema & tSchema, const DWORD * pMvaPool, const BYTE * pStrings, CSphString & sError, ESphCollation eCollation );
+ISphFilter * sphCreateFilter ( const CSphFilterSettings & tSettings, const ISphSchema & tSchema, const DWORD * pMvaPool, const BYTE * pStrings, CSphString & sError, ESphCollation eCollation, bool bArenaProhibit );
 ISphFilter * sphCreateAggrFilter ( const CSphFilterSettings * pSettings, const CSphString & sAttrName, const ISphSchema & tSchema, CSphString & sError );
+ISphFilter * sphCreateFilter ( const KillListVector & dKillList );
 ISphFilter * sphJoinFilters ( ISphFilter *, ISphFilter * );
 
 #endif // _sphinxfilter_
 
 //
-// $Id: sphinxfilter.h 4587 2014-02-27 13:33:51Z tomat $
+// $Id: sphinxfilter.h 4885 2015-01-20 07:02:07Z deogar $
 //

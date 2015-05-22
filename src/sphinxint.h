@@ -1,10 +1,10 @@
 //
-// $Id: sphinxint.h 4628 2014-03-26 06:28:28Z joric $
+// $Id: sphinxint.h 4953 2015-03-19 08:19:37Z tomat $
 //
 
 //
-// Copyright (c) 2001-2014, Andrew Aksyonoff
-// Copyright (c) 2008-2014, Sphinx Technologies Inc
+// Copyright (c) 2001-2015, Andrew Aksyonoff
+// Copyright (c) 2008-2015, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -210,7 +210,7 @@ public:
 #endif
 
 	void			ZipInt ( DWORD uValue );
-	void			ZipOffset ( SphOffset_t uValue );
+	void			ZipOffset ( uint64_t uValue );
 	void			ZipOffsets ( CSphVector<SphOffset_t> * pData );
 
 	bool			IsError () const	{ return m_bError; }
@@ -300,9 +300,8 @@ public:
 	bool		Tag ( const char * sTag );
 
 	DWORD		UnzipInt ();
-	SphOffset_t	UnzipOffset ();
+	uint64_t	UnzipOffset ();
 
-	SphOffset_t				Tell () const				{ return m_iPos + m_iBuffPos; }
 	bool					GetErrorFlag () const		{ return m_bError; }
 	const CSphString &		GetErrorMessage () const	{ return m_sError; }
 	const CSphString &		GetFilename() const			{ return m_sFilename; }
@@ -339,8 +338,8 @@ protected:
 	CSphString	m_sFilename;
 	ThrottleState_t * m_pThrottle;
 
-private:
-	void		UpdateCache ();
+protected:
+	virtual void		UpdateCache ();
 };
 
 
@@ -383,6 +382,8 @@ enum ExtraData_e
 
 	EXTRA_SET_RANKER_PLUGIN,
 	EXTRA_SET_RANKER_PLUGIN_OPTS,
+
+	EXTRA_GET_POOL_SIZE
 };
 
 /// generic COM-like interface
@@ -448,8 +449,8 @@ public:
 	~CSphQueryContext ();
 
 	void						BindWeights ( const CSphQuery * pQuery, const CSphSchema & tSchema );
-	bool						SetupCalc ( CSphQueryResult * pResult, const ISphSchema & tInSchema, const CSphSchema & tSchema, const DWORD * pMvaPool );
-	bool						CreateFilters ( bool bFullscan, const CSphVector<CSphFilterSettings> * pdFilters, const ISphSchema & tSchema, const DWORD * pMvaPool, const BYTE * pStrings, CSphString & sError, ESphCollation eCollation );
+	bool						SetupCalc ( CSphQueryResult * pResult, const ISphSchema & tInSchema, const CSphSchema & tSchema, const DWORD * pMvaPool, bool bArenaProhibit );
+	bool						CreateFilters ( bool bFullscan, const CSphVector<CSphFilterSettings> * pdFilters, const ISphSchema & tSchema, const DWORD * pMvaPool, const BYTE * pStrings, CSphString & sError, ESphCollation eCollation, bool bArenaProhibit, const KillListVector & dKillList );
 	bool						SetupOverrides ( const CSphQuery * pQuery, CSphQueryResult * pResult, const CSphSchema & tIndexSchema, const ISphSchema & tOutgoingSchema );
 
 	void						CalcFilter ( CSphMatch & tMatch ) const;
@@ -463,7 +464,7 @@ public:
 	// note that RT index bind pools at segment searching, not at time it setups context
 	void						ExprCommand ( ESphExprCommand eCmd, void * pArg );
 	void						SetStringPool ( const BYTE * pStrings );
-	void						SetMVAPool ( const DWORD * pMva );
+	void						SetMVAPool ( const DWORD * pMva, bool bArenaProhibit );
 	void						SetupExtraData ( ISphRanker * pRanker, ISphMatchSorter * pSorter );
 
 private:
@@ -550,6 +551,7 @@ inline int64_t MVA_UPSIZE ( const DWORD * pMva )
 	int64_t iMva = (int64_t)( (uint64_t)pMva[0] | ( ( (uint64_t)pMva[1] )<<32 ) );
 	return iMva;
 }
+
 
 // FIXME!!! for over INT_MAX attributes
 /// attr min-max builder
@@ -926,6 +928,19 @@ void AttrIndexBuilder_t<DOCID>::FinishCollect ()
 	m_uElements++;
 }
 
+struct PoolPtrs_t
+{
+	const DWORD *	m_pMva;
+	const BYTE *	m_pStrings;
+	bool			m_bArenaProhibit;
+
+	PoolPtrs_t ()
+		: m_pMva ( NULL )
+		, m_pStrings ( NULL )
+		, m_bArenaProhibit ( false )
+	{}
+};
+
 //////////////////////////////////////////////////////////////////////////
 // INLINES, FIND_XXX() GENERIC FUNCTIONS
 //////////////////////////////////////////////////////////////////////////
@@ -1234,7 +1249,7 @@ class ISphZoneCheck
 {
 public:
 	virtual ~ISphZoneCheck () {}
-	virtual SphZoneHit_e IsInZone ( int iZone, const ExtHit_t * pHit, int * pLastSpan=0 ) = 0;
+	virtual SphZoneHit_e IsInZone ( int iZone, const ExtHit_t * pHit, int * pLastSpan ) = 0;
 };
 
 
@@ -1540,6 +1555,7 @@ public:
 	virtual BYTE *					GetToken ()										{ return m_pTokenizer->GetToken(); }
 
 	virtual ISphTokenizer *			GetEmbeddedTokenizer () const					{ return m_pTokenizer; }
+	virtual bool					WasTokenMultiformDestination ( bool & bHead ) const { return m_pTokenizer->WasTokenMultiformDestination ( bHead ); }
 };
 
 
@@ -1559,6 +1575,24 @@ struct ISphQueryFilter
 
 DWORD sphParseMorphAot ( const char * );
 
+struct CSphReconfigureSettings
+{
+	CSphTokenizerSettings	m_tTokenizer;
+	CSphDictSettings		m_tDict;
+	CSphIndexSettings		m_tIndex;
+};
+
+struct CSphReconfigureSetup
+{
+	ISphTokenizer *		m_pTokenizer;
+	CSphDict *			m_pDict;
+	CSphIndexSettings	m_tIndex;
+
+	CSphReconfigureSetup ();
+	~CSphReconfigureSetup ();
+};
+
+uint64_t sphGetSettingsFNV ( const CSphIndexSettings & tSettings );
 
 //////////////////////////////////////////////////////////////////////////
 // USER VARIABLES
@@ -1623,11 +1657,10 @@ CSphString		sphReconstructNode ( const XQNode_t * pNode, const CSphSchema * pSch
 
 void			sphSetUnlinkOld ( bool bUnlink );
 void			sphUnlinkIndex ( const char * sName, bool bForce );
-void			sphSetDebugCheck ();
 
 void			WriteSchema ( CSphWriter & fdInfo, const CSphSchema & tSchema );
 void			ReadSchema ( CSphReader & rdInfo, CSphSchema & m_tSchema, DWORD uVersion, bool bDynamic );
-void			SaveIndexSettings ( CSphWriter & tWriter, const CSphIndexSettings & m_tSettings );
+void			SaveIndexSettings ( CSphWriter & tWriter, const CSphIndexSettings & tSettings );
 void			LoadIndexSettings ( CSphIndexSettings & tSettings, CSphReader & tReader, DWORD uVersion );
 void			SaveTokenizerSettings ( CSphWriter & tWriter, ISphTokenizer * pTokenizer, int iEmbeddedLimit );
 bool			LoadTokenizerSettings ( CSphReader & tReader, CSphTokenizerSettings & tSettings, CSphEmbeddedFiles & tEmbeddedFiles, DWORD uVersion, CSphString & sWarning );
@@ -2244,7 +2277,7 @@ public:
 		, m_iDocStart ( 0 )
 		, m_iDocCount ( 0 )
 		, m_pExtraTokenizer ( NULL )
-		, m_bProxyStripHTML ( false )
+		, m_pProxyStripper ( NULL )
 	{
 		assert ( sphUTF8Encode ( m_pMarkerDocStart, PROXY_DOCUMENT_START )==PROXY_MARKER_LEN );
 
@@ -2263,6 +2296,7 @@ public:
 	virtual ~CSphSource_Proxy()
 	{
 		SafeDelete ( m_pExtraTokenizer );
+		SafeDelete ( m_pProxyStripper );
 	}
 
 	void AppendToField ( StoredDoc_t * pCurDoc, int iField, BYTE * pToken, int iTokenLen, BYTE * pMarker )
@@ -2304,10 +2338,10 @@ public:
 		assert ( pEmbeddedTokenizer );
 
 		// do not run the stripper twice
-		if ( CSphSource_Proxy<T>::m_bStripHTML )
+		if ( CSphSource_Proxy<T>::m_pStripper )
 		{
-			m_bProxyStripHTML = true;
-			CSphSource_Proxy<T>::m_bStripHTML = false;
+			m_pProxyStripper = CSphSource_Proxy<T>::m_pStripper;
+			CSphSource_Proxy<T>::m_pStripper = NULL;
 		}
 
 		if ( !m_pExtraTokenizer )
@@ -2378,9 +2412,9 @@ public:
 			{
 				pDoc->m_dChinese[i] = sphDetectChinese ( pFields[i], m_dFieldLengths[i] );
 
-				if ( m_bProxyStripHTML )
+				if ( m_pProxyStripper )
 				{
-					CSphSource_Proxy<T>::m_pStripper->Strip ( pFields[i] );
+					m_pProxyStripper->Strip ( pFields[i] );
 					m_dFieldLengths[i] = strlen ( (const char *)pFields[i] );
 				}
 
@@ -2536,7 +2570,7 @@ private:
 	int						m_iDocStart;
 	int						m_iDocCount;
 	ISphTokenizer *			m_pExtraTokenizer;
-	bool					m_bProxyStripHTML;
+	CSphHTMLStripper *		m_pProxyStripper;
 
 	BYTE					m_pMarkerDocStart[PROXY_MARKER_LEN];
 	BYTE					m_pMarkerChineseField[PROXY_MARKER_LEN];
@@ -2604,5 +2638,5 @@ private:
 #endif // _sphinxint_
 
 //
-// $Id: sphinxint.h 4628 2014-03-26 06:28:28Z joric $
+// $Id: sphinxint.h 4953 2015-03-19 08:19:37Z tomat $
 //

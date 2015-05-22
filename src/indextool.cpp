@@ -1,10 +1,10 @@
 //
-// $Id: indextool.cpp 4640 2014-03-31 05:48:00Z tomat $
+// $Id: indextool.cpp 4885 2015-01-20 07:02:07Z deogar $
 //
 
 //
-// Copyright (c) 2001-2014, Andrew Aksyonoff
-// Copyright (c) 2008-2014, Sphinx Technologies Inc
+// Copyright (c) 2001-2015, Andrew Aksyonoff
+// Copyright (c) 2008-2015, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -849,7 +849,7 @@ int main ( int argc, char ** argv )
 		OPT1 ( "--dumpheader" )		{ eCommand = CMD_DUMPHEADER; sDumpHeader = argv[++i]; }
 		OPT1 ( "--dumpconfig" )		{ eCommand = CMD_DUMPCONFIG; sDumpHeader = argv[++i]; }
 		OPT1 ( "--dumpdocids" )		{ eCommand = CMD_DUMPDOCIDS; sIndex = argv[++i]; }
-		OPT1 ( "--check" )			{ eCommand = CMD_CHECK; sIndex = argv[++i]; sphSetDebugCheck(); }
+		OPT1 ( "--check" )			{ eCommand = CMD_CHECK; sIndex = argv[++i]; }
 		OPT1 ( "--rotate" )			{ bRotate = true; }
 		OPT1 ( "--htmlstrip" )		{ eCommand = CMD_STRIP; sIndex = argv[++i]; }
 		OPT1 ( "--build-infixes" )	{ eCommand = CMD_BUILDINFIXES; sIndex = argv[++i]; }
@@ -992,11 +992,11 @@ int main ( int argc, char ** argv )
 		while ( hIndexes.IterateNext() )
 		{
 			const CSphConfigSection & tIndex = hIndexes.IterateGet();
-			const CSphString * pPath = tIndex ( "path" );
+			const CSphVariant * pPath = tIndex ( "path" );
 			if ( !pPath )
 				continue;
 
-			const CSphString * pType = tIndex ( "type" );
+			const CSphVariant * pType = tIndex ( "type" );
 			if ( pType && ( *pType=="rt" || *pType=="distributed" ) )
 				continue;
 
@@ -1091,7 +1091,7 @@ int main ( int argc, char ** argv )
 		{
 			CSphIndexSettings tSettings = pIndex->GetSettings();
 
-			const CSphString & sValue = hConf["index"][sIndex]["hitless_words"];
+			const CSphString & sValue = hConf["index"][sIndex]["hitless_words"].strval();
 			if ( sValue=="all" )
 			{
 				tSettings.m_eHitless = SPH_HITLESS_ALL;
@@ -1269,5 +1269,5 @@ int main ( int argc, char ** argv )
 }
 
 //
-// $Id: indextool.cpp 4640 2014-03-31 05:48:00Z tomat $
+// $Id: indextool.cpp 4885 2015-01-20 07:02:07Z deogar $
 //

@@ -3,8 +3,8 @@
 //
 
 //
-// Copyright (c) 2001-2014, Andrew Aksyonoff
-// Copyright (c) 2008-2014, Sphinx Technologies Inc
+// Copyright (c) 2001-2015, Andrew Aksyonoff
+// Copyright (c) 2008-2015, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -40,7 +40,7 @@ typedef int				(*RankerDeinit_fn)		( void * userdata );
 typedef int				(*TokenFilterInit_fn)			( void ** userdata, int num_fields, const char ** field_names, const char * options, char * error_message );
 typedef int				(*TokenFilterBeginDocument_fn)	( void * userdata, const char * options, char * error_message );
 typedef void			(*TokenFilterBeginField_fn)		( void * userdata, int field_index );
-typedef char *			(*TokenFilterPushToken_fn)		( void * userdata, const char * token, int * extra, int * delta );
+typedef char *			(*TokenFilterPushToken_fn)		( void * userdata, char * token, int * extra, int * delta );
 typedef char *			(*TokenFilterGetExtraToken_fn)	( void * userdata, int * delta );
 typedef int				(*TokenFilterEndField_fn)		( void * userdata );
 typedef void			(*TokenFilterDeinit_fn)			( void * userdata );
@@ -84,6 +84,7 @@ public:
 		, m_bToDrop ( false )
 	{}
 	virtual				~PluginDesc_c() {}
+	virtual void		Use() const;
 	virtual void		Release() const;
 };
 

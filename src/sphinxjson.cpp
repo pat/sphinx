@@ -3,8 +3,8 @@
 //
 
 //
-// Copyright (c) 2011-2014, Andrew Aksyonoff
-// Copyright (c) 2011-2014, Sphinx Technologies Inc
+// Copyright (c) 2011-2015, Andrew Aksyonoff
+// Copyright (c) 2011-2015, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -247,74 +247,26 @@ public:
 		m_dBuffer.Add ( JSON_EOF );
 	}
 
-	void NumericFixup ( JsonNode_t & tNode, bool bAutoconv )
+	void NumericFixup ( JsonNode_t & tNode )
 	{
-		// parser emits int64 values, fixup them to int32
+		// auto-convert string values, if necessary
+		if ( tNode.m_eType==JSON_STRING && m_bAutoconv )
+			if ( !sphJsonStringToNumber ( m_pBuf+tNode.m_iStart+1, tNode.m_iEnd-tNode.m_iStart-2, tNode.m_eType, tNode.m_iValue, tNode.m_fValue ) )
+				return;
+
+		// parser and converter emits int64 values, fix them up to int32
 		if ( tNode.m_eType==JSON_INT64 )
 		{
 			int iVal = int(tNode.m_iValue);
 			if ( tNode.m_iValue==int64_t(iVal) )
 				tNode.m_eType = JSON_INT32;
-			return;
-		}
-
-		// check for the autoconversion of string values
-		if ( !bAutoconv || tNode.m_eType!=JSON_STRING )
-			return;
-
-		// check whether the (quoted) string looks like a numeric
-		int iLen = tNode.m_iEnd - tNode.m_iStart - 2;
-		if ( iLen<=0 || iLen>=32 )
-			return;
-		const char * sValue = m_pBuf + tNode.m_iStart+1;
-		const char * p = sValue;
-		const char * pEnd = p+iLen-1;
-
-		bool bNumeric = ( *p=='-' || *p=='.' || ( *p>='0' && *p<='9' ) );
-		bool bDot = ( *p=='.' );
-		while ( bNumeric && p<pEnd )
-		{
-			p++;
-			if ( *p=='.' )
-			{
-				if ( bDot )
-					bNumeric = false;
-				bDot = true;
-			} else
-			{
-				if ( *p<'0' || *p >'9' )
-					bNumeric = false;
-			}
-		}
-		if ( !bNumeric )
-			return;
-
-		// ok, looks numeric, try integer conversion
-		// OPTIMIZE?
-		char sVal[32];
-		memcpy ( sVal, sValue, iLen );
-		sVal[iLen] = '\0';
-
-		if ( !bDot )
-		{
-			int64_t iVal = strtoll ( sVal, NULL, 10 );
-			snprintf ( sVal, sizeof(sVal), INT64_FMT, iVal );
-			if ( !memcmp ( sValue, sVal, iLen ) )
-			{
-				tNode.m_eType = int64_t(int(iVal))==iVal ? JSON_INT32 : JSON_INT64;
-				tNode.m_iValue = iVal;
-			}
-		} else
-		{
-			tNode.m_eType = JSON_DOUBLE;
-			tNode.m_fValue = strtod ( sVal, NULL );
 		}
 	}
 
 	bool WriteNode ( JsonNode_t & tNode, const char * sKey=NULL, int iKeyLen=0 )
 	{
 		// convert int64 to int32, strings to numbers if needed
-		NumericFixup ( tNode, m_bAutoconv );
+		NumericFixup ( tNode );
 
 		ESphJsonType eType = tNode.m_eType;
 
@@ -327,7 +279,7 @@ public:
 		if ( eType==JSON_MIXED_VECTOR )
 		{
 			ARRAY_FOREACH ( i, dNodes )
-				NumericFixup ( dNodes[i], m_bAutoconv );
+				NumericFixup ( dNodes[i] );
 
 			ESphJsonType eBase = dNodes.GetLength()>0 ? dNodes[0].m_eType : JSON_EOF;
 			bool bGeneric = ARRAY_ALL ( bGeneric, dNodes, dNodes[_all].m_eType==eBase );
@@ -849,9 +801,22 @@ static const BYTE * JsonFormatStr ( CSphVector<BYTE> & dOut, const BYTE * p, boo
 		dOut.Add ( '"' );
 	while ( iLen-- )
 	{
-		if ( *p=='"' && bQuote )
-			dOut.Add ( '\\' );
-		dOut.Add ( *p );
+		if ( bQuote )
+		{
+			switch ( *p )
+			{
+				case '\b': dOut.Add('\\'); dOut.Add('b'); break;
+				case '\n': dOut.Add('\\'); dOut.Add('n'); break;
+				case '\r': dOut.Add('\\'); dOut.Add('r'); break;
+				case '\t': dOut.Add('\\'); dOut.Add('t'); break;
+				case '\f': dOut.Add('\\'); dOut.Add('f'); break; // formfeed (rfc 4627)
+				default:
+					if ( *p == '"' || *p=='\\' || *p=='/' )
+						dOut.Add ( '\\' );
+					dOut.Add ( *p );
+			}
+		} else
+			dOut.Add ( *p );
 		p++;
 	}
 	if ( bQuote )
@@ -1015,7 +980,12 @@ bool sphJsonNameSplit ( const char * sName, CSphString * sColumn, CSphString * s
 	// find either '[' or '.', what comes first
 	const char * pSep = sName;
 	while ( *pSep && *pSep!='.' && *pSep!='[' )
+	{
+		// check for invalid characters
+		if ( !sphIsAttr( *pSep ) && *pSep!=' ' )
+			return false;
 		pSep++;
+	}
 
 	if ( !*pSep )
 		return false;
@@ -1100,6 +1070,88 @@ bool sphJsonInplaceUpdate ( ESphJsonType eValueType, int64_t iValue, ISphExpr * 
 		return false;
 	}
 	return true;
+}
+
+
+bool sphJsonStringToNumber ( const char * s, int iLen, ESphJsonType & eType, int64_t & iVal, double & fVal )
+{
+	// skip whitespace
+	while ( iLen>0 && ( *s==' ' || *s=='\n' || *s=='\r' || *s=='\t' || *s=='\f' ) )
+		s++, iLen--;
+
+	if ( iLen<=0 )
+		return false;
+
+	// check whether the string looks like a numeric
+	const char * p = s;
+	const char * pEnd = p+iLen-1;
+	bool bNumeric = ( *p=='-' || *p=='.' || ( *p>='0' && *p<='9' ) );
+	bool bDot = ( *p=='.' );
+	bool bExp = false;
+	bool bExpSign = false;
+	while ( bNumeric && p<pEnd )
+	{
+		p++;
+		switch ( *p )
+		{
+		case '.':
+			if ( bDot )
+				bNumeric = false;
+			bDot = true;
+			break;
+		case 'e':
+		case 'E':
+			if ( bExp )
+				bNumeric = false;
+			bExp = true;
+			break;
+		case '-':
+		case '+':
+			if ( !bExp || bExpSign )
+				bNumeric = false;
+			bExpSign = true;
+			break;
+		default:
+			if ( *p<'0' || *p >'9' )
+				bNumeric = false;
+		}
+	}
+
+	// convert string to number
+	if ( bNumeric && iLen<32 )
+	{
+		char sVal[32];
+		memcpy ( sVal, s, iLen );
+		sVal[iLen] = '\0';
+		char * pCur;
+
+		// setting errno to zero is necessary because strtod/strtoll do not indicate
+		// whether it was an overflow or a valid input for borderline values
+		errno = 0;
+
+		if ( bDot || bExp )
+		{
+			double fRes = strtod ( sVal, &pCur );
+			if ( pCur==sVal+iLen && errno!=ERANGE )
+			{
+				eType = JSON_DOUBLE;
+				fVal = fRes;
+				return true;
+			}
+
+		} else
+		{
+			int64_t iRes = strtoll ( sVal, &pCur, 10 );
+			if ( pCur==sVal+iLen && errno!=ERANGE )
+			{
+				eType = JSON_INT64;
+				iVal = iRes;
+				return true;
+			}
+		}
+	}
+
+	return false;
 }
 
 //

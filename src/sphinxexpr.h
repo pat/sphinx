@@ -1,10 +1,10 @@
 //
-// $Id: sphinxexpr.h 4523 2014-01-30 18:47:20Z glook $
+// $Id: sphinxexpr.h 4885 2015-01-20 07:02:07Z deogar $
 //
 
 //
-// Copyright (c) 2001-2014, Andrew Aksyonoff
-// Copyright (c) 2008-2014, Sphinx Technologies Inc
+// Copyright (c) 2001-2015, Andrew Aksyonoff
+// Copyright (c) 2008-2015, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -52,7 +52,8 @@ enum ESphAttr
 	// used as intermediate types in the expression engine
 	SPH_ATTR_MAPARG		= 1000,
 	SPH_ATTR_FACTORS	= 1001,			///< packed search factors (binary, in-memory, pooled)
-	SPH_ATTR_JSON_FIELD	= 1002			///< points to particular field in JSON column subset
+	SPH_ATTR_JSON_FIELD	= 1002,			///< points to particular field in JSON column subset
+	SPH_ATTR_FACTORS_JSON	= 1003		///< packed search factors (binary, in-memory, pooled, provided to client json encoded)
 };
 
 /// column evaluation stage
@@ -119,9 +120,9 @@ public:
 	/// get the number of args in an arglist
 	virtual int GetNumArgs() const { return 0; }
 
-	/// run a tree wide action
+	/// run a tree wide action (1st arg is an action, 2nd is its parameter)
 	/// usually sets something into ISphExpr like string pool or gets something from it like dependent columns
-	virtual void Command ( ESphExprCommand /* eCmd */, void * /* pArg */ ) {}
+	virtual void Command ( ESphExprCommand, void * ) {}
 };
 
 /// string expression traits
@@ -199,7 +200,8 @@ enum
 {
 	SPH_FACTOR_DISABLE		= 0,
 	SPH_FACTOR_ENABLE		= 1,
-	SPH_FACTOR_CALC_ATC		= 1 << 1
+	SPH_FACTOR_CALC_ATC		= 1 << 1,
+	SPH_FACTOR_JSON_OUT		= 1 << 2
 };
 
 /// parses given expression, builds evaluator
@@ -236,5 +238,5 @@ float GeodistAdaptiveRad ( float lat1, float lon1, float lat2, float lon2 );
 #endif // _sphinxexpr_
 
 //
-// $Id: sphinxexpr.h 4523 2014-01-30 18:47:20Z glook $
+// $Id: sphinxexpr.h 4885 2015-01-20 07:02:07Z deogar $
 //

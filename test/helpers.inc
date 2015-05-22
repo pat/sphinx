@@ -1,7 +1,7 @@
 <?php
 
 //
-// $Id: helpers.inc 4678 2014-04-30 12:28:16Z joric $
+// $Id: helpers.inc 4808 2014-09-12 10:39:06Z klirichek $
 //
 
 ini_set ( "display_errors", 1 );
@@ -256,7 +256,7 @@ function StartSearchd ( $config_file, $error_file, $pidfile, &$error, $use_watch
 		if ( !$port )
 			$port = $sd_port;
 
-		$cl = new SphinxClient ();
+		$cl = new SphinxClient;
 		$cl->SetServer ( $addr, $port );	
 		$cl->SetConnectTimeout ( 10 );
 		
@@ -294,7 +294,8 @@ function StopSearchd ( $config, $pidfile )
 	if ( file_exists($pidfile) && count(file($pidfile)) )
 	{
 		$path = $g_locals['searchd'];
-		exec ( "$path --config $config --stopwait" );
+		$dummy = array();
+		exec ( "$path --config $config --stopwait", $dummy, $ret );
 
 		$i = 0;
 		while ( file_exists ( $pidfile ) && $i < $action_retries )
@@ -507,6 +508,70 @@ function GetFirstChildValue ( $node, $name, $default="" )
 }
 
 
+function ConnectQL()
+{
+	global $sd_address, $sd_sphinxql_port;
+	if ($sd_address == "localhost")
+		$sd_address = "127.0.0.1";
+	return @mysqli_connect ( $sd_address, '', '', '', $sd_sphinxql_port );
+}
+
+class QLClient
+{
+	private $_conn = false;
+
+	function Reconnect()
+	{
+		if ($this->_conn!==false)
+			@mysqli_close($this->_conn);
+		$this->_conn = ConnectQL();
+		return $this->_conn!==false;
+	}
+
+	function Query($q)
+	{
+		if ($this->_conn===false)
+			return "NOT CONNECTED";
+
+		$r = @mysqli_query($this->_conn, $q);
+		if (!$r)
+			return "ERROR: ".mysqli_error($this->_conn);
+
+		if ( $r===true )
+			return "OK";
+			
+		$n = 0;
+		$res = "";
+		while ($row = mysqli_fetch_row($r))
+		{
+			$res .= join(" | ", $row) . "\n";
+			$n++;
+		}
+		$res .= "$n rows";
+		return $res;
+	}
+}
+
+class APIClient extends SphinxClient
+{
+	function XQuery ( $query, $index="*", $comment="" )
+	{
+		$res = $this->Query($query, $index, $comment);
+		if ($res===false)
+			return $this->GetLastError();
+		unset($res["time"]);
+		return $res;
+	}
+
+	function XUpdateAttributes ( $index, $attrs, $values, $mva=false, $ignorenonexistent=false )
+	{
+		$res = $this->UpdateAttributes ( $index, $attrs, $values, $mva, $ignorenonexistent );
+		if ($res===false)
+			return $this->GetLastError();
+		return $res;
+	}
+}
+
 class SphinxConfig
 {
 	private $_name;
@@ -606,6 +671,7 @@ class SphinxConfig
 	function Results ()				{ return $this->_results; }
 	function GetQuery ( $i )		{ return $this->_queries[$i]; }
 	function IsSkipIndexer ()		{ return $this->_skip_indexer; }
+	function ResetResults ()				{ $this->_results = array (); }
 
 	function SetTestDir ( $dir )	{ $this->_testdir = $dir; }
 
@@ -1042,20 +1108,16 @@ class SphinxConfig
 		return $s;
 	}
 
-
 	function RunQuerySphinxQL ( &$error, $bench=false )
 	{
-		global $sd_address, $sd_sphinxql_port, $action_retries, $action_wait_timeout, $g_pick_query;
+		global $g_pick_query;
 
 		$total = $done = 0;
-		if ($sd_address == "localhost")
-			$sd_address = "127.0.0.1";
-		$connection = @mysqli_connect ( $sd_address, '', '', '', $sd_sphinxql_port );
-		if ( $connection === false )
-			return false;
 		$qcount = count($this->_sphqueries);
 		if ( $bench === true )
 			$qcount *= 2;
+		if (!($connection = ConnectQL()))
+			return false;
 
 		$qmin = 0;
 		$qmax = $qcount - 1;
@@ -1066,12 +1128,30 @@ class SphinxConfig
 		}
 		for ( $n=$qmin; $n<=$qmax; $n++ )
 		{
-			$query = 'show meta';
 			if ( $bench === false )
+			{
 				$query = $this->_sphqueries[$n];
-			else if ( ($n%2)==0 )
-				$query = $this->_sphqueries[$n/2];
-		
+			} else
+			{
+				if ( ($n%2)==0 )
+					$query = $this->_sphqueries[$n/2];
+				else
+					$query = 'show meta';
+			}
+
+			if ( $query=="RECONNECT" )
+			{
+				mysqli_close($connection);
+				if (!($connection = ConnectQL()))
+					return false;
+
+				$r = array("sphinxql"=>$query, "error"=>"reconnected ok!", "errno"=>0);
+				$this->_results[] = $r;
+				if ( IsModelGenMode () )
+					$this->_results_model[$this->SubtestNo ()][] = $r;
+				continue;
+			}
+
 			$query_result = array ();
 			
 			$no_time = false;
@@ -1179,11 +1259,11 @@ class SphinxConfig
 		else
 			$compact = false;
 
-		$cl = new SphinxClient;
+		$cl = new APIClient;
 		$pconn = $benchmark && method_exists ( $cl, 'Open' );
 		if ( $pconn )
 		{
-			$cl = new SphinxClient ();
+			$cl = new APIClient;
 			$cl->SetServer ( $sd_address, $sd_port );
 			$cl->Open ();
 		}
@@ -1229,7 +1309,7 @@ class SphinxConfig
 				{
 					if ( !$pconn )
 					{
-						$cl = new SphinxClient ();
+						$cl = new APIClient();
 						$cl->SetServer ( $sd_address, $sd_port );
 					} else
 					{
@@ -1351,7 +1431,6 @@ class SphinxConfig
 		return TRUE;
 	}
 
-	
 	function RunCustomTest ( & $error )
 	{
 		global $sd_address, $sd_port, $action_retries, $action_wait_timeout, $g_locals;
@@ -1361,11 +1440,11 @@ class SphinxConfig
 
 		for ( $i = 0; $i < $action_retries && !$bOk; $i++ )
 		{
-			$cl = new SphinxClient ();
+			$cl = new APIClient;
 			$cl->SetServer ( $sd_address, $sd_port );
 
 			$results = false;
-			$run_func = create_function( '$client, &$results', $this->_custom_test );
+			$run_func = create_function( '$client, $ql, &$results', $this->_custom_test );
 
 			if ( !@mysql_connect ( $g_locals['db-host'].":".$g_locals['db-port'], $g_locals['db-user'], $g_locals['db-password'] ) )
 				return FALSE;
@@ -1373,7 +1452,8 @@ class SphinxConfig
 				return FALSE;
 
 			$GLOBALS["this_test"] = $this->_testdir;
-			$run_func ( $cl, $results );
+			$ql = new QLClient();
+			$run_func ( $cl, $ql, $results );
 
 			@mysql_close();
 
@@ -2247,6 +2327,27 @@ class SphinxConfig
 		fprintf ( $fp, "\tsql_db		= %s\n", $node ? $node->nodeValue : $g_locals['db-name'] );
 	}
 
+    function WriteOdbcSettings ( $fp, $attributes )
+    {
+        global $g_locals;
+
+        $dsn=array();
+        $dsn[] = "Driver=" . $g_locals['odbc_driver'];
+        $dsn[] = "Servername=" . $g_locals['db-host'];
+        $dsn[] = "Port=" . $g_locals['db-port'];
+        $dsn[] = "UID=" . $g_locals['db-user'];
+        $dsn[] = "PWD=" . $g_locals['db-password'];
+
+        $node = $attributes->getNamedItem('sql_db');
+        if ($node)
+            $dsn[] = "Database=" . $node->nodeValue;
+        else
+            $dsn[] = "Database=" . $g_locals['db-name'];
+
+        $dsn = join ( ";", $dsn );
+        fwrite ( $fp, "odbc_dsn		= $dsn" );
+    }
+
 	function Dump ( $node, $fp, $dynamic_only, $agentid )
 	{
 		global $index_data_path, $agents;
@@ -2260,6 +2361,7 @@ class SphinxConfig
 			case "static":				fwrite ( $fp, $node->nodeValue ); return;
 			case "searchd_settings":	$this->WriteSearchdSettings ( $fp ); return;
 			case "sql_settings":		$this->WriteSqlSettings ( $fp, $node->attributes ); return;
+            case "odbc_settings":       $this->WriteOdbcSettings ( $fp, $node->attributes); return;
 			case "my_address":
 			case "agent0_address":		fwrite ( $fp, $agents[0]["address"].":".$agents[0]["port"] ); return;
 			case "agent_address":
@@ -2349,7 +2451,7 @@ function CopyDirContents ( $from, $to )
 
 function CheckConfig ( $config, $path )
 {
-	global $g_id64, $g_re2, $g_rlp, $windows, $g_locals;
+	global $g_id64, $g_re2, $g_rlp, $g_odbc, $windows, $g_locals;
 	
 	if ( $config->Requires("id64") && !$g_id64 )
 	{
@@ -2386,6 +2488,20 @@ function CheckConfig ( $config, $path )
 		printf ( "SKIPPING %s, %s - compile with RLP support to run this test\n", $path, $config->Name () );
 		return false;
 	}
+
+    if ( $config->Requires("odbc") )
+    {
+        if (!$g_odbc)
+        {
+            printf ( "SKIPPING %s, %s - compile with ODBC support to run this test\n", $path, $config->Name () );
+            return false;
+        }
+        if ( !isset($g_locals["odbc_driver"]) )
+        {
+            printf ( "SKIPPING %s, %s - odbc_driver required, add it to your ~/.sphinx\n", $path, $config->Name () );
+            return false;
+        }
+    }
 
 	if ( $config->NeedIndexerEx() && $config->IsRt() )
 	{
@@ -2716,5 +2832,5 @@ function RunTest ( $test_dir, $skipdemo, $usemarks )
 }
 
 //
-// $Id: helpers.inc 4678 2014-04-30 12:28:16Z joric $
+// $Id: helpers.inc 4808 2014-09-12 10:39:06Z klirichek $
 //

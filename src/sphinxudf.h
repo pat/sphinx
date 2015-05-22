@@ -3,8 +3,8 @@
 //
 
 //
-// Copyright (c) 2011-2014, Andrew Aksyonoff
-// Copyright (c) 2011-2014, Sphinx Technologies Inc
+// Copyright (c) 2011-2015, Andrew Aksyonoff
+// Copyright (c) 2011-2015, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -32,7 +32,7 @@ extern "C" {
 #endif
 
 /// current udf version
-#define SPH_UDF_VERSION 7
+#define SPH_UDF_VERSION 8
 
 /// error buffer size
 #define SPH_UDF_ERROR_LEN 256
@@ -225,6 +225,9 @@ int sphinx_get_term_factor_int ( const unsigned int * in, enum sphinx_term_facto
 
 /// returns a term factor value, interpreted as float
 float sphinx_get_term_factor_float ( const unsigned int * in, enum sphinx_term_factor f );
+
+/// returns a pointer to document factor value, interpreted as vector of integers
+const unsigned int * sphinx_get_doc_factor_ptr ( const unsigned int * in, enum sphinx_doc_factor f );
 
 //////////////////////////////////////////////////////////////////////////
 // RANKER PLUGINS

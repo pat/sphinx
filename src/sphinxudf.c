@@ -3,8 +3,8 @@
 //
 
 //
-// Copyright (c) 2011-2014, Andrew Aksyonoff
-// Copyright (c) 2011-2014, Sphinx Technologies Inc
+// Copyright (c) 2011-2015, Andrew Aksyonoff
+// Copyright (c) 2011-2015, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -234,6 +234,21 @@ int sphinx_get_doc_factor_int ( const unsigned int * in, enum sphinx_doc_factor 
 	}
 	return 0;
 }
+
+const unsigned int * sphinx_get_doc_factor_ptr ( const unsigned int * in, enum sphinx_doc_factor f )
+{
+	int fields_size;
+
+	if ( f==SPH_DOCF_EXACT_HIT_MASK )
+		return in + 6;
+
+	fields_size = ( (int)in[5] + 31 ) / 32;
+	if ( f==SPH_DOCF_EXACT_ORDER_MASK )
+		return in + 6 + fields_size;
+
+	return 0;
+};
+
 
 float sphinx_get_doc_factor_float ( const unsigned int * in, enum sphinx_doc_factor f )
 {

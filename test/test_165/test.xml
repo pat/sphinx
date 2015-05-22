@@ -159,6 +159,21 @@ INSERT INTO `star_table` VALUES
 <!-- regression special vs synonym -->
 <sphinxql>select * from e where match ('life:\\)')</sphinxql>
 <sphinxql>show meta</sphinxql>
+
+<!-- regression escaped vs exception -->
+<sphinxql>select * from test where match ('so\\/dome')</sphinxql>
+<sphinxql>SHOW META</sphinxql>
+<sphinxql>select * from test where match ('si\\/dome')</sphinxql>
+<sphinxql>SHOW META</sphinxql>
+<sphinxql>select * from test where match ('X\\/dome')</sphinxql>
+<sphinxql>SHOW META</sphinxql>
+
+<!-- regression on exceptions ended with specials -->
+<sphinxql>select * from test where match('one')</sphinxql>
+<sphinxql>show meta</sphinxql>
+<sphinxql>select * from test where match('"one"')</sphinxql>
+<sphinxql>show meta</sphinxql>
+
 </sphqueries>
 
 </test>

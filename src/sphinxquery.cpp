@@ -1,10 +1,10 @@
 //
-// $Id: sphinxquery.cpp 4669 2014-04-21 11:49:27Z tomat $
+// $Id: sphinxquery.cpp 4980 2015-04-07 01:36:33Z shodan $
 //
 
 //
-// Copyright (c) 2001-2014, Andrew Aksyonoff
-// Copyright (c) 2008-2014, Sphinx Technologies Inc
+// Copyright (c) 2001-2015, Andrew Aksyonoff
+// Copyright (c) 2008-2015, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -31,6 +31,13 @@
 
 //////////////////////////////////////////////////////////////////////////
 
+struct MultiformNode_t
+{
+	XQNode_t *	m_pNode;
+	int			m_iDestStart;
+	int			m_iDestCount;
+};
+
 class XQParser_t
 {
 public:
@@ -48,6 +55,7 @@ public:
 	int				ParseZone ( const char * pZone );
 
 	bool			IsSpecial ( char c );
+	bool			GetNumber ( const char * p );
 	int				GetToken ( YYSTYPE * lvalp );
 
 	void			HandleModifiers ( XQKeyword_t & tKeyword );
@@ -64,6 +72,7 @@ public:
 	void			FixupNulls ( XQNode_t * pNode );
 	void			DeleteNodesWOFields ( XQNode_t * pNode );
 	void			PhraseShiftQpos ( XQNode_t * pNode );
+	void			FixupDestForms ();
 
 	inline void SetFieldSpec ( const FieldMask_t& uMask, int iMaxPos )
 	{
@@ -117,6 +126,7 @@ public:
 	int						m_iPendingType;
 	YYSTYPE					m_tPendingToken;
 	bool					m_bWasBlended;
+	bool					m_bWasKeyword;
 
 	bool					m_bEmpty;
 	bool					m_bQuoted;
@@ -125,6 +135,7 @@ public:
 
 	int						m_iQuorumQuote;
 	int						m_iQuorumFSlash;
+	bool					m_bCheckNumber;
 
 	const PluginQueryTokenFilter_c * m_pPlugin;
 	void *					m_pPluginData;
@@ -134,7 +145,10 @@ public:
 	CSphVector < CSphVector<int> >	m_dZoneVecs;
 	CSphVector<XQLimitSpec_t *>		m_dStateSpec;
 	CSphVector<XQLimitSpec_t *>		m_dSpecPool;
-	CSphVector<int>			m_dPhraseStar;
+	CSphVector<int>					m_dPhraseStar;
+
+	CSphVector<CSphString>			m_dDestForms;
+	CSphVector<MultiformNode_t>		m_dMultiforms;
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -395,10 +409,12 @@ XQParser_t::XQParser_t ()
 	, m_pRoot ( NULL )
 	, m_bStopOnInvalid ( true )
 	, m_bWasBlended ( false )
+	, m_bWasKeyword ( false )
 	, m_bQuoted ( false )
 	, m_bEmptyStopword ( false )
 	, m_iQuorumQuote ( -1 )
 	, m_iQuorumFSlash ( -1 )
+	, m_bCheckNumber ( false )
 	, m_pPlugin ( NULL )
 	, m_pPluginData ( NULL )
 {
@@ -723,14 +739,95 @@ int XQParser_t::ParseZone ( const char * pZone )
 }
 
 
+bool XQParser_t::GetNumber ( const char * p )
+{
+	int iDots = 0;
+	const char * sToken = p;
+	const char * sEnd = m_pTokenizer->GetBufferEnd ();
+	while ( p<sEnd && ( isdigit ( *(BYTE*)p ) || *p=='.' ) )
+	{
+		iDots += ( *p=='.' );
+		p++;
+	}
+
+	// must be float number but got many dots or only dot
+	if ( iDots && ( iDots>1 || p-sToken==iDots ) )
+		p = sToken;
+
+	// float as number allowed only as quorum argument and regular keywords stream otherwise
+	if ( iDots==1 && ( m_iQuorumQuote!=m_iQuorumFSlash || m_iQuorumQuote!=m_iAtomPos ) )
+		p = sToken;
+
+	static const int NUMBER_BUF_LEN = 10; // max strlen of int32
+	if ( p>sToken && p-sToken<NUMBER_BUF_LEN
+		&& !( *p=='-' && !( p-sToken==1 && sphIsModifier ( p[-1] ) ) ) // !bDashInside copied over from arbitration
+		&& ( *p=='\0' || sphIsSpace(*p) || IsSpecial(*p) ) )
+	{
+		// float as quorum argument has higher precedence than blended
+		bool bQuorum = ( m_iQuorumQuote==m_iQuorumFSlash && m_iQuorumFSlash==m_iAtomPos );
+		bool bQuorumPercent = ( bQuorum && iDots==1 );
+
+		bool bTok = ( m_pTokenizer->GetToken()!=NULL );
+		if ( bTok && m_pTokenizer->TokenIsBlended() && !( bQuorum || bQuorumPercent ) ) // number with blended should be tokenized as usual
+		{
+			m_pTokenizer->SkipBlended();
+			m_pTokenizer->SetBufferPtr ( m_pLastTokenStart );
+		} else if ( bTok && m_pTokenizer->WasTokenSynonym() && !( bQuorum || bQuorumPercent ) )
+		{
+			m_pTokenizer->SetBufferPtr ( m_pLastTokenStart );
+		} else
+		{
+			// got not a very long number followed by a whitespace or special, handle it
+			char sNumberBuf[NUMBER_BUF_LEN];
+
+			int iNumberLen = Min ( (int)sizeof(sNumberBuf)-1, int(p-sToken) );
+			memcpy ( sNumberBuf, sToken, iNumberLen );
+			sNumberBuf[iNumberLen] = '\0';
+			if ( iDots )
+				m_tPendingToken.tInt.fValue = (float)strtod ( sNumberBuf, NULL );
+			else
+				m_tPendingToken.tInt.iValue = atoi ( sNumberBuf );
+
+			// check if it can be used as a keyword too
+			m_pTokenizer->SetBuffer ( (BYTE*)sNumberBuf, iNumberLen );
+			sToken = (const char*) m_pTokenizer->GetToken();
+			m_pTokenizer->SetBuffer ( m_sQuery, m_iQueryLen );
+			m_pTokenizer->SetBufferPtr ( p );
+
+			m_tPendingToken.tInt.iStrIndex = -1;
+			if ( sToken )
+			{
+				m_dIntTokens.Add ( sToken );
+				m_pDict->SetApplyMorph ( m_pTokenizer->GetMorphFlag() );
+				if ( m_pDict->GetWordID ( (BYTE*)sToken ) )
+					m_tPendingToken.tInt.iStrIndex = m_dIntTokens.GetLength()-1;
+				else
+					m_dIntTokens.Pop();
+				m_iAtomPos++;
+			}
+
+			m_iPendingNulls = 0;
+			m_iPendingType = iDots ? TOK_FLOAT : TOK_INT;
+			return true;
+		}
+	}
+	return false;
+}
+
+
 /// a lexer of my own
 int XQParser_t::GetToken ( YYSTYPE * lvalp )
 {
+	bool bWasFrontModifier = false; // used to print warning
+
 	// what, noone's pending for a bending?!
 	if ( !m_iPendingType )
 		for ( ;; )
 	{
 		assert ( m_iPendingNulls==0 );
+
+		bool bWasKeyword = m_bWasKeyword;
+		m_bWasKeyword = false;
 
 		if ( m_bWasBlended )
 			m_iAtomPos += m_pTokenizer->SkipBlended();
@@ -746,77 +843,15 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 		const char * p = m_pLastTokenStart;
 		while ( p<sEnd && isspace ( *(BYTE*)p ) ) p++; // to avoid CRT assertions on Windows
 
-		int iDots = 0;
-		const char * sToken = p;
-		while ( p<sEnd && ( isdigit ( *(BYTE*)p ) || *p=='.' ) )
+		if ( m_bCheckNumber )
 		{
-			iDots += ( *p=='.' );
-			p++;
-		}
-
-		// must be float number but got many dots or only dot
-		if ( iDots && ( iDots>1 || p-sToken==iDots ) )
-			p = sToken;
-		// float as number allowed only as quorum argument and regular keywords stream otherwise
-		if ( iDots==1 && ( m_iQuorumQuote!=m_iQuorumFSlash || m_iQuorumQuote!=m_iAtomPos ) )
-			p = sToken;
-
-		static const int NUMBER_BUF_LEN = 10; // max strlen of int32
-		if ( p>sToken && p-sToken<NUMBER_BUF_LEN
-			&& !( *p=='-' && !( p-sToken==1 && sphIsModifier ( p[-1] ) ) ) // !bDashInside copied over from arbitration
-			&& ( *p=='\0' || sphIsSpace(*p) || IsSpecial(*p) ) )
-		{
-			// float as quorum argument has higher precedence than blended
-			bool bQuorum = ( m_iQuorumQuote==m_iQuorumFSlash && m_iQuorumFSlash==m_iAtomPos );
-			bool bQuorumPercent = ( bQuorum && iDots==1 );
-
-			bool bTok = ( m_pTokenizer->GetToken()!=NULL );
-			if ( bTok && m_pTokenizer->TokenIsBlended() && !( bQuorum || bQuorumPercent ) ) // number with blended should be tokenized as usual
-			{
-				m_pTokenizer->SkipBlended();
-				m_pTokenizer->SetBufferPtr ( m_pLastTokenStart );
-			} else if ( bTok && m_pTokenizer->WasTokenSynonym() && !( bQuorum || bQuorumPercent ) )
-			{
-				m_pTokenizer->SetBufferPtr ( m_pLastTokenStart );
-			} else
-			{
-				// got not a very long number followed by a whitespace or special, handle it
-				char sNumberBuf[NUMBER_BUF_LEN];
-
-				int iNumberLen = Min ( (int)sizeof(sNumberBuf)-1, int(p-sToken) );
-				memcpy ( sNumberBuf, sToken, iNumberLen );
-				sNumberBuf[iNumberLen] = '\0';
-				if ( iDots )
-					m_tPendingToken.tInt.fValue = (float)strtod ( sNumberBuf, NULL );
-				else
-					m_tPendingToken.tInt.iValue = atoi ( sNumberBuf );
-
-				// check if it can be used as a keyword too
-				m_pTokenizer->SetBuffer ( (BYTE*)sNumberBuf, iNumberLen );
-				sToken = (const char*) m_pTokenizer->GetToken();
-				m_pTokenizer->SetBuffer ( m_sQuery, m_iQueryLen );
-				m_pTokenizer->SetBufferPtr ( p );
-
-				m_tPendingToken.tInt.iStrIndex = -1;
-				if ( sToken )
-				{
-					m_dIntTokens.Add ( sToken );
-					m_pDict->SetApplyMorph ( m_pTokenizer->GetMorphFlag() );
-					if ( m_pDict->GetWordID ( (BYTE*)sToken ) )
-						m_tPendingToken.tInt.iStrIndex = m_dIntTokens.GetLength()-1;
-					else
-						m_dIntTokens.Pop();
-					m_iAtomPos++;
-				}
-
-				m_iPendingNulls = 0;
-				m_iPendingType = iDots ? TOK_FLOAT : TOK_INT;
+			m_bCheckNumber = false;
+			if ( GetNumber(p) )
 				break;
-			}
 		}
 
 		// not a number, long number, or number not followed by a whitespace, so fallback to regular tokenizing
-		sToken = (const char *) m_pTokenizer->GetToken ();
+		const char * sToken = (const char *) m_pTokenizer->GetToken ();
 		if ( !sToken )
 		{
 			m_iPendingNulls = m_pTokenizer->GetOvershortCount() * m_iOvershortStep;
@@ -824,6 +859,7 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 				return 0;
 			m_iPendingNulls = 0;
 			lvalp->pNode = AddKeyword ( NULL );
+			m_bWasKeyword = true;
 			return TOK_KEYWORD;
 		}
 
@@ -911,6 +947,7 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 		}
 
 		// count [ * ] at phrase node for qpos shift
+		// FIXME! RLP can return tokens from several buffers, all this pointer arithmetic will lead to crashes
 		if ( m_pTokenizer->m_bPhrase && m_pLastTokenEnd )
 		{
 			if ( strncmp ( sToken, "*", 1 )==0 )
@@ -975,13 +1012,29 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 					{
 						m_iPendingNulls = 0;
 						lvalp->pNode = AddKeyword ( NULL );
+						m_bWasKeyword = true;
 						return TOK_KEYWORD;
 					}
 					continue;
 				}
-			} else if ( sToken[0]=='^' || sToken[0]=='$' )
+			} else if ( sToken[0]=='^' )
 			{
-				// these specials are handled in HandleModifiers()
+				const char * pTokEnd = m_pTokenizer->GetTokenEnd();
+				if ( pTokEnd<m_pTokenizer->GetBufferEnd() && !sphIsSpace ( pTokEnd[0] ) )
+					bWasFrontModifier = true;
+
+				// this special is handled in HandleModifiers()
+				continue;
+			} else if ( sToken[0]=='$' )
+			{
+				if ( bWasKeyword )
+					continue;
+				if ( sphIsSpace ( m_pTokenizer->GetTokenStart() [ -1 ] ) )
+					continue;
+
+				Warning ( "modifiers must be applied to keywords, not operators" );
+
+				// this special is handled in HandleModifiers()
 				continue;
 			} else
 			{
@@ -1010,6 +1063,8 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 				else if ( sToken[0]=='/' )
 					m_iQuorumFSlash = m_iAtomPos;
 
+				if ( sToken[0]=='~' ||sToken[0]=='/' )
+					m_bCheckNumber = true;
 				break;
 			}
 		}
@@ -1045,13 +1100,41 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 				m_iAtomPos--;
 		}
 
-		m_tPendingToken.pNode = AddKeyword ( sToken );
-		m_iPendingType = TOK_KEYWORD;
+		bool bMultiDestHead = false;
+		bool bMultiDest = false;
+		// do nothing inside phrase
+		if ( !m_pTokenizer->m_bPhrase )
+			bMultiDest = m_pTokenizer->WasTokenMultiformDestination ( bMultiDestHead );
+
+		if ( bMultiDest && !bMultiDestHead )
+		{
+			assert ( m_dMultiforms.GetLength() );
+			m_dMultiforms.Last().m_iDestCount++;
+			m_dDestForms.Add ( sToken );
+			m_bWasKeyword = true;
+		} else
+		{
+			m_tPendingToken.pNode = AddKeyword ( sToken );
+			m_iPendingType = TOK_KEYWORD;
+		}
+
+		if ( bMultiDestHead )
+		{
+			MultiformNode_t & tMulti = m_dMultiforms.Add();
+			tMulti.m_pNode = m_tPendingToken.pNode;
+			tMulti.m_iDestStart = m_dDestForms.GetLength();
+			tMulti.m_iDestCount = 0;
+		}
 
 		if ( m_pTokenizer->TokenIsBlended() )
 			m_iAtomPos--;
-		break;
+
+		if ( !bMultiDest || bMultiDestHead )
+			break;
 	}
+
+	if ( bWasFrontModifier && m_iPendingType!=TOK_KEYWORD )
+		Warning ( "modifiers must be applied to keywords, not operators" );
 
 	// someone must be pending now!
 	assert ( m_iPendingType );
@@ -1062,6 +1145,7 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 	{
 		m_iPendingNulls--;
 		lvalp->pNode = AddKeyword ( NULL );
+		m_bWasKeyword = true;
 		return TOK_KEYWORD;
 	}
 
@@ -1069,6 +1153,8 @@ int XQParser_t::GetToken ( YYSTYPE * lvalp )
 	int iRes = m_iPendingType;
 	m_iPendingType = 0;
 
+	if ( iRes==TOK_KEYWORD )
+		m_bWasKeyword = true;
 	*lvalp = m_tPendingToken;
 	return iRes;
 }
@@ -1093,7 +1179,8 @@ void XQParser_t::HandleModifiers ( XQKeyword_t & tKeyword )
 		return;
 
 	const char * sQuery = reinterpret_cast<char *> ( m_sQuery );
-	tKeyword.m_bFieldStart = ( sTokStart-sQuery )>0 && sTokStart [ -1 ]=='^';
+	tKeyword.m_bFieldStart = ( sTokStart-sQuery )>0 && sTokStart [ -1 ]=='^' &&
+		!( ( sTokStart-sQuery )>1 && sTokStart [ -2 ]=='\\' );
 
 	if ( sTokEnd[0]=='$' )
 	{
@@ -1105,7 +1192,7 @@ void XQParser_t::HandleModifiers ( XQKeyword_t & tKeyword )
 	{
 		// Probably we have a boost, lets check.
 		char * pEnd;
-		float fBoost = strtod ( sTokEnd+1, &pEnd );
+		float fBoost = (float)strtod ( sTokEnd+1, &pEnd );
 		if ( ( sTokEnd+1 )!=pEnd )
 		{
 			// We do have a boost.
@@ -1492,12 +1579,80 @@ static void FixupDegenerates ( XQNode_t * pNode )
 		FixupDegenerates ( pNode->m_dChildren[i] );
 }
 
+void XQParser_t::FixupDestForms ()
+{
+	if ( !m_dMultiforms.GetLength() )
+		return;
+
+	CSphVector<XQNode_t *> dForms;
+
+	ARRAY_FOREACH ( iNode, m_dMultiforms )
+	{
+		const MultiformNode_t & tDesc = m_dMultiforms[iNode];
+		XQNode_t * pMultiParent = tDesc.m_pNode;
+		assert ( pMultiParent->m_dWords.GetLength()==1 && pMultiParent->m_dChildren.GetLength()==0 );
+
+		XQKeyword_t tKeyword;
+		Swap ( pMultiParent->m_dWords[0], tKeyword );
+		pMultiParent->m_dWords.Reset();
+
+		// FIXME: what about whildcard?
+		bool bExact = ( tKeyword.m_sWord.Length()>1 && tKeyword.m_sWord.cstr()[0]=='=' );
+		bool bFieldEnd = tKeyword.m_bFieldEnd;
+		tKeyword.m_bFieldEnd = false;
+
+		XQNode_t * pMultiHead = new XQNode_t ( pMultiParent->m_dSpec );
+		pMultiHead->m_dWords.Add ( tKeyword );
+		m_dSpawned.Add ( pMultiHead );
+		dForms.Add ( pMultiHead );
+
+		for ( int iForm=0; iForm<tDesc.m_iDestCount; iForm++ )
+		{
+			tKeyword.m_iAtomPos++;
+			tKeyword.m_sWord = m_dDestForms [ tDesc.m_iDestStart + iForm ];
+
+			// propagate exact word flag to all destination forms
+			if ( bExact )
+				tKeyword.m_sWord.SetSprintf ( "=%s", tKeyword.m_sWord.cstr() );
+
+			XQNode_t * pMulti = new XQNode_t ( pMultiParent->m_dSpec );
+			pMulti->m_dWords.Add ( tKeyword );
+			m_dSpawned.Add ( pMulti );
+			dForms.Add ( pMulti );
+		}
+
+		// move field end modifier to last word
+		dForms.Last()->m_dWords[0].m_bFieldEnd = bFieldEnd;
+
+		pMultiParent->SetOp ( SPH_QUERY_AND, dForms );
+		dForms.Resize ( 0 );
+	}
+}
+
 
 bool XQParser_t::Parse ( XQQuery_t & tParsed, const char * sQuery, const CSphQuery * pQuery, const ISphTokenizer * pTokenizer,
 	const CSphSchema * pSchema, CSphDict * pDict, const CSphIndexSettings & tSettings )
 {
 	// FIXME? might wanna verify somehow that pTokenizer has all the specials etc from sphSetupQueryTokenizer
-	CSphScopedPtr<ISphTokenizer> pMyTokenizer ( pTokenizer->Clone ( SPH_CLONE_QUERY_LIGHTWEIGHT ) );
+	CSphScopedPtr<ISphTokenizer> pMyTokenizer ( NULL );
+	CSphTightVector<char> dRlpBuf;
+
+#if USE_RLP
+	if ( !pTokenizer->GetRLPContext() )
+	{
+#endif
+		pMyTokenizer = pTokenizer->Clone ( SPH_CLONE_QUERY_LIGHTWEIGHT );
+#if USE_RLP
+	} else
+	{
+		const char * sProcessed = NULL;
+		if ( !ISphTokenizer::ProcessQueryRLP ( tSettings.m_sRLPContext.cstr(), sQuery, &sProcessed, dRlpBuf, tParsed.m_sParseError ) )
+			return false;
+
+		pMyTokenizer = pTokenizer->GetEmbeddedTokenizer()->Clone ( SPH_CLONE_QUERY_LIGHTWEIGHT );
+		sQuery = sProcessed;
+	}
+#endif
 
 	// most outcomes are errors
 	SafeDelete ( tParsed.m_pRoot );
@@ -1573,6 +1728,7 @@ bool XQParser_t::Parse ( XQQuery_t & tParsed, const char * sQuery, const CSphQue
 		return false;
 	}
 
+	FixupDestForms ();
 	DeleteNodesWOFields ( m_pRoot );
 	m_pRoot = SweepNulls ( m_pRoot );
 	FixupDegenerates ( m_pRoot );
@@ -4139,5 +4295,5 @@ void sphSetupQueryTokenizer ( ISphTokenizer * pTokenizer )
 
 
 //
-// $Id: sphinxquery.cpp 4669 2014-04-21 11:49:27Z tomat $
+// $Id: sphinxquery.cpp 4980 2015-04-07 01:36:33Z shodan $
 //

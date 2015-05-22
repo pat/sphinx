@@ -3,8 +3,8 @@
 //
 
 //
-// Copyright (c) 2011-2014, Andrew Aksyonoff
-// Copyright (c) 2011-2014, Sphinx Technologies Inc
+// Copyright (c) 2011-2015, Andrew Aksyonoff
+// Copyright (c) 2011-2015, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -132,6 +132,9 @@ int sphJsonFieldLength ( ESphJsonType eType, const BYTE * pData );
 
 /// inplace JSON update, both for realtime and non-realtime indexes, returns true if update is possible
 bool sphJsonInplaceUpdate ( ESphJsonType eValueType, int64_t iValue, ISphExpr * pExpr, BYTE * pStrings, const CSphRowitem * pRow, bool bUpdate );
+
+/// converts string to number
+bool sphJsonStringToNumber ( const char * s, int iLen, ESphJsonType & eType, int64_t & iVal, double & fVal );
 
 #endif // _sphinxjson_
 

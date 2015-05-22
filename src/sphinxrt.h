@@ -1,10 +1,10 @@
 //
-// $Id: sphinxrt.h 4522 2014-01-30 11:00:18Z tomat $
+// $Id: sphinxrt.h 4885 2015-01-20 07:02:07Z deogar $
 //
 
 //
-// Copyright (c) 2001-2014, Andrew Aksyonoff
-// Copyright (c) 2008-2014, Sphinx Technologies Inc
+// Copyright (c) 2001-2015, Andrew Aksyonoff
+// Copyright (c) 2008-2015, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -19,6 +19,9 @@
 #include "sphinx.h"
 #include "sphinxutils.h"
 #include "sphinxstem.h"
+
+struct CSphReconfigureSettings;
+struct CSphReconfigureSetup;
 
 /// RAM based updateable backend interface
 class ISphRtIndex : public CSphIndex
@@ -63,6 +66,16 @@ public:
 	virtual bool Truncate ( CSphString & sError ) = 0;
 
 	virtual void Optimize ( volatile bool * pForceTerminate, ThrottleState_t * pThrottle ) = 0;
+
+	/// check settings vs current and return back tokenizer and dictionary in case of difference
+	virtual bool IsSameSettings ( CSphReconfigureSettings & tSettings, CSphReconfigureSetup & tSetup, CSphString & sError ) const = 0;
+
+	/// reconfigure index by using new tokenizer, dictionary and index settings
+	/// current data got saved with current settings
+	virtual void Reconfigure ( CSphReconfigureSetup & tSetup ) = 0;
+
+	/// get disk chunk
+	virtual CSphIndex * GetDiskChunk ( int iChunk ) = 0;
 };
 
 /// initialize subsystem
@@ -95,5 +108,5 @@ void sphReplayBinlog ( const SmallStringHash_T<CSphIndex*> & hIndexes, DWORD uRe
 #endif // _sphinxrt_
 
 //
-// $Id: sphinxrt.h 4522 2014-01-30 11:00:18Z tomat $
+// $Id: sphinxrt.h 4885 2015-01-20 07:02:07Z deogar $
 //

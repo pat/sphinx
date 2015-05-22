@@ -1,10 +1,10 @@
 //
-// $Id: tests.cpp 4539 2014-02-05 16:52:03Z kevg $
+// $Id: tests.cpp 4885 2015-01-20 07:02:07Z deogar $
 //
 
 //
-// Copyright (c) 2001-2014, Andrew Aksyonoff
-// Copyright (c) 2008-2014, Sphinx Technologies Inc
+// Copyright (c) 2001-2015, Andrew Aksyonoff
+// Copyright (c) 2008-2015, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -53,7 +53,7 @@ bool CreateSynonymsFile ( const char * sMagic )
 		"AT&T      => AT&T\n"
 		"   AT & T => AT & T  \n"
 		"standarten fuehrer => Standartenfuehrer\n"
-		"standarten fuhrer  => Standartenfuehrer\n"
+		"standarten   fuhrer  => Standartenfuehrer\n"
 		"OS/2 => OS/2\n"
 		"Ms-Dos => MS-DOS\n"
 		"MS DOS => MS-DOS\n"
@@ -64,6 +64,8 @@ bool CreateSynonymsFile ( const char * sMagic )
 		"U.S.D. => USD\n"
 		"U.S.P. => USP\n"
 		"U.S.A.F. => USAF\n"
+		"life:) => life:)\n"
+		"; => ;\n"
 		);
 	if ( sMagic )
 		fprintf ( fp, "%s => test\n", sMagic );
@@ -74,12 +76,14 @@ bool CreateSynonymsFile ( const char * sMagic )
 
 const DWORD TOK_EXCEPTIONS		= 1;
 const DWORD TOK_NO_DASH			= 2;
+const DWORD TOK_NO_SHORT		= 4;
 
 ISphTokenizer * CreateTestTokenizer ( DWORD uMode )
 {
 	CSphString sError;
 	CSphTokenizerSettings tSettings;
-	tSettings.m_iMinWordLen = 2;
+	if (!( uMode & TOK_NO_SHORT ))
+		tSettings.m_iMinWordLen = 2;
 
 	ISphTokenizer * pTokenizer = ISphTokenizer::Create ( tSettings, NULL, sError );
 	if (!( uMode & TOK_NO_DASH ))
@@ -110,14 +114,84 @@ void TestTokenizer()
 {
 	const char * sPrefix = "testing tokenizer";
 
+	// test exceptions more
+	{
+#ifndef NDEBUG
+		const char * sMagic = "\xD1\x82\xD0\xB5\xD1\x81\xD1\x82\xD1\x82\xD1\x82";
+#endif
+		assert ( CreateSynonymsFile ( sMagic ) );
+		ISphTokenizer * pTokenizer = CreateTestTokenizer ( TOK_EXCEPTIONS | TOK_NO_SHORT );
+
+		CSphString sError;
+		assert ( pTokenizer->SetBlendChars ( "+, U+23", sError ) );
+
+		const char * dTests[] =
+		{
+			// for completeness...
+			"AT&T!!!",									"AT&T", "!", "!", "!", NULL,		// exceptions vs specials
+			"U.S.AB U.S.A. U.S.B.U.S.D.U.S.U.S.A.F.",	"US", "ab", "USA", "USB", "USD", "US", "USAF", NULL,
+			"Y.M.C.A.",									"y", "m", "c", "a", NULL,
+			"B&E's",									"b", "e", "s", NULL,
+
+			// exceptions vs spaces
+			"AT & T",									"AT & T", NULL,
+			"AT  &  T",									"AT & T", NULL,
+			"AT      &      T",							"AT & T", NULL,
+			"AT$&$T",									"at", "t", NULL,
+
+			// prefix fun
+			"U.S.A.X.",									"USA", "x", NULL,
+			"U.X.U.S.A.",								"u", "x", "USA", NULL,
+
+			// exceptions vs blended
+			"#test this",								"#test", "test", "this", NULL,
+			"#test       this",							"#test", "test", "this", NULL,
+			"test#that",								"test#that", "test", "that", NULL,
+			"1+2",										"1+2", "1", "2", NULL,
+			"te.st#this",								"te", "st#this", "st", "this", NULL,
+			"U.boat",									"u", "boat", NULL,
+
+			// regressions
+			";foo bar",									";", "foo", "bar", NULL,
+
+			NULL
+		};
+
+		for ( int iCur=0; dTests[iCur]; )
+		{
+			printf ( "%s, exceptions, line=%s\n", sPrefix, dTests[iCur] );
+			pTokenizer->SetBuffer ( (BYTE*)dTests[iCur], strlen ( dTests[iCur] ) );
+			iCur++;
+
+			for ( BYTE * pToken=pTokenizer->GetToken(); pToken; pToken=pTokenizer->GetToken() )
+			{
+				assert ( dTests[iCur] && strcmp ( (const char*)pToken, dTests[iCur] )==0 );
+				iCur++;
+			}
+
+			assert ( dTests[iCur]==NULL );
+			iCur++;
+		}
+
+		// query mode tokenizer tests
+		ISphTokenizer * pQtok = pTokenizer->Clone ( SPH_CLONE_QUERY_LIGHTWEIGHT );
+
+		pQtok->SetBuffer ( (BYTE*)"life:)", 7 );
+		assert ( strcmp ( (char*)pQtok->GetToken(), "life:)" )==0 );
+		assert ( pQtok->GetToken()==NULL );
+
+		pQtok->SetBuffer ( (BYTE*)"life:\\)", 8 );
+		assert ( strcmp ( (char*)pQtok->GetToken(), "life:)" )==0 );
+		assert ( pQtok->GetToken()==NULL );
+	}
+
 	for ( int iRun=1; iRun<=3; iRun++ )
 	{
 		// simple "one-line" tests
 		const char * sMagic = "\xD1\x82\xD0\xB5\xD1\x81\xD1\x82\xD1\x82\xD1\x82";
 
 		assert ( CreateSynonymsFile ( sMagic ) );
-		bool bExceptions = ( iRun>=2 );
-		ISphTokenizer * pTokenizer = CreateTestTokenizer ( bExceptions*TOK_EXCEPTIONS );
+		ISphTokenizer * pTokenizer = CreateTestTokenizer ( ( iRun>=2 ) ? TOK_EXCEPTIONS : 0 );
 
 		const char * dTests[] =
 		{
@@ -141,6 +215,8 @@ void TestTokenizer()
 			"2", "standarten fuhrer",			"Standartenfuehrer", NULL,
 			"2", "standarten fuehrerr",			"standarten", "fuehrerr", NULL,
 			"2", "standarten fuehrer Stirlitz",	"Standartenfuehrer", "stirlitz", NULL,
+			"2", "standarten  fuehrer  Zog",	"Standartenfuehrer", "zog", NULL,
+			"2", "stand\\arten  fue\\hrer Zog",	"Standartenfuehrer", "zog", NULL,
 			"2", "OS/2 vs OS/360 vs Ms-Dos",	"OS/2", "vs", "os", "360", "vs", "MS-DOS", NULL,
 			"2", "AT ",							"at", NULL,							// test that prefix-whitespace-eof combo does not hang
 			"2", "AT&T&TT",						"AT&T", "tt", NULL,
@@ -516,6 +592,39 @@ char * LoadFile ( const char * sName, int * pLen, bool bReportErrors )
 }
 
 
+void BenchTokenizer ( ISphTokenizer * pTokenizer, BYTE * sData, int iBytes )
+{
+	const int iPasses = 1000;
+	int iTokens = 0;
+	CSphVector<int> dTimes;
+
+	// do several benchmark passes
+	for ( int iPass=0; iPass<iPasses; iPass++ )
+	{
+		int64_t tmTime = -sphMicroTimer();
+		pTokenizer->SetBuffer ( sData, iBytes );
+		while ( pTokenizer->GetToken() )
+			iTokens++;
+		tmTime += sphMicroTimer();
+		dTimes.Add ( (int)tmTime ); // 2 bil usec == 2000 sec, should be enough for one pass
+	}
+	iTokens /= iPasses;
+
+	// analyse results
+	int64_t iMin = INT_MAX, iAvg = 0;
+	ARRAY_FOREACH ( i, dTimes )
+	{
+		if ( dTimes[i]<iMin )
+			iMin = dTimes[i];
+		iAvg += dTimes[i];
+	}
+
+	// report
+	printf ( "%d bytes, %d tokens, max %.1f MB/sec, avg %.1f MB/sec\n",
+		iBytes, iTokens, double(iBytes)/iMin, double(iBytes*iPasses)/iAvg );
+}
+
+
 void BenchTokenizer ()
 {
 	printf ( "benchmarking tokenizer\n" );
@@ -525,60 +634,31 @@ void BenchTokenizer ()
 		return;
 	}
 
+	int iBytes = 0;
 	CSphString sError;
 	for ( int iRun=1; iRun<=2; iRun++ )
 	{
-		int iData = 0;
-		char * sData = LoadFile ( "./configure", &iData, true );
+		char * sData = LoadFile ( "./configure", &iBytes, true );
 
 		ISphTokenizer * pTokenizer = sphCreateUTF8Tokenizer ();
-		pTokenizer->SetCaseFolding ( "-, 0..9, A..Z->a..z, _, a..z", sError );
+		// pTokenizer->SetCaseFolding ( "-, 0..9, A..Z->a..z, _, a..z", sError );
 		if ( iRun==2 )
 			pTokenizer->LoadSynonyms ( g_sTmpfile, NULL, sError );
 		pTokenizer->AddSpecials ( "!-" );
 
-		const int iPasses = 200;
-		int iTokens = 0;
-
-		int64_t tmTime = -sphMicroTimer();
-		for ( int iPass=0; iPass<iPasses; iPass++ )
-		{
-			pTokenizer->SetBuffer ( (BYTE*)sData, iData );
-			while ( pTokenizer->GetToken() ) iTokens++;
-		}
-		tmTime += sphMicroTimer();
-
-		iTokens /= iPasses;
-		tmTime /= iPasses;
-
-		printf ( "run %d: %d bytes, %d tokens, %d.%03d ms, %.3f MB/sec\n", iRun, iData, iTokens,
-			(int)(tmTime/1000), (int)(tmTime%1000), float(iData)/tmTime );
+		printf ( "run %d: ", iRun );
+		BenchTokenizer ( pTokenizer, (BYTE*)sData, iBytes );
 		SafeDeleteArray ( sData );
+		SafeDelete ( pTokenizer );
 	}
 
-	int iData;
-	char * sData = LoadFile ( "./utf8.txt", &iData, false );
+	char * sData = LoadFile ( "./utf8.txt", &iBytes, false );
 	if ( sData )
 	{
 		ISphTokenizer * pTokenizer = sphCreateUTF8Tokenizer ();
-
-		const int iPasses = 200;
-		int iTokens = 0;
-
-		int64_t tmTime = -sphMicroTimer();
-		for ( int iPass=0; iPass<iPasses; iPass++ )
-		{
-			pTokenizer->SetBuffer ( (BYTE*)sData, iData );
-			while ( pTokenizer->GetToken() )
-				iTokens++;
-		}
-		tmTime += sphMicroTimer();
-
-		iTokens /= iPasses;
-		tmTime /= iPasses;
-
-		printf ( "run 3: %d bytes, %d tokens, %d.%03d ms, %.3f MB/sec\n", iData, iTokens,
-			(int)(tmTime/1000), (int)(tmTime%1000), float(iData)/tmTime );
+		printf ( "run 3: " );
+		BenchTokenizer ( pTokenizer, (BYTE*)sData, iBytes );
+		SafeDelete ( pTokenizer );
 	}
 	SafeDeleteArray ( sData );
 }
@@ -2169,32 +2249,18 @@ static void DeleteIndexFiles ( const char * sIndex )
 	if ( !sIndex )
 		return;
 
-	CSphString sName;
-	sName.SetSprintf ( "%s.kill", sIndex );
-	unlink ( sName.cstr() );
-	sName.SetSprintf ( "%s.lock", sIndex );
-	unlink ( sName.cstr() );
-	sName.SetSprintf ( "%s.meta", sIndex );
-	unlink ( sName.cstr() );
-	sName.SetSprintf ( "%s.ram", sIndex );
-	unlink ( sName.cstr() );
+	const char * sExts[] = {
+		"kill", "lock", "meta", "ram",
+		"0.spa", "0.spd", "0.spe", "0.sph",
+		"0.spi", "0.spk", "0.spm", "0.spp",
+		"0.sps" };
 
-	sName.SetSprintf ( "%s.0.spa", sIndex );
-	unlink ( sName.cstr() );
-	sName.SetSprintf ( "%s.0.spd", sIndex );
-	unlink ( sName.cstr() );
-	sName.SetSprintf ( "%s.0.sph", sIndex );
-	unlink ( sName.cstr() );
-	sName.SetSprintf ( "%s.0.spi", sIndex );
-	unlink ( sName.cstr() );
-	sName.SetSprintf ( "%s.0.spk", sIndex );
-	unlink ( sName.cstr() );
-	sName.SetSprintf ( "%s.0.spm", sIndex );
-	unlink ( sName.cstr() );
-	sName.SetSprintf ( "%s.0.spp", sIndex );
-	unlink ( sName.cstr() );
-	sName.SetSprintf ( "%s.0.sps", sIndex );
-	unlink ( sName.cstr() );
+	CSphString sName;
+	for ( int i=0; i<(int)(sizeof(sExts)/sizeof(sExts[0])); i++ )
+	{
+		sName.SetSprintf ( "%s.%s", sIndex, sExts[i] );
+		unlink ( sName.cstr() );
+	}
 }
 
 
@@ -2298,7 +2364,7 @@ void TestRTWeightBoundary ()
 
 		CSphQuery tQuery;
 		CSphQueryResult tResult;
-		CSphMultiQueryArgs tArgs ( CSphVector<SphDocID_t>(), 1 );
+		CSphMultiQueryArgs tArgs ( KillListVector(), 1 );
 		tQuery.m_sQuery = "@title cat";
 
 		SphQueueSettings_t tQueueSettings ( tQuery, pIndex->GetMatchSchema(), tResult.m_sError, NULL );
@@ -2458,7 +2524,7 @@ void TestRTSendVsMerge ()
 
 	CSphQuery tQuery;
 	CSphQueryResult tResult;
-	CSphMultiQueryArgs tArgs ( CSphVector<SphDocID_t>(), 1 );
+	CSphMultiQueryArgs tArgs ( KillListVector(), 1 );
 	tQuery.m_sQuery = "@title cat";
 
 	SphQueueSettings_t tQueueSettings ( tQuery, pIndex->GetMatchSchema(), tResult.m_sError, NULL );
@@ -2607,7 +2673,7 @@ void TestRankerFactors ()
 	tQuery.m_sSortBy = "@weight desc";
 	tQuery.m_sOrderBy = "@weight desc";
 	CSphQueryResult tResult;
-	CSphMultiQueryArgs tArgs ( CSphVector<SphDocID_t>(), 1 );
+	CSphMultiQueryArgs tArgs ( KillListVector(), 1 );
 	SphQueueSettings_t tQueueSettings ( tQuery, pIndex->GetMatchSchema(), tResult.m_sError, NULL );
 	tQueueSettings.m_bComputeItems = true;
 	tArgs.m_uPackedFactorFlags = SPH_FACTOR_ENABLE | SPH_FACTOR_CALC_ATC;
@@ -3345,7 +3411,7 @@ void TestGeodist()
 			{
 				for ( int b=0; b<360; b+=3, n++ )
 				{
-					double t[4] = { lat, lon, 0, 0 };
+					double t[4] = { double(lat), double(lon), 0, 0 };
 					DestVincenty ( t[0], t[1], b, dist, t+2, t+3 );
 					for ( int j=0; j<4; j++ )
 						dBench.Add ( t[j] );
@@ -3534,7 +3600,7 @@ void TestSource ()
 		iTest += iWriteStride;
 	}
 
-	// clean up
+	// clean up, fp will be closed automatically in CSphSource_BaseSV::Disconnect()
 	SafeDelete ( pCSV );
 
 	printf ( "ok\n" );
@@ -3548,8 +3614,11 @@ int main ()
 	char cTopOfMainStack;
 	sphThreadInit();
 	MemorizeStack ( &cTopOfMainStack );
-
 	setvbuf ( stdout, NULL, _IONBF, 0 );
+
+#if USE_WINDOWS
+	SetProcessAffinityMask ( GetCurrentProcess(), 1 );
+#endif
 
 	printf ( "RUNNING INTERNAL LIBSPHINX TESTS\n\n" );
 
@@ -3596,6 +3665,6 @@ int main ()
 }
 
 //
-// $Id: tests.cpp 4539 2014-02-05 16:52:03Z kevg $
+// $Id: tests.cpp 4885 2015-01-20 07:02:07Z deogar $
 //
 

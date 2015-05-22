@@ -3,8 +3,8 @@
 //
 
 //
-// Copyright (c) 2001-2014, Andrew Aksyonoff
-// Copyright (c) 2008-2014, Sphinx Technologies Inc
+// Copyright (c) 2001-2015, Andrew Aksyonoff
+// Copyright (c) 2008-2015, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -88,6 +88,14 @@ static SmallStringHash_T<PluginLib_t>	g_hPluginLibs;				///< key is the filename
 static CSphOrderedHash<PluginDesc_c*, PluginKey_t, PluginKey_t, 256>	g_hPlugins;
 
 //////////////////////////////////////////////////////////////////////////
+
+void PluginDesc_c::Use() const
+{
+	g_tPluginMutex.Lock ();
+	m_iUserCount++;
+	g_tPluginMutex.Unlock ();
+}
+
 
 void PluginDesc_c::Release() const
 {
@@ -193,7 +201,7 @@ static bool PluginLoadSymbols ( void * pDesc, const SymbolDesc_t * pSymbol, void
 	return false;
 #else
 	CSphString s;
-	while ( pSymbol->m_iOffsetOf >= 0 )
+	while ( pSymbol->m_iOffsetOf>=0 )
 	{
 		s.SetSprintf ( pSymbol->m_sPostfix[0] ? "%s_%s" : "%s%s", sName, pSymbol->m_sPostfix );
 		void ** ppFunc = (void**)((BYTE*)pDesc + pSymbol->m_iOffsetOf);
@@ -261,17 +269,20 @@ static bool PluginCreate ( const char * szLib, const char * szName,
 {
 #if !HAVE_DLOPEN
 	sError = "no dlopen(), no plugins";
+	delete pPlugin;
 	return false;
 #else
 	if ( !g_bPluginsEnabled )
 	{
 		sError = "plugin support disabled (requires a valid plugin_dir)";
+		delete pPlugin;
 		return false;
 	}
 
 	if ( g_bPluginsLocked )
 	{
 		sError = "CREATE is disabled (fully dynamic plugins require workers=threads)";
+		delete pPlugin;
 		return false;
 	}
 
@@ -280,12 +291,13 @@ static bool PluginCreate ( const char * szLib, const char * szName,
 		if ( *p=='/' || *p=='\\' )
 		{
 			sError = "restricted character (path delimiter) in a library file name";
+			delete pPlugin;
 			return false;
 		}
 
 	CSphString sLib = szLib;
 	sLib.ToLower();
-	
+
 	// from here, we need a lock (we intend to update the plugin hash)
 	CSphScopedLock<CSphStaticMutex> tLock ( g_tPluginMutex );
 
@@ -294,6 +306,7 @@ static bool PluginCreate ( const char * szLib, const char * szName,
 	if ( g_hPlugins(k) )
 	{
 		sError.SetSprintf ( "plugin '%s' already exists", k.m_sName.cstr() );
+		delete pPlugin;
 		return false;
 	}
 
@@ -312,6 +325,7 @@ static bool PluginCreate ( const char * szLib, const char * szName,
 		{
 			const char * sDlerror = dlerror();
 			sError.SetSprintf ( "dlopen() failed: %s", sDlerror ? sDlerror : "(null)" );
+			delete pPlugin;
 			return false;
 		}
 		sphLogDebug ( "dlopen(%s)=%p", sLibfile.cstr(), pHandle );
@@ -327,6 +341,7 @@ static bool PluginCreate ( const char * szLib, const char * szName,
 			dlclose ( pHandle );
 
 		sError.SetSprintf ( "%s in %s", sError.cstr(), sLib.cstr() );
+		delete pPlugin;
 		return false;
 	}
 
@@ -344,6 +359,7 @@ static bool PluginCreate ( const char * szLib, const char * szName,
 		{
 			sError.SetSprintf ( "symbol '%s_ver' not found in '%s': update your UDF implementation", sBasename.cstr(), sLib.cstr() );
 			dlclose ( pHandle );
+			delete pPlugin;
 			return false;
 		}
 
@@ -351,6 +367,7 @@ static bool PluginCreate ( const char * szLib, const char * szName,
 		{
 			sError.SetSprintf ( "library '%s' was compiled using an older version of sphinxudf.h; it needs to be recompiled", sLib.cstr() );
 			dlclose ( pHandle );
+			delete pPlugin;
 			return false;
 		}
 
@@ -500,7 +517,7 @@ PluginDesc_c * sphPluginAcquire ( const char * szLib, PluginType_e eType, const 
 
 	CSphString sLib ( szLib );
 	sLib.ToLower();
-	if ( *(pDesc->m_pLibName) == sLib )
+	if ( *(pDesc->m_pLibName)==sLib )
 		return pDesc;
 
 	sError.SetSprintf ( "unable to load plugin '%s' from '%s': it has already been loaded from library '%s'",

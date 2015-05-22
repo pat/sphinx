@@ -1,10 +1,10 @@
 //
-// $Id: sphinxsearch.h 4656 2014-04-10 09:17:34Z tomat $
+// $Id: sphinxsearch.h 4929 2015-03-04 07:43:10Z tomat $
 //
 
 //
-// Copyright (c) 2001-2014, Andrew Aksyonoff
-// Copyright (c) 2008-2014, Sphinx Technologies Inc
+// Copyright (c) 2001-2015, Andrew Aksyonoff
+// Copyright (c) 2008-2015, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -31,7 +31,6 @@ enum TermPosFilter_e
 	TERM_POS_FIELD_END = 3,
 	TERM_POS_FIELD_STARTEND = 4,
 	TERM_POS_ZONES = 5,
-	TERM_POS_ZONESPAN = 6
 };
 
 
@@ -216,5 +215,5 @@ public:
 #endif // _sphinxsearch_
 
 //
-// $Id: sphinxsearch.h 4656 2014-04-10 09:17:34Z tomat $
+// $Id: sphinxsearch.h 4929 2015-03-04 07:43:10Z tomat $
 //

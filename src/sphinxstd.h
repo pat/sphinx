@@ -1,10 +1,10 @@
 //
-// $Id: sphinxstd.h 4686 2014-05-12 15:43:54Z joric $
+// $Id: sphinxstd.h 4891 2015-01-29 13:23:07Z kevg $
 //
 
 //
-// Copyright (c) 2001-2014, Andrew Aksyonoff
-// Copyright (c) 2008-2014, Sphinx Technologies Inc
+// Copyright (c) 2001-2015, Andrew Aksyonoff
+// Copyright (c) 2008-2015, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -79,7 +79,13 @@ typedef int __declspec("SAL_nokernel") __declspec("SAL_nodriver") __prefast_flag
 // COMPILE-TIME CHECKS
 /////////////////////////////////////////////////////////////////////////////
 
-#define STATIC_ASSERT(_cond,_name)		typedef char STATIC_ASSERT_FAILED_ ## _name [ (_cond) ? 1 : -1 ]
+#if defined (__GNUC__)
+#define SPH_ATTR_UNUSED __attribute__((unused))
+#else
+#define  SPH_ATTR_UNUSED
+#endif
+
+#define STATIC_ASSERT(_cond,_name)		typedef char STATIC_ASSERT_FAILED_ ## _name [ (_cond) ? 1 : -1 ] SPH_ATTR_UNUSED
 #define STATIC_SIZE_ASSERT(_type,_size)	STATIC_ASSERT ( sizeof(_type)==_size, _type ## _MUST_BE_ ## _size ## _BYTES )
 
 
@@ -271,8 +277,11 @@ inline int sphBitCount ( DWORD n )
 
 typedef			bool ( *SphDieCallback_t ) ( const char * );
 
-/// crash with an error message
+/// crash with an error message, and do not have searchd watchdog attempt to resurrect
 void			sphDie ( const char * sMessage, ... ) __attribute__ ( ( format ( printf, 1, 2 ) ) );
+
+/// crash with an error message, but have searchd watchdog attempt to resurrect
+void			sphDieRestart ( const char * sMessage, ... ) __attribute__ ( ( format ( printf, 1, 2 ) ) );
 
 /// setup a callback function to call from sphDie() before exit
 /// if callback returns false, sphDie() will not log to stdout
@@ -807,6 +816,15 @@ public:
 		if ( m_iLength>=m_iLimit )
 			Reserve ( 1+m_iLength );
 		m_pData [ m_iLength++ ] = tValue;
+	}
+
+	/// add N more entries, and return a pointer to that buffer
+	T * AddN ( int iCount )
+	{
+		if ( m_iLength + iCount > m_iLimit )
+			Reserve ( m_iLength + iCount );
+		m_iLength += iCount;
+		return m_pData + m_iLength - iCount;
 	}
 
 	/// add unique entry (ie. do not add if equal to last one)
@@ -1607,6 +1625,8 @@ struct CSphString
 {
 protected:
 	char *				m_sValue;
+	// Empty ("") string optimization.
+	static char EMPTY[];
 
 private:
 	/// safety gap after the string end; for instance, UTF-8 Russian stemmer
@@ -1633,9 +1653,10 @@ public:
 		*this = rhs;
 	}
 
-	virtual ~CSphString ()
+	~CSphString ()
 	{
-		SafeDeleteArray ( m_sValue );
+		if ( m_sValue!=EMPTY )
+			SafeDeleteArray ( m_sValue );
 	}
 
 	const char * cstr () const
@@ -1645,7 +1666,7 @@ public:
 
 	const char * scstr() const
 	{
-		return m_sValue ? m_sValue : "";
+		return m_sValue ? m_sValue : EMPTY;
 	}
 
 	inline bool operator == ( const char * t ) const
@@ -1674,11 +1695,17 @@ public:
 	{
 		if ( sString )
 		{
-			int iLen = 1+strlen(sString);
-			m_sValue = new char [ iLen+SAFETY_GAP ];
+			if ( sString[0]=='\0' )
+			{
+				m_sValue = EMPTY;
+			} else
+			{
+				int iLen = 1+strlen(sString);
+				m_sValue = new char [ iLen+SAFETY_GAP ];
 
-			strcpy ( m_sValue, sString ); // NOLINT
-			memset ( m_sValue+iLen, 0, SAFETY_GAP );
+				strcpy ( m_sValue, sString ); // NOLINT
+				memset ( m_sValue+iLen, 0, SAFETY_GAP );
+			}
 		} else
 		{
 			m_sValue = NULL;
@@ -1695,14 +1722,21 @@ public:
 	{
 		if ( m_sValue==rhs.m_sValue )
 			return *this;
-		SafeDeleteArray ( m_sValue );
+		if ( m_sValue!=EMPTY )
+			SafeDeleteArray ( m_sValue );
 		if ( rhs.m_sValue )
 		{
-			int iLen = 1+strlen(rhs.m_sValue);
-			m_sValue = new char [ iLen+SAFETY_GAP ];
+			if ( rhs.m_sValue[0]=='\0' )
+			{
+				m_sValue = EMPTY;
+			} else
+			{
+				int iLen = 1+strlen(rhs.m_sValue);
+				m_sValue = new char [ iLen+SAFETY_GAP ];
 
-			strcpy ( m_sValue, rhs.m_sValue ); // NOLINT
-			memset ( m_sValue+iLen, 0, SAFETY_GAP );
+				strcpy ( m_sValue, rhs.m_sValue ); // NOLINT
+				memset ( m_sValue+iLen, 0, SAFETY_GAP );
+			}
 		}
 		return *this;
 	}
@@ -1725,18 +1759,26 @@ public:
 
 	void SetBinary ( const char * sValue, int iLen )
 	{
-		SafeDeleteArray ( m_sValue );
+		if ( m_sValue!=EMPTY )
+			SafeDeleteArray ( m_sValue );
 		if ( sValue )
 		{
-			m_sValue = new char [ 1+SAFETY_GAP+iLen ];
-			memcpy ( m_sValue, sValue, iLen );
-			memset ( m_sValue+iLen, 0, 1+SAFETY_GAP );
+			if ( sValue[0]=='\0' )
+			{
+				m_sValue = EMPTY;
+			} else
+			{
+				m_sValue = new char [ 1+SAFETY_GAP+iLen ];
+				memcpy ( m_sValue, sValue, iLen );
+				memset ( m_sValue+iLen, 0, 1+SAFETY_GAP );
+			}
 		}
 	}
 
 	void Reserve ( int iLen )
 	{
-		SafeDeleteArray ( m_sValue );
+		if ( m_sValue!=EMPTY )
+			SafeDeleteArray ( m_sValue );
 		m_sValue = new char [ 1+SAFETY_GAP+iLen ];
 		memset ( m_sValue, 0, 1+SAFETY_GAP+iLen );
 	}
@@ -1830,6 +1872,13 @@ public:
 
 	char * Leak ()
 	{
+		if ( m_sValue==EMPTY )
+		{
+			m_sValue = NULL;
+			char * pBuf = new char[1];
+			pBuf[0] = '\0';
+			return pBuf;
+		}
 		char * pBuf = m_sValue;
 		m_sValue = NULL;
 		return pBuf;
@@ -1838,7 +1887,8 @@ public:
 	// opposite to Leak()
 	void Adopt ( char ** sValue )
 	{
-		SafeDeleteArray ( m_sValue );
+		if ( m_sValue!=EMPTY )
+			SafeDeleteArray ( m_sValue );
 		m_sValue = *sValue;
 		*sValue = NULL;
 	}
@@ -2031,9 +2081,10 @@ private:
 
 /// immutable string/int/float variant list proxy
 /// used in config parsing
-struct CSphVariant : public CSphString
+struct CSphVariant
 {
 protected:
+	CSphString		m_sValue;
 	int				m_iValue;
 	int64_t			m_i64Value;
 	float			m_fValue;
@@ -2047,8 +2098,7 @@ public:
 public:
 	/// default ctor
 	CSphVariant ()
-		: CSphString ()
-		, m_iValue ( 0 )
+		: m_iValue ( 0 )
 		, m_i64Value ( 0 )
 		, m_fValue ( 0.0f )
 		, m_pNext ( NULL )
@@ -2059,10 +2109,10 @@ public:
 
 	/// ctor from C string
 	CSphVariant ( const char * sString, int iTag )
-		: CSphString ( sString )
-		, m_iValue ( m_sValue ? atoi ( m_sValue ) : 0 )
-		, m_i64Value ( m_sValue ? (int64_t)strtoull ( m_sValue, NULL, 10 ) : 0 )
-		, m_fValue ( m_sValue ? (float)atof ( m_sValue ) : 0.0f )
+		: m_sValue ( sString )
+		, m_iValue ( sString ? atoi ( sString ) : 0 )
+		, m_i64Value ( sString ? (int64_t)strtoull ( sString, NULL, 10 ) : 0 )
+		, m_fValue ( sString ? (float)atof ( sString ) : 0.0f )
 		, m_pNext ( NULL )
 		, m_bTag ( false )
 		, m_iTag ( iTag )
@@ -2071,39 +2121,24 @@ public:
 
 	/// copy ctor
 	CSphVariant ( const CSphVariant & rhs )
-		: CSphString ()
-		, m_iValue ( 0 )
-		, m_i64Value ( 0 )
-		, m_fValue ( 0.0f )
-		, m_pNext ( NULL )
 	{
+		m_pNext = NULL;
 		*this = rhs;
 	}
 
 	/// default dtor
 	/// WARNING: automatically frees linked items!
-	virtual ~CSphVariant ()
+	~CSphVariant ()
 	{
 		SafeDelete ( m_pNext );
 	}
 
-	/// int value getter
-	int intval () const
-	{
-		return m_iValue;
-	}
+	const char * cstr() const { return m_sValue.cstr(); }
 
-	/// int64_t value getter
-	int64_t int64val () const
-	{
-		return m_i64Value;
-	}
-
-	/// float value getter
-	float floatval () const
-	{
-		return m_fValue;
-	}
+	const CSphString & strval () const { return m_sValue; }
+	int intval () const	{ return m_iValue; }
+	int64_t int64val () const { return m_i64Value; }
+	float floatval () const	{ return m_fValue; }
 
 	/// default copy operator
 	const CSphVariant & operator = ( const CSphVariant & rhs )
@@ -2112,7 +2147,7 @@ public:
 		if ( rhs.m_pNext )
 			m_pNext = new CSphVariant ( *rhs.m_pNext );
 
-		CSphString::operator = ( rhs );
+		m_sValue = rhs.m_sValue;
 		m_iValue = rhs.m_iValue;
 		m_i64Value = rhs.m_i64Value;
 		m_fValue = rhs.m_fValue;
@@ -2121,6 +2156,9 @@ public:
 
 		return *this;
 	}
+
+	bool operator== ( const char * s ) const { return m_sValue==s; }
+	bool operator!= ( const char * s ) const { return m_sValue!=s; }
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -2470,7 +2508,7 @@ public:
 		int64_t iCount = 0;
 
 #if USE_WINDOWS
-		HANDLE iFD = CreateFile ( sFile, GENERIC_READ, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0 );
+		HANDLE iFD = CreateFile ( sFile, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY, 0 );
 		if ( iFD==INVALID_HANDLE_VALUE )
 		{
 			sError.SetSprintf ( "failed to open file '%s' (errno %d)", sFile, ::GetLastError() );
@@ -3096,5 +3134,5 @@ protected:
 #endif // _sphinxstd_
 
 //
-// $Id: sphinxstd.h 4686 2014-05-12 15:43:54Z joric $
+// $Id: sphinxstd.h 4891 2015-01-29 13:23:07Z kevg $
 //

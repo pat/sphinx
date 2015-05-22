@@ -1,10 +1,10 @@
 //
-// $Id: indexer.cpp 4640 2014-03-31 05:48:00Z tomat $
+// $Id: indexer.cpp 4889 2015-01-29 10:51:25Z tomat $
 //
 
 //
-// Copyright (c) 2001-2014, Andrew Aksyonoff
-// Copyright (c) 2008-2014, Sphinx Technologies Inc
+// Copyright (c) 2001-2015, Andrew Aksyonoff
+// Copyright (c) 2008-2015, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -384,7 +384,7 @@ bool ParseMultiAttr ( const char * sBuf, CSphColumnInfo & tAttr, const char * sS
 // get string
 #define LOC_GETS(_arg,_key) \
 	if ( hSource.Exists(_key) ) \
-		_arg = hSource[_key];
+		_arg = hSource[_key].strval();
 
 // get int
 #define LOC_GETI(_arg,_key) \
@@ -917,7 +917,7 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName,
 	bool bPlain = true;
 	if ( hIndex("type") )
 	{
-		const CSphString & sType = hIndex["type"];
+		const CSphString & sType = hIndex["type"].strval();
 		bPlain = ( sType=="plain" );
 
 		if ( sType!="plain" && sType!="distributed" && sType!="rt" && sType!="template" )
@@ -965,6 +965,9 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName,
 	CSphTokenizerSettings tTokSettings;
 	sphConfTokenizer ( hIndex, tTokSettings );
 
+	CSphDictSettings tDictSettings;
+	sphConfDictionary ( hIndex, tDictSettings );
+
 	ISphTokenizer * pTokenizer = ISphTokenizer::Create ( tTokSettings, NULL, sError );
 	if ( !pTokenizer )
 		sphDie ( "index '%s': %s", sIndexName, sError.cstr() );
@@ -981,7 +984,6 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName,
 			sphDie ( "index '%s': %s", sIndexName, sError.cstr() );
 
 	CSphDict * pDict = NULL;
-	CSphDictSettings tDictSettings;
 
 	// setup tokenization filters
 	if ( !g_sBuildStops )
@@ -990,18 +992,30 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName,
 		if ( !tSettings.m_sIndexTokenFilter.IsEmpty() )
 		{
 			pTokenizer = ISphTokenizer::CreatePluginFilter ( pTokenizer, tSettings.m_sIndexTokenFilter, sError );
+			// need token_filter that just passes init phase in case stopwords or wordforms will be loaded
 			if ( !pTokenizer )
 				sphDie ( "index '%s': %s", sIndexName, sError.cstr() );
 		}
 
 		// multiforms filter
-		sphConfDictionary ( hIndex, tDictSettings );
-
 		pDict = tDictSettings.m_bWordDict
 			? sphCreateDictionaryKeywords ( tDictSettings, NULL, pTokenizer, sIndexName, sError )
 			: sphCreateDictionaryCRC ( tDictSettings, NULL, pTokenizer, sIndexName, sError );
 		if ( !pDict )
 			sphDie ( "index '%s': %s", sIndexName, sError.cstr() );
+
+		bool bNeedExact = ( pDict->HasMorphology() || pDict->GetWordformsFileInfos().GetLength() );
+		if ( tSettings.m_bIndexExactWords && !bNeedExact )
+		{
+			tSettings.m_bIndexExactWords = false;
+			fprintf ( stdout, "WARNING: index '%s': no morphology or wordforms, index_exact_words=1 has no effect, ignoring\n", sIndexName );
+		}
+
+		if ( tDictSettings.m_bWordDict && pDict->HasMorphology() && ( tSettings.m_iMinPrefixLen || tSettings.m_iMinInfixLen ) && !tSettings.m_bIndexExactWords )
+		{
+			tSettings.m_bIndexExactWords = true;
+			fprintf ( stdout, "WARNING: index '%s': dict=keywords and prefixes and morphology enabled, forcing index_exact_words=1\n", sIndexName );
+		}
 
 		pTokenizer = ISphTokenizer::CreateMultiformFilter ( pTokenizer, pDict->GetMultiWordforms () );
 
@@ -1209,19 +1223,6 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName,
 
 		tSettings.m_bVerbose = bVerbose;
 
-		bool bNeedExact = ( pDict->HasMorphology() || pDict->GetWordformsFileInfos().GetLength() );
-		if ( tSettings.m_bIndexExactWords && !bNeedExact )
-		{
-			tSettings.m_bIndexExactWords = false;
-			fprintf ( stdout, "WARNING: index '%s': no morphology or wordforms, index_exact_words=1 has no effect, ignoring\n", sIndexName );
-		}
-
-		if ( tDictSettings.m_bWordDict && pDict->HasMorphology() && ( tSettings.m_iMinPrefixLen || tSettings.m_iMinInfixLen ) && !tSettings.m_bIndexExactWords )
-		{
-			tSettings.m_bIndexExactWords = true;
-			fprintf ( stdout, "WARNING: index '%s': dict=keywords and prefixes and morphology enabled, forcing index_exact_words=1\n", sIndexName );
-		}
-
 		if ( bGotAttrs && tSettings.m_eDocinfo==SPH_DOCINFO_NONE )
 		{
 			fprintf ( stdout, "FATAL: index '%s': got attributes, but docinfo is 'none' (fix your config file).\n", sIndexName );
@@ -1253,7 +1254,8 @@ bool DoIndex ( const CSphConfigSection & hIndex, const char * sIndexName,
 		pIndex->SetFieldFilter ( pFieldFilter );
 		pIndex->SetTokenizer ( pTokenizer );
 		pIndex->SetDictionary ( pDict );
-		pIndex->SetKeepAttrs ( g_bKeepAttrs );
+		if ( g_bKeepAttrs )
+			pIndex->SetKeepAttrs ( hIndex["path"].strval() );
 		pIndex->Setup ( tSettings );
 
 		bOK = pIndex->Build ( dSources, g_iMemLimit, g_iWriteBuffer )!=0;
@@ -1680,7 +1682,6 @@ int main ( int argc, char ** argv )
 		} else if ( strcasecmp ( argv[i], "--quiet" )==0 )
 		{
 			g_bQuiet = true;
-			sphSetQuiet ( true );
 
 		} else if ( strcasecmp ( argv[i], "--noprogress" )==0 )
 		{
@@ -1838,7 +1839,7 @@ int main ( int argc, char ** argv )
 
 		if ( hIndexer("on_file_field_error") )
 		{
-			const CSphString & sVal = hIndexer["on_file_field_error"];
+			const CSphString & sVal = hIndexer["on_file_field_error"].strval();
 			if ( sVal=="ignore_field" )
 				g_eOnFileFieldError = FFE_IGNORE_FIELD;
 			else if ( sVal=="skip_document" )
@@ -1854,7 +1855,7 @@ int main ( int argc, char ** argv )
 		bool bJsonKeynamesToLowercase = false;
 		if ( hIndexer("on_json_attr_error") )
 		{
-			const CSphString & sVal = hIndexer["on_json_attr_error"];
+			const CSphString & sVal = hIndexer["on_json_attr_error"].strval();
 			if ( sVal=="ignore_attr" )
 				bJsonStrict = false;
 			else if ( sVal=="fail_index" )
@@ -1865,7 +1866,7 @@ int main ( int argc, char ** argv )
 
 		if ( hIndexer("json_autoconv_keynames") )
 		{
-			const CSphString & sVal = hIndexer["json_autoconv_keynames"];
+			const CSphString & sVal = hIndexer["json_autoconv_keynames"].strval();
 			if ( sVal=="lowercase" )
 				bJsonKeynamesToLowercase = true;
 			else
@@ -1984,5 +1985,5 @@ int main ( int argc, char ** argv )
 }
 
 //
-// $Id: indexer.cpp 4640 2014-03-31 05:48:00Z tomat $
+// $Id: indexer.cpp 4889 2015-01-29 10:51:25Z tomat $
 //

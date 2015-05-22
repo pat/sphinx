@@ -1,10 +1,10 @@
 //
-// $Id: sphinxquery.h 4649 2014-04-07 20:12:49Z kevg $
+// $Id: sphinxquery.h 4885 2015-01-20 07:02:07Z deogar $
 //
 
 //
-// Copyright (c) 2001-2014, Andrew Aksyonoff
-// Copyright (c) 2008-2014, Sphinx Technologies Inc
+// Copyright (c) 2001-2015, Andrew Aksyonoff
+// Copyright (c) 2008-2015, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -316,5 +316,5 @@ int		sphMarkCommonSubtrees ( int iXQ, const XQQuery_t * pXQ );
 #endif // _sphinxquery_
 
 //
-// $Id: sphinxquery.h 4649 2014-04-07 20:12:49Z kevg $
+// $Id: sphinxquery.h 4885 2015-01-20 07:02:07Z deogar $
 //

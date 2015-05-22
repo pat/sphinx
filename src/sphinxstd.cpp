@@ -1,10 +1,10 @@
 //
-// $Id: sphinxstd.cpp 4685 2014-05-12 11:32:02Z kevg $
+// $Id: sphinxstd.cpp 4891 2015-01-29 13:23:07Z kevg $
 //
 
 //
-// Copyright (c) 2001-2014, Andrew Aksyonoff
-// Copyright (c) 2008-2014, Sphinx Technologies Inc
+// Copyright (c) 2001-2015, Andrew Aksyonoff
+// Copyright (c) 2008-2015, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -28,6 +28,8 @@
 int g_iThreadStackSize = 1024*1024;
 
 //////////////////////////////////////////////////////////////////////////
+
+char CSphString::EMPTY[] = "";
 
 #if USE_WINDOWS
 #ifndef NDEBUG
@@ -628,7 +630,7 @@ void * operator new ( size_t iSize )
 {
 	void * pResult = ::malloc ( iSize );
 	if ( !pResult )
-		sphDie ( "out of memory (unable to allocate "UINT64_FMT" bytes)", (uint64_t)iSize ); // FIXME! this may fail with malloc error too
+		sphDieRestart ( "out of memory (unable to allocate "UINT64_FMT" bytes)", (uint64_t)iSize ); // FIXME! this may fail with malloc error too
 	return pResult;
 }
 
@@ -637,7 +639,7 @@ void * operator new [] ( size_t iSize )
 {
 	void * pResult = ::malloc ( iSize );
 	if ( !pResult )
-		sphDie ( "out of memory (unable to allocate "UINT64_FMT" bytes)", (uint64_t)iSize ); // FIXME! this may fail with malloc error too
+		sphDieRestart ( "out of memory (unable to allocate "UINT64_FMT" bytes)", (uint64_t)iSize ); // FIXME! this may fail with malloc error too
 	return pResult;
 }
 
@@ -689,7 +691,7 @@ void sphSetDieCallback ( SphDieCallback_t pfDieCallback )
 
 void sphDie ( const char * sTemplate, ... )
 {
-	char sBuf[256];
+	char sBuf[1024];
 
 	va_list ap;
 	va_start ( ap, sTemplate );
@@ -703,6 +705,25 @@ void sphDie ( const char * sTemplate, ... )
 		fprintf ( stdout, "FATAL: %s\n", sBuf );
 
 	exit ( 1 );
+}
+
+
+void sphDieRestart ( const char * sTemplate, ... )
+{
+	char sBuf[1024];
+
+	va_list ap;
+	va_start ( ap, sTemplate );
+	vsnprintf ( sBuf, sizeof(sBuf), sTemplate, ap );
+	va_end ( ap );
+
+	// if there's no callback,
+	// or if callback returns true,
+	// log to stdout
+	if ( !g_pfDieCallback || g_pfDieCallback ( sBuf ) )
+		fprintf ( stdout, "FATAL: %s\n", sBuf );
+
+	exit ( 2 ); // almost CRASH_EXIT
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -1857,5 +1878,5 @@ const char*		sphCheckEndian()
 }
 
 //
-// $Id: sphinxstd.cpp 4685 2014-05-12 11:32:02Z kevg $
+// $Id: sphinxstd.cpp 4891 2015-01-29 13:23:07Z kevg $
 //

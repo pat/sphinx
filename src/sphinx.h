@@ -1,10 +1,10 @@
 //
-// $Id: sphinx.h 4690 2014-05-13 15:11:01Z deogar $
+// $Id: sphinx.h 5006 2015-04-16 08:52:45Z deogar $
 //
 
 //
-// Copyright (c) 2001-2014, Andrew Aksyonoff
-// Copyright (c) 2008-2014, Sphinx Technologies Inc
+// Copyright (c) 2001-2015, Andrew Aksyonoff
+// Copyright (c) 2008-2015, Sphinx Technologies Inc
 // All rights reserved
 //
 // This program is free software; you can redistribute it and/or modify
@@ -196,11 +196,11 @@ inline const	DWORD *	STATIC2DOCINFO ( const DWORD * pAttrs )	{ return STATIC2DOC
 #include "sphinxversion.h"
 
 #ifndef SPHINX_TAG
-#define SPHINX_TAG "-beta"
+#define SPHINX_TAG "-release"
 #endif
 
-#define SPHINX_VERSION			"2.2.3" SPHINX_BITS_TAG SPHINX_TAG " (" SPH_SVN_TAGREV ")"
-#define SPHINX_BANNER			"Sphinx " SPHINX_VERSION "\nCopyright (c) 2001-2014, Andrew Aksyonoff\nCopyright (c) 2008-2014, Sphinx Technologies Inc (http://sphinxsearch.com)\n\n"
+#define SPHINX_VERSION			"2.2.9" SPHINX_BITS_TAG SPHINX_TAG " (" SPH_SVN_TAGREV ")"
+#define SPHINX_BANNER			"Sphinx " SPHINX_VERSION "\nCopyright (c) 2001-2015, Andrew Aksyonoff\nCopyright (c) 2008-2015, Sphinx Technologies Inc (http://sphinxsearch.com)\n\n"
 #define SPHINX_SEARCHD_PROTO	1
 #define SPHINX_CLIENT_VERSION	1
 
@@ -593,8 +593,8 @@ public:
 	/// create a filter to split an RLP-processed token stream into tokens
 	static ISphTokenizer *			CreateRLPResultSplitter ( ISphTokenizer * pTokenizer, const char * szRLPCtx );
 
-	/// create a filter that first splits data to tokens and performs RLP processing later
-	static ISphTokenizer *			CreateRLPQueryFilter ( ISphTokenizer * pTokenizer, bool bChineseRLP, const char * szRLPRoot, const char * szRLPEnv, const char * szRLPCtx, CSphString & sError );
+	/// split query string with an RLP token filter
+	static bool						ProcessQueryRLP ( const char * sRLPContext, const char * sQuery, const char ** sProcessed, CSphTightVector<char> & dBuf, CSphString & sError );
 #endif
 
 	/// save tokenizer settings to a stream
@@ -656,6 +656,10 @@ public:
 
 	/// get original tokenized multiform (if any); NULL means there was none
 	virtual BYTE *					GetTokenizedMultiform () { return NULL; }
+
+	/// was last token a part of multi-wordforms destination
+	/// head parameter might be useful to distinguish between sequence of different multi-wordforms
+	virtual bool					WasTokenMultiformDestination ( bool & bHead ) const = 0;
 
 	/// check whether this token is a generated morphological guess
 	ESphTokenMorph					GetTokenMorph() const { return m_eTokenMorph; }
@@ -1424,7 +1428,7 @@ public:
 	}
 
 	/// MVA getter
-	const DWORD * GetAttrMVA ( const CSphAttrLocator & tLoc, const DWORD * pPool ) const;
+	const DWORD * GetAttrMVA ( const CSphAttrLocator & tLoc, const DWORD * pPool, bool bArenaProhibit ) const;
 
 private:
 	/// "manually" prevent copying
@@ -2004,7 +2008,6 @@ protected:
 	CSphSourceStats						m_tStats;		///< my stats
 	CSphSchema							m_tSchema;		///< my schema
 
-	bool								m_bStripHTML;	///< whether to strip HTML
 	CSphHTMLStripper *					m_pStripper;	///< my HTML stripper
 
 	int			m_iNullIds;
@@ -2377,6 +2380,7 @@ protected:
 protected:
 	CSphString				m_sOdbcDSN;
 	bool					m_bWinAuth;
+	bool					m_bUnicode;
 
 	SQLHENV					m_hEnv;
 	SQLHDBC					m_hDBC;
@@ -2391,7 +2395,7 @@ protected:
 		CSphString			m_sName;
 		SQLLEN				m_iInd;
 		int					m_iBufferSize;	///< size of m_dContents and m_dRaw buffers, in bytes
-		bool				m_bUnicode;		///< whether this column needs UCS-2 to UTF-8 translation
+		bool				m_bUCS2;		///< whether this column needs UCS-2 to UTF-8 translation
 		bool				m_bTruncated;	///< whether data was truncated when fetching rows
 	};
 
@@ -2407,10 +2411,10 @@ protected:
 };
 
 
-/// MS SQL source implemenation
+/// MS SQL source implementation
 struct CSphSource_MSSQL : public CSphSource_ODBC
 {
-	explicit				CSphSource_MSSQL ( const char * sName ) : CSphSource_ODBC ( sName ) {}
+	explicit				CSphSource_MSSQL ( const char * sName ) : CSphSource_ODBC ( sName ) { m_bUnicode=true; }
 	virtual void			OdbcPostConnect ();
 };
 #endif // USE_ODBC
@@ -2644,7 +2648,9 @@ public:
 	CSphString		m_sUDRankerOpts;	///< user-defined ranker options
 	ESphSortOrder	m_eSort;		///< sort mode
 	CSphString		m_sSortBy;		///< attribute to sort by
+	int64_t			m_iRandSeed;	///< random seed for ORDER BY RAND(), -1 means do not set
 	int				m_iMaxMatches;	///< max matches to retrieve, default is 1000. more matches use more memory and CPU time to hold and sort them
+
 	bool			m_bSortKbuffer;	///< whether to use PQ or K-buffer sorting algorithm
 	bool			m_bZSlist;		///< whether the ranker has to fetch the zonespanlist with this query
 	bool			m_bSimplify;	///< whether to apply boolean simplification
@@ -2793,6 +2799,7 @@ public:
 	CSphRsetSchema			m_tSchema;			///< result schema
 	const DWORD *			m_pMva;				///< pointer to MVA storage
 	const BYTE *			m_pStrings;			///< pointer to strings storage
+	bool					m_bArenaProhibit;
 
 	CSphVector<BYTE *>		m_dStorage2Free;	/// < aggregated external storage from rt indexes
 
@@ -3053,7 +3060,7 @@ public:
 	virtual void		SetGroupState ( const CSphMatchComparatorState & ) {}
 
 	/// set MVA pool pointer (for MVA+groupby sorters)
-	virtual void		SetMVAPool ( const DWORD * ) {}
+	virtual void SetMVAPool ( const DWORD *, bool ) {}
 
 	/// set string pool pointer (for string+groupby sorters)
 	virtual void		SetStringPool ( const BYTE * ) {}
@@ -3185,10 +3192,17 @@ struct CSphIndexStatus
 	{}
 };
 
+struct KillListTrait_t
+{
+	const SphDocID_t *	m_pBegin;
+	int					m_iLen;
+};
+
+typedef CSphVector<KillListTrait_t> KillListVector;
 
 struct CSphMultiQueryArgs : public ISphNoncopyable
 {
-	const CSphVector<SphDocID_t> &			m_dKillList;
+	const KillListVector &					m_dKillList;
 	const int								m_iIndexWeight;
 	int										m_iTag;
 	DWORD									m_uPackedFactorFlags;
@@ -3196,7 +3210,7 @@ struct CSphMultiQueryArgs : public ISphNoncopyable
 	const SmallStringHash_T<int64_t> *		m_pLocalDocs;
 	int64_t									m_iTotalDocs;
 
-	CSphMultiQueryArgs ( const CSphVector<SphDocID_t> & dKillList, int iIndexWeight );
+	CSphMultiQueryArgs ( const KillListVector & dKillList, int iIndexWeight );
 };
 
 
@@ -3232,7 +3246,7 @@ public:
 	void						SetDictionary ( CSphDict * pDict );
 	CSphDict *					GetDictionary () const { return m_pDict; }
 	CSphDict *					LeakDictionary ();
-	virtual void				SetKeepAttrs ( bool ) {}
+	virtual void				SetKeepAttrs ( const CSphString & ) {}
 	void						Setup ( const CSphIndexSettings & tSettings );
 	const CSphIndexSettings &	GetSettings () const { return m_tSettings; }
 	bool						IsStripperInited () const { return m_bStripperInited; }
@@ -3449,9 +3463,6 @@ CSphIndex *			sphCreateIndexPhrase ( const char* szIndexName, const char * sFile
 /// create template (tokenizer) index implementation
 CSphIndex *			sphCreateIndexTemplate ( );
 
-/// tell libsphinx to be quiet or not (logs and loglevels to come later)
-void				sphSetQuiet ( bool bQuiet );
-
 /// set JSON attribute indexing options
 /// bStrict is whether to stop indexing on error, or just ignore the attribute value
 /// bAutoconvNumbers is whether to auto-convert eligible (!) strings to integers and floats, or keep them as strings
@@ -3508,5 +3519,5 @@ extern int g_iRLPMaxBatchDocs;
 #endif // _sphinx_
 
 //
-// $Id: sphinx.h 4690 2014-05-13 15:11:01Z deogar $
+// $Id: sphinx.h 5006 2015-04-16 08:52:45Z deogar $
 //

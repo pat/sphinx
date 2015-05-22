@@ -1,9 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <test>
 <name>aggregate, aliases, different sorting, grouping and schemas vs different type of distributed</name>
-<requires>
-<id32/>
-</requires>
+
 <config>
 indexer
 {
@@ -304,6 +302,9 @@ index dist_w2
 <query index="dist_no" select="gr" groupattr="gr"/>
 <query index="dist_no" select="gr, @groupby, @count" groupattr="gr"/>
 
+<!-- regression legacy API select list crashes daemon -->
+<query select="*,*" index="dist_no"/>
+
 </queries>
 
 
@@ -430,6 +431,10 @@ index dist_w2
 <sphinxql>SELECT *, weight() as w FROM dist_w2, dist_w1, proxy_loc2  WHERE MATCH ('the | box') ORDER BY id asc OPTION index_weights=(proxy_loc2=1, dist_w1=10, dist_w2=100), ranker=bm25</sphinxql>
 <sphinxql>SELECT *, weight() as w FROM proxy_loc2, dist_w1, dist_w2  WHERE MATCH ('the | box') ORDER BY id asc OPTION index_weights=(proxy_loc2=1, dist_w1=10, dist_w2=100), ranker=wordcount</sphinxql>
 <sphinxql>SELECT *, weight() as w FROM dist_w2, dist_w1, proxy_loc2  WHERE MATCH ('the | box') ORDER BY id asc OPTION index_weights=(proxy_loc2=1, dist_w1=10, dist_w2=100), ranker=wordcount</sphinxql>
+<!-- regression weight as expression at distributed -->
+<sphinxql>select id, weight() * 11 as w from dist50</sphinxql>
+<sphinxql>SHOW META</sphinxql>
+
 </sphqueries>
 
 <db_create>
